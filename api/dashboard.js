@@ -4,7 +4,7 @@
 // Reads Ozontel + LRM-Dashboard tabs from the Google Sheet,
 // aggregates, and returns the same JSON shape the frontend expects.
 
-const { readSheet } = require('./_sheets');
+import { readSheet } from './_sheets.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ function rowDate(cell) {
 
 // ── Main handler ─────────────────────────────────────────────────────────────
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   // CORS – allow the Vercel frontend origin
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
