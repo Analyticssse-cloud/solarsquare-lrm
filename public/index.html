@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SolarSquare · LRM Operations</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --blue:       #1b3a8c;
+      --blue-dk:    #142b66;
+      --blue-mid:   #2348a8;
+      --blue-soft:  #eef2fb;
+      --gold:       #ffb81c;
+      --gold-dk:    #e09e00;
+      --green:      #1a9e5c;
+      --red:        #d93025;
+      --bg:         #f5f7fc;
+      --surface:    #ffffff;
+      --border:     #e3e8f3;
+      --text:       #18233f;
+      --muted:      #6a7494;
+    }
+    html, body { height: 100%; font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; }
+
+    .hdr { background: var(--blue); padding: 0 24px; height: 54px; display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid var(--gold); position: sticky; top: 0; z-index: 100; }
+    .hdr-brand { display: flex; align-items: center; gap: 11px; }
+    .hdr-title { font-size: 15px; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
+    .hdr-sub   { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 1px; }
+    .hdr-right { display: flex; align-items: center; gap: 10px; }
+    .hdr-date  { background: rgba(255,184,28,0.16); border: 1px solid rgba(255,184,28,0.45); color: var(--gold); padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 700; }
+    .hdr-ts    { font-size: 10px; color: rgba(255,255,255,0.4); }
+    #btnRefresh { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); color: #fff; padding: 5px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    #btnRefresh:hover { background: rgba(255,255,255,0.2); }
+    #btnRefresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .refresh-bar { background: var(--blue-dk); border-bottom: 1px solid rgba(255,255,255,0.06); padding: 5px 24px; display: flex; align-items: center; gap: 14px; }
+    .refresh-bar label { font-size: 10px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+    .toggle-switch { position: relative; width: 32px; height: 18px; cursor: pointer; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; inset: 0; background: rgba(255,255,255,0.2); border-radius: 18px; transition: 0.2s; }
+    .toggle-slider::before { content:''; position: absolute; width: 12px; height: 12px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+    .toggle-switch input:checked + .toggle-slider { background: var(--gold); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(14px); }
+    .refresh-label { font-size: 11px; color: rgba(255,255,255,0.65); }
+    .interval-select { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; outline: none; }
+    .interval-select option { background: var(--blue-dk); color: #fff; }
+    .countdown-pill { background: rgba(255,184,28,0.15); border: 1px solid rgba(255,184,28,0.35); color: var(--gold); padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 68px; text-align: center; }
+    .countdown-pill.hidden { visibility: hidden; }
+
+    .datebar { background: #0f2252; border-bottom: 1px solid rgba(255,255,255,0.07); padding: 7px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .datebar label { font-size: 10px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+    .date-input { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; outline: none; }
+    .date-input::-webkit-calendar-picker-indicator { filter: invert(0.8); cursor: pointer; }
+    .dq-btn { padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.65); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+    .dq-btn:hover, .dq-btn.active { background: var(--gold); color: #18233f; border-color: var(--gold); }
+    #btnApplyDates { background: var(--gold); color: #18233f; border: none; padding: 5px 16px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    #btnApplyDates:hover { background: var(--gold-dk); }
+    #btnApplyDates:disabled { opacity: 0.5; cursor: not-allowed; }
+    .date-range-label { font-size: 11px; color: rgba(255,255,255,0.45); font-style: italic; }
+
+    .kpi-strip { background: var(--blue-dk); padding: 0 24px; display: flex; overflow-x: auto; }
+    .kpi-item  { padding: 10px 20px; border-right: 1px solid rgba(255,255,255,0.08); flex: 0 0 auto; min-width: 100px; }
+    .kpi-val   { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+    .kpi-val.gold  { color: var(--gold); }
+    .kpi-val.green { color: #54e295; }
+    .kpi-lbl   { font-size: 10px; color: rgba(255,255,255,0.42); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+    .tabs { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; }
+    .tab  { padding: 12px 18px; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+    .tab:hover  { color: var(--blue); }
+    .tab.active { color: var(--blue); border-bottom-color: var(--gold); }
+
+    .content { padding: 16px 24px; }
+
+    .filterbar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+    .fb-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .fb-row + .fb-row { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+    .fb-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-right: 2px; }
+    .search { display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 6px 11px; width: 230px; }
+    .search input { border: none; outline: none; font-size: 12px; width: 100%; background: transparent; color: var(--text); }
+    select.fb-select { border: 1px solid var(--border); border-radius: 5px; padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--text); background: var(--surface); cursor: pointer; outline: none; min-width: 130px; }
+    select.fb-select:hover { border-color: var(--blue-mid); }
+    .pill { padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; transition: all 0.15s; }
+    .pill:hover { border-color: var(--blue-mid); color: var(--blue); }
+    .pill.active-pill { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .chip { padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s; }
+    .chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+    .chip.lowvol .dot { background: var(--gold-dk); }
+    .chip.idle   .dot { background: var(--red); }
+    .chip.nomeet .dot { background: var(--blue-mid); }
+    .chip.active-chip { color: #fff; border-color: transparent; }
+    .chip.lowvol.active-chip { background: var(--gold-dk); }
+    .chip.idle.active-chip   { background: var(--red); }
+    .chip.nomeet.active-chip { background: var(--blue-mid); }
+    .fb-clear { font-size: 11px; font-weight: 600; color: var(--blue-mid); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 4px; }
+    .fb-clear:hover { color: var(--red); }
+    .fb-count { font-size: 11px; color: var(--muted); margin-left: auto; font-weight: 600; }
+
+    .tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: auto; max-height: calc(100vh - 390px); }
+    table  { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead  { position: sticky; top: 0; z-index: 2; }
+    thead tr { background: var(--blue); }
+    thead th { padding: 9px 11px; text-align: left; font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.72); letter-spacing: 0.4px; white-space: nowrap; cursor: pointer; user-select: none; }
+    thead th:hover { background: var(--blue-mid); color: #fff; }
+    thead th.sort-asc::after  { content: ' ▲'; font-size: 9px; color: var(--gold); }
+    thead th.sort-desc::after { content: ' ▼'; font-size: 9px; color: var(--gold); }
+    tbody tr { border-bottom: 1px solid #f0f2f8; transition: background 0.1s; }
+    tbody tr:hover { background: var(--blue-soft); }
+    tbody tr:last-child { border: none; }
+    tbody td { padding: 7px 11px; white-space: nowrap; }
+
+    .cell-agent { font-weight: 600; color: var(--blue); max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+    .cell-sub   { font-size: 10px; color: var(--muted); }
+    .cell-city  { font-weight: 700; color: var(--blue-mid); font-size: 11px; }
+    .badge      { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; }
+    .badge-high { background: #e6f9ef; color: #1a9e5c; }
+    .badge-mid  { background: #fff4e0; color: #c07000; }
+    .badge-low  { background: #fdecea; color: #d93025; }
+    .pos { color: var(--green); font-weight: 700; }
+    .neg { color: var(--red);   font-weight: 700; }
+    .score-wrap { display: flex; align-items: center; gap: 6px; }
+    .score-bar  { flex: 1; min-width: 48px; height: 6px; background: #e8eaf2; border-radius: 3px; overflow: hidden; }
+    .score-fill { height: 100%; background: var(--gold); border-radius: 3px; }
+    .score-num  { font-size: 11px; font-weight: 700; color: var(--blue); min-width: 24px; }
+    .rank     { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; font-size: 10px; font-weight: 800; }
+    .rank-1   { background: #fff2cc; color: #8a6100; border: 1.5px solid var(--gold); }
+    .rank-2   { background: #eef0f4; color: #555; border: 1.5px solid #b9c0cf; }
+    .rank-3   { background: #fdeede; color: #8c4a00; border: 1.5px solid #e0936b; }
+    .rank-top { background: #e6f9ef; color: #1a7a46; }
+    .rank-mid { background: var(--bg); color: var(--muted); }
+    .prog-wrap { display: flex; align-items: center; gap: 6px; }
+    .prog-bar  { flex: 1; min-width: 56px; height: 6px; background: #e8eaf2; border-radius: 3px; overflow: hidden; }
+    .prog-fill { height: 100%; border-radius: 3px; }
+    .prog-num  { font-size: 11px; color: var(--muted); min-width: 28px; }
+    .loading { text-align: center; padding: 56px 24px; color: var(--muted); }
+    .spinner  { width: 32px; height: 32px; margin: 0 auto 12px; border: 3px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-box { background: #fdecea; border: 1px solid #f5c2be; color: #9c1f18; padding: 12px 16px; border-radius: 6px; margin: 8px 0; font-size: 12px; }
+    .empty { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-brand">
+    <svg width="30" height="30" viewBox="0 0 48 48">
+      <rect x="3" y="3" width="42" height="42" rx="9" fill="#ffb81c"/>
+      <circle cx="24" cy="24" r="8.5" fill="#1b3a8c"/>
+      <g stroke="#1b3a8c" stroke-width="2.6" stroke-linecap="round">
+        <line x1="24" y1="7"  x2="24" y2="12"/><line x1="24" y1="36" x2="24" y2="41"/>
+        <line x1="7"  y1="24" x2="12" y2="24"/><line x1="36" y1="24" x2="41" y2="24"/>
+        <line x1="12" y1="12" x2="15.5" y2="15.5"/><line x1="32.5" y1="32.5" x2="36" y2="36"/>
+        <line x1="36" y1="12" x2="32.5" y2="15.5"/><line x1="15.5" y1="32.5" x2="12" y2="36"/>
+      </g>
+    </svg>
+    <div>
+      <div class="hdr-title">SolarSquare · LRM Operations</div>
+      <div class="hdr-sub">Live Call Performance Dashboard</div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <span class="hdr-ts" id="tsLabel"></span>
+    <button id="btnRefresh">↻ Refresh</button>
+    <span class="hdr-date" id="dateLabel">—</span>
+  </div>
+</header>
+
+<div class="refresh-bar">
+  <div style="display:flex;align-items:center;gap:6px">
+    <label class="toggle-switch">
+      <input type="checkbox" id="autoRefreshToggle" checked>
+      <span class="toggle-slider"></span>
+    </label>
+    <span class="refresh-label">Auto-refresh</span>
+  </div>
+  <label>Every</label>
+  <select class="interval-select" id="intervalSelect">
+    <option value="5">5 min</option>
+    <option value="10">10 min</option>
+    <option value="15" selected>15 min</option>
+    <option value="30">30 min</option>
+  </select>
+  <span class="countdown-pill hidden" id="countdownPill">–:––</span>
+</div>
+
+<div class="datebar">
+  <label>Date Range</label>
+  <input type="date" class="date-input" id="fromDate">
+  <label style="color:rgba(255,255,255,0.3)">→</label>
+  <input type="date" class="date-input" id="toDate">
+  <button class="dq-btn active" data-range="today">Today</button>
+  <button class="dq-btn" data-range="yesterday">Yesterday</button>
+  <button class="dq-btn" data-range="week">Last 7 days</button>
+  <button class="dq-btn" data-range="month">This month</button>
+  <button id="btnApplyDates">Apply</button>
+  <span class="date-range-label" id="rangeHint"></span>
+</div>
+
+<div class="kpi-strip" id="kpiStrip">
+  <div class="kpi-item"><div class="kpi-val" style="color:rgba(255,255,255,0.2)">—</div><div class="kpi-lbl">Loading</div></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" id="tabCity">🏙 City Summary</div>
+  <div class="tab"        id="tabAgent">👤 Agent View</div>
+</div>
+
+<div class="content">
+  <div class="filterbar" id="filterbar" style="display:none">
+    <div class="fb-row">
+      <span class="fb-label">Find</span>
+      <div class="search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9aa3bd" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="fSearch" placeholder="Search agent or city…">
+      </div>
+      <span class="fb-label">City</span>
+      <select class="fb-select" id="fCity"><option value="">All cities</option></select>
+      <span class="fb-label">Team Lead</span>
+      <select class="fb-select" id="fTL"><option value="">All TLs</option></select>
+      <button class="fb-clear" id="fClear">Clear all</button>
+      <span class="fb-count" id="fCount"></span>
+    </div>
+    <div class="fb-row">
+      <span class="fb-label">Connect %</span>
+      <button class="pill active-pill" data-band="all">All</button>
+      <button class="pill" data-band="high">≥50%</button>
+      <button class="pill" data-band="mid">35–50%</button>
+      <button class="pill" data-band="low">&lt;35%</button>
+      <span class="fb-label" style="margin-left:8px">Flags</span>
+      <button class="chip lowvol" data-flag="lowvol"><span class="dot"></span>Low volume</button>
+      <button class="chip idle"   data-flag="idle"><span class="dot"></span>Idle (0 calls)</button>
+      <button class="chip nomeet" data-flag="nomeet"><span class="dot"></span>No meetings</button>
+    </div>
+  </div>
+  <div id="cityPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div id="agentPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+</div>
+
+<script>
+var D = null, activeTab = 'city';
+var F = { q:'', city:'', tl:'', band:'all', flag:'' };
+var citySort  = { col:'totalCalls', dir:-1 };
+var agentSort = { col:'Final Rank',  dir: 1 };
+var countdownTimer = null, countdownSecs = 0;
+
+var CITY_COLS = [
+  {k:'city',l:'City'},{k:'totalCalls',l:'Total Calls'},{k:'uniqueDials',l:'Unique Dials'},
+  {k:'connected',l:'Connected'},{k:'connectPct',l:'Connect %'},{k:'totalTTHr',l:'Talk Time (hr)'},
+  {k:'activeLRM',l:'Active LRMs'},{k:'callsPerLRM',l:'Calls/LRM'},
+  {k:'msToday',l:'MS Today'},{k:'msT0',l:'MS T+0'},{k:'msT1',l:'MS T+1'},{k:'msT2',l:'MS T+2'},
+  {k:'dsToday',l:'DS Today'},{k:'dsT1',l:'DS T+1'},{k:'dsT2',l:'DS T+2'},{k:'delta',l:'Delta'}
+];
+
+/* ── Date helpers ── */
+function toYMD(d) {
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function todayIST() {
+  var ist = new Date(new Date().getTime() + (5*60+30)*60*1000);
+  return toYMD(ist);
+}
+function applyQuickRange(range) {
+  var today = todayIST(), from = today, to = today;
+  if (range === 'yesterday') {
+    var y = new Date(new Date().getTime() + (5*60+30)*60*1000 - 86400000);
+    from = to = toYMD(y);
+  } else if (range === 'week') {
+    var w = new Date(new Date().getTime() + (5*60+30)*60*1000 - 6*86400000);
+    from = toYMD(w);
+  } else if (range === 'month') {
+    var n = new Date(new Date().getTime() + (5*60+30)*60*1000);
+    from = n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-01';
+  }
+  document.getElementById('fromDate').value = from;
+  document.getElementById('toDate').value   = to;
+  document.querySelectorAll('.dq-btn').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-range') === range); });
+  updateRangeHint();
+}
+function updateRangeHint() {
+  var f = document.getElementById('fromDate').value;
+  var t = document.getElementById('toDate').value;
+  var el = document.getElementById('rangeHint');
+  if (!f || !t) { el.textContent=''; return; }
+  el.textContent = f === t ? 'Showing: '+f : 'Showing: '+f+' → '+t;
+}
+
+/* ── Auto-refresh ── */
+function startAutoRefresh() {
+  stopAutoRefresh();
+  var mins = parseInt(document.getElementById('intervalSelect').value) || 15;
+  countdownSecs = mins * 60;
+  document.getElementById('countdownPill').classList.remove('hidden');
+  tickCountdown();
+  countdownTimer = setInterval(function() {
+    countdownSecs--;
+    if (countdownSecs <= 0) { loadData(); countdownSecs = mins * 60; }
+    tickCountdown();
+  }, 1000);
+}
+function stopAutoRefresh() {
+  clearInterval(countdownTimer);
+  countdownTimer = null;
+  document.getElementById('countdownPill').classList.add('hidden');
+}
+function tickCountdown() {
+  var m = Math.floor(countdownSecs/60), s = countdownSecs%60;
+  document.getElementById('countdownPill').textContent = 'Next: '+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+
+/* ── Boot ── */
+document.addEventListener('DOMContentLoaded', function() {
+  applyQuickRange('today');
+
+  document.getElementById('btnRefresh').addEventListener('click', function() {
+    countdownSecs = parseInt(document.getElementById('intervalSelect').value)*60 || 900;
+    loadData();
+  });
+  document.getElementById('btnApplyDates').addEventListener('click', loadData);
+  document.getElementById('tabCity').addEventListener('click',  function(){ switchTab('city'); });
+  document.getElementById('tabAgent').addEventListener('click', function(){ switchTab('agent'); });
+
+  document.getElementById('autoRefreshToggle').addEventListener('change', function() {
+    if (this.checked) startAutoRefresh(); else stopAutoRefresh();
+  });
+  document.getElementById('intervalSelect').addEventListener('change', function() {
+    if (document.getElementById('autoRefreshToggle').checked) startAutoRefresh();
+  });
+  document.querySelectorAll('.dq-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { applyQuickRange(btn.getAttribute('data-range')); });
+  });
+  ['fromDate','toDate'].forEach(function(id) {
+    document.getElementById(id).addEventListener('change', function() {
+      document.querySelectorAll('.dq-btn').forEach(function(b){ b.classList.remove('active'); });
+      updateRangeHint();
+    });
+  });
+
+  startAutoRefresh();
+  loadData();
+});
+
+/* ── Data fetch — now a plain fetch() instead of google.script.run ── */
+function loadData() {
+  var from = document.getElementById('fromDate').value;
+  var to   = document.getElementById('toDate').value;
+  if (!from || !to) { alert('Please select a valid date range.'); return; }
+  if (from > to)    { alert('From date cannot be after To date.'); return; }
+
+  document.getElementById('btnRefresh').disabled    = true;
+  document.getElementById('btnApplyDates').disabled = true;
+  setLoading();
+
+  fetch('/api/dashboard?from=' + from + '&to=' + to)
+    .then(function(r) {
+      if (!r.ok) return r.json().then(function(e){ throw new Error(e.error || r.statusText); });
+      return r.json();
+    })
+    .then(onData)
+    .catch(function(e){ onErr(e.message); });
+}
+
+function onData(data) {
+  document.getElementById('btnRefresh').disabled    = false;
+  document.getElementById('btnApplyDates').disabled = false;
+  D = data;
+  document.getElementById('dateLabel').textContent = D.dateLabel || '—';
+  document.getElementById('tsLabel').textContent   = 'Updated ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
+  buildKPI();
+  buildFilterBar();
+  renderActive();
+}
+
+function onErr(msg) {
+  document.getElementById('btnRefresh').disabled    = false;
+  document.getElementById('btnApplyDates').disabled = false;
+  document.getElementById('cityPanel').innerHTML  = '<div class="error-box">⚠ ' + esc(msg) + '</div>';
+  document.getElementById('agentPanel').innerHTML = '';
+}
+
+function setLoading() {
+  var h = '<div class="loading"><div class="spinner"></div>Fetching live data…</div>';
+  document.getElementById('cityPanel').innerHTML  = h;
+  document.getElementById('agentPanel').innerHTML = h;
+}
+
+function switchTab(name) {
+  activeTab = name;
+  document.getElementById('tabCity').classList.toggle('active',  name==='city');
+  document.getElementById('tabAgent').classList.toggle('active', name==='agent');
+  document.getElementById('cityPanel').style.display  = name==='city'  ? '' : 'none';
+  document.getElementById('agentPanel').style.display = name==='agent' ? '' : 'none';
+  renderActive();
+}
+
+function renderActive() {
+  if (activeTab==='city') { renderCity(); renderAgent(); }
+  else                    { renderAgent(); renderCity(); }
+}
+
+function buildKPI() {
+  var t = D.totals;
+  var items = [
+    {v:fmt(t.totalCalls),    l:'Total Calls',  cls:''},
+    {v:fmt(t.uniqueDials),   l:'Unique Dials', cls:''},
+    {v:fmt(t.connected),     l:'Connected',    cls:'green'},
+    {v:fmtPct(t.connectPct), l:'Connect %',    cls:'gold'},
+    {v:t.totalTTHr+' hr',    l:'Talk Time',    cls:''},
+    {v:fmt(t.msToday),       l:'MS Today',     cls:'gold'},
+    {v:fmt(t.msT0),          l:'MS T+0',       cls:''},
+    {v:fmt(t.msT1),          l:'MS T+1',       cls:''},
+    {v:fmt(D.activeLRMs),    l:'Active LRMs',  cls:''},
+    {v:fmt(D.cities),        l:'Cities',       cls:''}
+  ];
+  document.getElementById('kpiStrip').innerHTML = items.map(function(i){
+    return '<div class="kpi-item"><div class="kpi-val '+i.cls+'">'+i.v+'</div><div class="kpi-lbl">'+i.l+'</div></div>';
+  }).join('');
+}
+
+function buildFilterBar() {
+  var bar = document.getElementById('filterbar');
+  bar.style.display = '';
+  var citySel = document.getElementById('fCity');
+  var tlSel   = document.getElementById('fTL');
+  citySel.innerHTML = '<option value="">All cities</option>'+(D.cityList||[]).map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join('');
+  tlSel.innerHTML   = '<option value="">All TLs</option>'+(D.tlList||[]).map(function(t){return '<option value="'+esc(t)+'">'+esc(t)+'</option>';}).join('');
+  if (bar.getAttribute('data-wired')) { syncFilterUI(); return; }
+  bar.setAttribute('data-wired','1');
+  document.getElementById('fSearch').addEventListener('input', function(){ F.q=this.value.toLowerCase(); renderActive(); });
+  citySel.addEventListener('change', function(){ F.city=this.value; renderActive(); });
+  tlSel.addEventListener('change',   function(){ F.tl=this.value;   renderActive(); });
+  bar.querySelectorAll('.pill').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      F.band=btn.getAttribute('data-band');
+      bar.querySelectorAll('.pill').forEach(function(b){b.classList.remove('active-pill');});
+      btn.classList.add('active-pill'); renderActive();
+    });
+  });
+  bar.querySelectorAll('.chip').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var f=btn.getAttribute('data-flag');
+      F.flag=(F.flag===f)?'':f;
+      bar.querySelectorAll('.chip').forEach(function(b){b.classList.remove('active-chip');});
+      if(F.flag) btn.classList.add('active-chip'); renderActive();
+    });
+  });
+  document.getElementById('fClear').addEventListener('click', function(){
+    F={q:'',city:'',tl:'',band:'all',flag:''}; syncFilterUI(); renderActive();
+  });
+}
+
+function syncFilterUI() {
+  document.getElementById('fSearch').value=F.q;
+  document.getElementById('fCity').value=F.city;
+  document.getElementById('fTL').value=F.tl;
+  var bar=document.getElementById('filterbar');
+  bar.querySelectorAll('.pill').forEach(function(b){b.classList.toggle('active-pill',b.getAttribute('data-band')===F.band);});
+  bar.querySelectorAll('.chip').forEach(function(b){b.classList.toggle('active-chip',b.getAttribute('data-flag')===F.flag&&F.flag!=='');});
+}
+
+function bandPass(pct) {
+  var p=Number(pct)||0;
+  if(F.band==='high') return p>=50;
+  if(F.band==='mid')  return p>=35&&p<50;
+  if(F.band==='low')  return p<35;
+  return true;
+}
+function filterAgents() {
+  return (D.agentRows||[]).filter(function(r){
+    if(!bandPass(r['Connect %'])) return false;
+    if(F.city&&String(r['City']||'')!==F.city) return false;
+    if(F.tl&&String(r['TL Name']||'')!==F.tl)  return false;
+    if(F.flag==='lowvol'&&!r['_flagLowVol']) return false;
+    if(F.flag==='idle'  &&!r['_flagIdle'])   return false;
+    if(F.flag==='nomeet'&&!r['_flagNoMeet']) return false;
+    if(F.q){ var hay=(String(r['Agent Id']||'')+' '+String(r['City']||'')+' '+String(r['TL Name']||'')).toLowerCase(); if(hay.indexOf(F.q)<0) return false; }
+    return true;
+  });
+}
+function filterCities() {
+  var rows=(D.cityRows||[]).slice();
+  if(F.city) rows=rows.filter(function(r){return r.city===F.city;});
+  if(F.tl||F.flag||F.q){ var keep={}; filterAgents().forEach(function(a){if(a['City'])keep[a['City']]=true;}); rows=rows.filter(function(r){return keep[r.city];}); }
+  return rows.filter(function(r){return bandPass(r.connectPct);});
+}
+
+function renderCity() {
+  if(!D) return;
+  var rows=filterCities();
+  rows.sort(function(a,b){ var av=a[citySort.col],bv=b[citySort.col]; if(typeof av==='string') return av.localeCompare(bv)*citySort.dir; return ((Number(av)||0)-(Number(bv)||0))*citySort.dir; });
+  if(activeTab==='city') setCount(rows.length+' cities');
+  var maxCalls=Math.max.apply(null,rows.map(function(r){return r.callsPerLRM||0;}))||1;
+  var panel=document.getElementById('cityPanel');
+  if(!rows.length){panel.innerHTML='<div class="empty">No cities match the current filters.</div>';return;}
+  var html='<div class="tbl-wrap"><table><thead><tr>';
+  CITY_COLS.forEach(function(c){ var cls=citySort.col===c.k?(citySort.dir===1?'sort-asc':'sort-desc'):''; html+='<th class="'+cls+'" data-sort="'+esc(c.k)+'">'+c.l+'</th>'; });
+  html+='</tr></thead><tbody>';
+  rows.forEach(function(r){ html+='<tr>'; CITY_COLS.forEach(function(c){html+='<td>'+cityCell(c.k,r[c.k],maxCalls)+'</td>';}); html+='</tr>'; });
+  panel.innerHTML=html+'</tbody></table></div>';
+  panel.querySelectorAll('thead th').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-sort'); citySort.dir=(citySort.col===k)?citySort.dir*-1:-1; citySort.col=k; renderCity(); }); });
+}
+
+function renderAgent() {
+  if(!D) return;
+  var rows=filterAgents();
+  rows.sort(function(a,b){ var av=a[agentSort.col],bv=b[agentSort.col]; if(typeof av==='string') return av.localeCompare(bv)*agentSort.dir; var an=Number(av)||0,bn=Number(bv)||0; if(agentSort.col==='Final Rank'){if(an===0&&bn!==0)return 1;if(bn===0&&an!==0)return -1;} return (an-bn)*agentSort.dir; });
+  if(activeTab==='agent') setCount(rows.length+' agents');
+  var maxScore=Math.max.apply(null,rows.map(function(r){return Number(r['Score'])||0;}))||1;
+  var COLS=D.agentCols||[];
+  var panel=document.getElementById('agentPanel');
+  if(!rows.length){panel.innerHTML='<div class="empty">No agents match the current filters.</div>';return;}
+  var html='<div class="tbl-wrap"><table><thead><tr>';
+  COLS.forEach(function(c){ var cls=agentSort.col===c?(agentSort.dir===1?'sort-asc':'sort-desc'):''; html+='<th class="'+cls+'" data-sort="'+esc(c)+'">'+esc(colLabel(c))+'</th>'; });
+  html+='</tr></thead><tbody>';
+  rows.forEach(function(r){ html+='<tr>'; COLS.forEach(function(c){html+='<td>'+agentCell(c,r,maxScore)+'</td>';}); html+='</tr>'; });
+  panel.innerHTML=html+'</tbody></table></div>';
+  panel.querySelectorAll('thead th').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-sort'); agentSort.dir=(agentSort.col===k)?agentSort.dir*-1:1; agentSort.col=k; renderAgent(); }); });
+}
+
+function setCount(txt){var el=document.getElementById('fCount');if(el)el.textContent=txt;}
+function colLabel(c){return c==='TL Name'?'Team Lead':c;}
+
+function cityCell(k,v,maxCalls){
+  if(k==='city')       return '<span class="cell-city">'+esc(String(v||''))+'</span>';
+  if(k==='connectPct') return pctBadge(v);
+  if(k==='delta')      return deltaCell(v);
+  if(k==='callsPerLRM'){ var n=Number(v)||0,pct=maxCalls>0?Math.min(100,Math.round(n/maxCalls*100)):0; var col=n>=80?'var(--green)':n>=50?'var(--gold-dk)':'var(--red)'; return '<div class="prog-wrap"><div class="prog-bar"><div class="prog-fill" style="background:'+col+';width:'+pct+'%"></div></div><span class="prog-num">'+n+'</span></div>'; }
+  return fmtCell(v);
+}
+function agentCell(col,r,maxScore){
+  var v=r[col];
+  if(col==='Agent Id'){ var nm=String(v||'').split('@')[0].replace(/\./g,' ').replace(/\b\w/g,function(x){return x.toUpperCase();}); return '<div class="cell-agent" title="'+esc(String(v||''))+'">'+esc(nm)+'</div><div class="cell-sub">'+esc(String(r['City']||''))+'</div>'; }
+  if(col==='City')      return '<span class="cell-city">'+esc(String(v||''))+'</span>';
+  if(col==='TL Name')   return '<span style="color:var(--muted);font-size:11px">'+esc(String(v||'—'))+'</span>';
+  if(col==='Connect %') return pctBadge(v);
+  if(col==='Delta')     return deltaCell(v);
+  if(col==='Final Rank')return rankBadge(v);
+  if(col==='Score'){ var n=Number(v)||0,pct=maxScore>0?Math.round(n/maxScore*100):0; return '<div class="score-wrap"><div class="score-bar"><div class="score-fill" style="width:'+pct+'%"></div></div><span class="score-num">'+Math.round(n)+'</span></div>'; }
+  if(col==='Total Talk Time'){var hr=Number(v)||0;return hr>0?(Math.round(hr*10)/10)+' h':'—';}
+  return fmtCell(v);
+}
+function pctBadge(v){var p=Number(v)||0,cls=p>=50?'badge-high':p>=35?'badge-mid':'badge-low';return '<span class="badge '+cls+'">'+(p%1===0?p:p.toFixed(1))+'%</span>';}
+function deltaCell(v){var n=Math.round(Number(v)||0);if(n>0)return '<span class="pos">+'+n+'</span>';if(n<0)return '<span class="neg">'+n+'</span>';return '<span style="color:var(--muted)">0</span>';}
+function rankBadge(v){var n=Number(v)||0;if(!n)return '<span style="color:var(--muted)">—</span>';var cls=n===1?'rank-1':n===2?'rank-2':n===3?'rank-3':n<=10?'rank-top':'rank-mid';return '<span class="rank '+cls+'">'+n+'</span>';}
+function fmtCell(v){if(v===undefined||v===null||v==='')return '<span style="color:#c0c4d6">—</span>';var n=Number(v);if(!isNaN(n)&&String(v).trim()!=='')return n%1!==0?(Math.round(n*10)/10):n.toLocaleString('en-IN');return esc(String(v));}
+function fmt(v){return Number(v||0).toLocaleString('en-IN');}
+function fmtPct(v){var n=Number(v||0);return(n%1===0?n:n.toFixed(1))+'%';}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+</script>
+</body>
+</html>
