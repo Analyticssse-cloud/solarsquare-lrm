@@ -254,23 +254,26 @@ var CITY_COLS = [
 
 /* ── Date helpers ── */
 function toYMD(d) {
-  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  // d has already been shifted to IST, so read UTC parts to avoid double-shift
+  return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');
+}
+function istNow() {
+  return new Date(new Date().getTime() + (5*60+30)*60*1000);
 }
 function todayIST() {
-  var ist = new Date(new Date().getTime() + (5*60+30)*60*1000);
-  return toYMD(ist);
+  return toYMD(istNow());
 }
 function applyQuickRange(range) {
   var today = todayIST(), from = today, to = today;
   if (range === 'yesterday') {
-    var y = new Date(new Date().getTime() + (5*60+30)*60*1000 - 86400000);
+    var y = new Date(istNow().getTime() - 86400000);
     from = to = toYMD(y);
   } else if (range === 'week') {
-    var w = new Date(new Date().getTime() + (5*60+30)*60*1000 - 6*86400000);
+    var w = new Date(istNow().getTime() - 6*86400000);
     from = toYMD(w);
   } else if (range === 'month') {
-    var n = new Date(new Date().getTime() + (5*60+30)*60*1000);
-    from = n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-01';
+    var n = istNow();
+    from = n.getUTCFullYear()+'-'+String(n.getUTCMonth()+1).padStart(2,'0')+'-01';
   }
   document.getElementById('fromDate').value = from;
   document.getElementById('toDate').value   = to;
@@ -327,12 +330,16 @@ document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('autoRefreshToggle').checked) startAutoRefresh();
   });
   document.querySelectorAll('.dq-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() { applyQuickRange(btn.getAttribute('data-range')); });
+    btn.addEventListener('click', function() {
+      applyQuickRange(btn.getAttribute('data-range'));
+      loadData();   // auto-fetch when a quick range is clicked
+    });
   });
   ['fromDate','toDate'].forEach(function(id) {
     document.getElementById(id).addEventListener('change', function() {
       document.querySelectorAll('.dq-btn').forEach(function(b){ b.classList.remove('active'); });
       updateRangeHint();
+      loadData();   // auto-fetch when a date input is changed manually
     });
   });
 
