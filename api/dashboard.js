@@ -1,60 +1,53 @@
 // api/dashboard.js
 // GET /api/dashboard?from=yyyy-MM-dd&to=yyyy-MM-dd
 //
-// Reads Ozontel + LRM-Dashboard tabs from the Google Sheet,
-// aggregates, and returns the same JSON shape the frontend expects.
+// Ozontel is the single source of truth (date in col A, yyyy-MM-dd string).
+// LRM_TL_MAP provides agent -> Cluster (City) + Reporting Team Lead.
+// We ignore LRM-Dashboard / Manager Dashboard (those use TODAY() and are
+// single-date derived views).
 
 import { readSheet } from './_sheets.js';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function toIST(date) {
-  // Returns yyyy-MM-dd string in IST for a JS Date
-  const ist = new Date(date.getTime() + (5 * 60 + 30) * 60 * 1000);
-  return ist.toISOString().slice(0, 10);
-}
-
-function todayIST() {
-  return toIST(new Date());
-}
-
-function fmtLabel(ymd) {
-  const d = new Date(ymd + 'T00:00:00');
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
 function rowDate(cell) {
-  if (!cell) return '';
-  if (cell instanceof Date) return toIST(cell);
+  if (cell === null || cell === undefined) return '';
   return String(cell).trim().slice(0, 10);
 }
-
-// ── Main handler ─────────────────────────────────────────────────────────────
+function fmtLabel(ymd) {
+  const d = new Date(ymd + 'T00:00:00');
+  if (isNaN(d)) return ymd;
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function nameFromEmail(email) {
+  const local = String(email || '').split('@')[0];
+  return local.split('.').map(p => p ? p[0].toUpperCase() + p.slice(1) : '').join(' ').trim();
+}
 
 export default async function handler(req, res) {
-  // CORS – allow the Vercel frontend origin
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'GET')    return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const today    = todayIST();
     let { from, to } = req.query;
-    from = from || today;
-    to   = to   || today;
-    if (from > to) { const t = from; from = to; to = t; }
+    from = from || '';
+    to   = to   || '';
+    if (from && to && from > to) { const t = from; from = to; to = t; }
 
-    // ── 1. Read Ozontel tab ────────────────────────────────────────────────
-    const oRaw  = await readSheet('Ozontel');
-    if (!oRaw.length) return res.status(200).json(emptyPayload(from, to, today));
+    // 1. Read Ozontel
+    const oRaw = await readSheet('Ozontel');
+    if (!oRaw.length) return res.status(200).json(emptyPayload(from, to));
 
     const oHdr  = oRaw[0].map(h => String(h).trim());
     const oData = oRaw.slice(1);
 
-    // Dates present in the sheet
     const availDates = {};
     oData.forEach(row => { const d = rowDate(row[0]); if (d) availDates[d] = true; });
+    const sortedDates = Object.keys(availDates).sort();
+    const latestDate  = sortedDates[sortedDates.length - 1] || '';
+
+    if (!from && !to) { from = to = latestDate; }
+    else if (!from)   { from = to; }
+    else if (!to)     { to = from; }
 
     const hasInRange = oData.some(row => {
       const d = rowDate(row[0]);
@@ -62,44 +55,61 @@ export default async function handler(req, res) {
     });
 
     let effFrom = from, effTo = to, fellBack = false;
-    if (!hasInRange) {
-      const latest = Object.keys(availDates).sort().pop() || today;
-      effFrom = effTo = latest;
-      fellBack = true;
+    if (!hasInRange) { effFrom = effTo = latestDate; fellBack = true; }
+
+    // 2. Read LRM_TL_MAP for City (Cluster) + TL
+    const mapRaw = await readSheet('LRM_TL_MAP');
+    const mHdr   = (mapRaw[0] || []).map(h => String(h).trim());
+    const idx = (name) => mHdr.indexOf(name);
+    const iEmail   = idx('Email IDs');
+    const iCluster = idx('Cluster');
+    const iTLName  = idx('Reporting Team Lead');
+    const iTLEmail = idx('LRM TL Email ID');
+    const iDZSM    = idx('LRM DZSM Email ID');
+
+    const cityMap = {}, tlMap = {};
+    for (let i = 1; i < mapRaw.length; i++) {
+      const r = mapRaw[i];
+      if (!r) continue;
+      const email = String(r[iEmail] || '').trim().toLowerCase();
+      if (!email || !email.includes('@')) continue;
+      const city   = iCluster >= 0 ? String(r[iCluster] || '').trim() : '';
+      const tlName = iTLName  >= 0 ? String(r[iTLName]  || '').trim() : '';
+      const tlMail = iTLEmail >= 0 ? String(r[iTLEmail] || '').trim() : '';
+      const dzsm   = iDZSM    >= 0 ? String(r[iDZSM]    || '').trim() : '';
+      if (city) cityMap[email] = city;
+      tlMap[email] = { tlName, tlMail, dzsm };
     }
 
-    // ── 2. Aggregate Ozontel rows per agent ───────────────────────────────
+    // 3. Aggregate Ozontel per agent across the range
     const NUMERIC = [
-      'Total Calls', 'Unique Leads Dialed', 'Connected Calls',
-      'Total Talk Time', 'Avg. Talk Time', 'Avg. Handling Time', 'Ex.Call Count',
-      'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'MS >T+2',
-      'DS Today', 'DS T+1', 'DS T+2',
-      'Delta', 'Score',
+      'Total Calls','Unique Leads Dialed','Connected Calls',
+      'Total Talk Time','Avg. Talk Time','Avg. Handling Time','Ex.Call Count',
+      'MS Today','MS T+0','MS T+1','MS T+2','MS >T+2',
+      'DS Today','DS T+1','DS T+2','Delta','Score',
     ];
 
-    const bucket = {};   // agentEmail → merged obj
+    const bucket = {};
     oData.forEach(row => {
       const d = rowDate(row[0]);
       if (!d || d < effFrom || d > effTo) return;
-
       const obj = {};
       oHdr.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
-
-      const agt = String(obj['Agent Id'] || '').trim();
-      if (!agt || !agt.includes('@')) return;
-
-      if (!bucket[agt]) {
-        bucket[agt] = { ...obj };
-        NUMERIC.forEach(k => { bucket[agt][k] = Number(obj[k]) || 0; });
-        bucket[agt]._dayCount = 1;
+      let agt = String(obj['Agent Id'] || '').trim();
+      if (!agt || !agt.includes('@') || agt.includes('->')) return;
+      const key = agt.toLowerCase();
+      if (!bucket[key]) {
+        bucket[key] = { ...obj, 'Agent Id': agt };
+        NUMERIC.forEach(k => { bucket[key][k] = Number(obj[k]) || 0; });
+        bucket[key]._dayCount = 1;
       } else {
-        NUMERIC.forEach(k => { bucket[agt][k] = (bucket[agt][k] || 0) + (Number(obj[k]) || 0); });
-        bucket[agt]._dayCount++;
+        NUMERIC.forEach(k => { bucket[key][k] = (bucket[key][k] || 0) + (Number(obj[k]) || 0); });
+        bucket[key]._dayCount++;
       }
     });
 
-    // Recalculate derived fields
     const agentRows = Object.keys(bucket).map(k => bucket[k]);
+
     agentRows.forEach(r => {
       const calls = Number(r['Total Calls']) || 0;
       const conn  = Number(r['Connected Calls']) || 0;
@@ -108,54 +118,20 @@ export default async function handler(req, res) {
         r['Avg. Talk Time']     = Math.round((r['Avg. Talk Time']     || 0) / r._dayCount * 10) / 10;
         r['Avg. Handling Time'] = Math.round((r['Avg. Handling Time'] || 0) / r._dayCount * 10) / 10;
       }
-    });
-
-    // ── 3. Read LRM-Dashboard tab for City / TL mapping ───────────────────
-    const lRaw = await readSheet('LRM-Dashboard');
-    // Row 0 = date header, Row 1 = totals, Row 2 = column headers, Row 3+ = data
-    const lHdr = (lRaw[2] || []).map(h => String(h).trim());
-    const lCI  = {};
-    lHdr.forEach((h, i) => { lCI[h] = i; });
-
-    const cityMap = {}, tlMap = {};
-    for (let i = 3; i < lRaw.length; i++) {
-      const r    = lRaw[i];
-      const city = String(r[lCI['City']]     || '').trim();
-      const agt  = String(r[lCI['Agent Id']] || '').trim();
-      const tl   = String(r[lCI['TL']]       || '').trim();
-      const zsm  = String(r[lCI['ZSM']]      || '').trim();
-      const ados = String(r[lCI['ADOS']]     || '').trim();
-      if (!agt || !agt.includes('@')) continue;
-      if (city) cityMap[agt] = city;
-      tlMap[agt] = { tl, zsm, ados };
-    }
-
-    // ── 4. Enrich with City / TL / flags ──────────────────────────────────
-    function nameFromEmail(email) {
-      const local = String(email || '').split('@')[0];
-      return local.split('.').map(p => p ? p[0].toUpperCase() + p.slice(1) : '').join(' ').trim();
-    }
-
-    agentRows.forEach(r => {
-      const agt    = String(r['Agent Id'] || '').trim();
-      r['City']    = cityMap[agt] || '';
-      const meta   = tlMap[agt]   || {};
-      r['TL']      = meta.tl   || '';
-      r['ZSM']     = meta.zsm  || '';
-      r['ADOS']    = meta.ados || '';
-      r['TL Name'] = meta.tl ? nameFromEmail(meta.tl) : '';
-
-      const calls   = Number(r['Total Calls'] || 0);
+      const key    = String(r['Agent Id'] || '').trim().toLowerCase();
+      r['City']    = cityMap[key] || '';
+      const meta   = tlMap[key]   || {};
+      r['TL']      = meta.tlMail || '';
+      r['TL Name'] = meta.tlName || (meta.tlMail ? nameFromEmail(meta.tlMail) : '');
+      r['DZSM']    = meta.dzsm   || '';
       const msTotal = ['MS Today','MS T+0','MS T+1','MS T+2','MS >T+2']
         .reduce((s, k) => s + (Number(r[k]) || 0), 0);
       r._flagLowVol = calls > 0 && calls < 30;
       r._flagIdle   = calls === 0;
       r._flagNoMeet = msTotal === 0;
-      r._calls      = calls;
-      r._connected  = Number(r['Connected Calls'] || 0);
     });
 
-    // ── 5. City summary ────────────────────────────────────────────────────
+    // 4. City summary
     const cityAgg = {};
     agentRows.forEach(r => {
       const city = r['City'] || '(Unassigned)';
@@ -183,26 +159,17 @@ export default async function handler(req, res) {
     const cityRows = Object.keys(cityAgg).map(k => {
       const c = cityAgg[k];
       return {
-        city:        c.city,
-        totalCalls:  c.totalCalls,
-        uniqueDials: c.uniqueDials,
-        connected:   c.connected,
-        connectPct:  c.totalCalls > 0 ? Math.round((c.connected / c.totalCalls) * 10000) / 100 : 0,
-        totalTTHr:   c.totalTT > 0 ? Math.round(c.totalTT / 60 * 10) / 10 : 0,
-        activeLRM:   c.activeLRM,
-        callsPerLRM: c.activeLRM > 0 ? Math.round(c.totalCalls / c.activeLRM) : 0,
-        msToday:     c.msToday,
-        msT0:        c.msT0,
-        msT1:        c.msT1,
-        msT2:        c.msT2,
-        dsToday:     c.dsToday,
-        dsT1:        c.dsT1,
-        dsT2:        c.dsT2,
-        delta:       c.delta,
+        city:c.city, totalCalls:c.totalCalls, uniqueDials:c.uniqueDials, connected:c.connected,
+        connectPct: c.totalCalls > 0 ? Math.round((c.connected/c.totalCalls)*10000)/100 : 0,
+        totalTTHr:  c.totalTT > 0 ? Math.round(c.totalTT/60*10)/10 : 0,
+        activeLRM:  c.activeLRM,
+        callsPerLRM: c.activeLRM > 0 ? Math.round(c.totalCalls/c.activeLRM) : 0,
+        msToday:c.msToday, msT0:c.msT0, msT1:c.msT1, msT2:c.msT2,
+        dsToday:c.dsToday, dsT1:c.dsT1, dsT2:c.dsT2, delta:c.delta,
       };
     }).sort((a, b) => b.totalCalls - a.totalCalls);
 
-    // ── 6. Global totals ───────────────────────────────────────────────────
+    // 5. Totals
     const totals = agentRows.reduce((acc, r) => {
       acc.totalCalls  += Number(r['Total Calls']        || 0);
       acc.uniqueDials += Number(r['Unique Leads Dialed'] || 0);
@@ -214,37 +181,30 @@ export default async function handler(req, res) {
       acc.dsToday     += Number(r['DS Today'] || 0);
       return acc;
     }, { totalCalls:0, uniqueDials:0, connected:0, totalTTMin:0, msToday:0, msT0:0, msT1:0, dsToday:0 });
+    totals.connectPct = totals.totalCalls > 0 ? Math.round((totals.connected/totals.totalCalls)*10000)/100 : 0;
+    totals.totalTTHr  = Math.round(totals.totalTTMin/60*10)/10;
 
-    totals.connectPct = totals.totalCalls > 0
-      ? Math.round((totals.connected / totals.totalCalls) * 10000) / 100 : 0;
-    totals.totalTTHr  = Math.round(totals.totalTTMin / 60 * 10) / 10;
-
-    // ── 7. Slim agent rows ─────────────────────────────────────────────────
+    // 6. Slim agent rows
     const agentCols = [
       'Agent Id','City','TL Name','Total Calls','Unique Leads Dialed','Connected Calls',
       'Connect %','Total Talk Time','Avg. Talk Time','Avg. Handling Time',
-      'MS Today','MS T+0','MS T+1','MS T+2',
-      'DS Today','DS T+1','DS T+2',
+      'MS Today','MS T+0','MS T+1','MS T+2','DS Today','DS T+1','DS T+2',
       'Delta','Score','Final Rank',
     ];
-    const metaKeys = ['TL','_flagLowVol','_flagIdle','_flagNoMeet','_calls','_connected'];
+    const metaKeys = ['TL','_flagLowVol','_flagIdle','_flagNoMeet'];
+    const agentRowsSlim = agentRows.map(r => {
+      const obj = {};
+      agentCols.forEach(k => { obj[k] = r[k] !== undefined ? r[k] : ''; });
+      metaKeys.forEach(k => { obj[k] = r[k]; });
+      return obj;
+    }).sort((a, b) => (Number(a['Final Rank']) || 9999) - (Number(b['Final Rank']) || 9999));
 
-    const agentRowsSlim = agentRows
-      .map(r => {
-        const obj = {};
-        agentCols.forEach(k => { obj[k] = r[k] !== undefined ? r[k] : ''; });
-        metaKeys.forEach(k => { obj[k] = r[k]; });
-        return obj;
-      })
-      .sort((a, b) => (Number(a['Final Rank']) || 9999) - (Number(b['Final Rank']) || 9999));
+    // 7. Label
+    let dateLabel = effFrom === effTo ? fmtLabel(effFrom)
+                                      : fmtLabel(effFrom) + ' – ' + fmtLabel(effTo);
+    if (fellBack) dateLabel += ' (latest available)';
 
-    // ── 8. Date label ──────────────────────────────────────────────────────
-    let dateLabel = effFrom === effTo
-      ? fmtLabel(effFrom) + (effFrom !== today ? ' (latest)' : '')
-      : fmtLabel(effFrom) + ' – ' + fmtLabel(effTo);
-    if (fellBack) dateLabel += ' ⚠ (no data in range)';
-
-    // ── 9. Filter dropdown lists ───────────────────────────────────────────
+    // 8. Dropdown lists
     const citySet = {}, tlSet = {};
     agentRows.forEach(r => {
       if (r['City'])    citySet[r['City']] = true;
@@ -252,31 +212,23 @@ export default async function handler(req, res) {
     });
 
     return res.status(200).json({
-      dateLabel,
-      fromDate:  effFrom,
-      toDate:    effTo,
-      totals,
-      cityRows,
-      agentCols,
-      agentRows: agentRowsSlim,
-      cityList:  Object.keys(citySet).sort(),
-      tlList:    Object.keys(tlSet).sort(),
-      activeLRMs: agentRows.length,
-      cities:     cityRows.length,
+      dateLabel, fromDate: effFrom, toDate: effTo,
+      totals, cityRows, agentCols, agentRows: agentRowsSlim,
+      cityList: Object.keys(citySet).sort(),
+      tlList:   Object.keys(tlSet).sort(),
+      activeLRMs: agentRows.length, cities: cityRows.length,
     });
-
   } catch (err) {
     console.error('Dashboard API error:', err);
     return res.status(500).json({ error: err.message });
   }
-};
+}
 
-function emptyPayload(from, to, today) {
+function emptyPayload(from, to) {
   return {
     dateLabel: from === to ? from : from + ' – ' + to,
     fromDate: from, toDate: to,
     totals: { totalCalls:0, uniqueDials:0, connected:0, connectPct:0, totalTTHr:0, msToday:0, msT0:0, msT1:0, dsToday:0 },
-    cityRows: [], agentCols: [], agentRows: [],
-    cityList: [], tlList: [], activeLRMs: 0, cities: 0,
+    cityRows: [], agentCols: [], agentRows: [], cityList: [], tlList: [], activeLRMs: 0, cities: 0,
   };
 }
