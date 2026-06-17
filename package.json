@@ -1,0 +1,11 @@
+{
+  "name": "solarsquare-lrm-dashboard",
+  "version": "1.0.0",
+  "description": "SolarSquare LRM Operations Dashboard",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0"
+  }
+}
