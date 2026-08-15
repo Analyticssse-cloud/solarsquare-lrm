@@ -22,8 +22,11 @@
       --muted:      #6a7494;
     }
     html, body { height: 100%; font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; }
+    body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    a { color: var(--blue-mid); text-decoration: none; }
+    a:hover { color: var(--blue); text-decoration: underline; }
 
-    .hdr { background: var(--blue); padding: 0 24px; height: 54px; display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid var(--gold); position: sticky; top: 0; z-index: 100; }
+    .hdr { background: var(--blue); padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid var(--gold); flex: 0 0 auto; }
     .hdr-brand { display: flex; align-items: center; gap: 11px; }
     .hdr-title { font-size: 15px; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
     .hdr-sub   { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 1px; }
@@ -34,8 +37,18 @@
     #btnRefresh:hover { background: rgba(255,255,255,0.2); }
     #btnRefresh:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    .refresh-bar { background: var(--blue-dk); border-bottom: 1px solid rgba(255,255,255,0.06); padding: 5px 24px; display: flex; align-items: center; gap: 14px; }
-    .refresh-bar label { font-size: 10px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+    /* date + auto-refresh merged into one row */
+    .datebar { background: #0f2252; border-bottom: 1px solid rgba(255,255,255,0.07); padding: 6px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 0 0 auto; }
+    .datebar label { font-size: 10px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+    .date-input { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; outline: none; }
+    .date-input::-webkit-calendar-picker-indicator { filter: invert(0.8); cursor: pointer; }
+    .dq-btn { padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.65); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+    .dq-btn:hover, .dq-btn.active { background: var(--gold); color: #18233f; border-color: var(--gold); }
+    #btnApplyDates { background: var(--gold); color: #18233f; border: none; padding: 5px 16px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    #btnApplyDates:hover { background: var(--gold-dk); }
+    #btnApplyDates:disabled { opacity: 0.5; cursor: not-allowed; }
+    .date-range-label { font-size: 11px; color: rgba(255,255,255,0.45); font-style: italic; }
+    .db-refresh { margin-left: auto; display: flex; align-items: center; gap: 10px; }
     .toggle-switch { position: relative; width: 32px; height: 18px; cursor: pointer; }
     .toggle-switch input { opacity: 0; width: 0; height: 0; }
     .toggle-slider { position: absolute; inset: 0; background: rgba(255,255,255,0.2); border-radius: 18px; transition: 0.2s; }
@@ -48,39 +61,26 @@
     .countdown-pill { background: rgba(255,184,28,0.15); border: 1px solid rgba(255,184,28,0.35); color: var(--gold); padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 68px; text-align: center; }
     .countdown-pill.hidden { visibility: hidden; }
 
-    .datebar { background: #0f2252; border-bottom: 1px solid rgba(255,255,255,0.07); padding: 7px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-    .datebar label { font-size: 10px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
-    .date-input { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; outline: none; }
-    .date-input::-webkit-calendar-picker-indicator { filter: invert(0.8); cursor: pointer; }
-    .dq-btn { padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.65); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
-    .dq-btn:hover, .dq-btn.active { background: var(--gold); color: #18233f; border-color: var(--gold); }
-    #btnApplyDates { background: var(--gold); color: #18233f; border: none; padding: 5px 16px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; }
-    #btnApplyDates:hover { background: var(--gold-dk); }
-    #btnApplyDates:disabled { opacity: 0.5; cursor: not-allowed; }
-    .date-range-label { font-size: 11px; color: rgba(255,255,255,0.45); font-style: italic; }
-
-    .kpi-strip { background: var(--blue-dk); padding: 0 24px; display: flex; overflow-x: auto; }
-    .kpi-item  { padding: 10px 20px; border-right: 1px solid rgba(255,255,255,0.08); flex: 0 0 auto; min-width: 100px; }
-    .kpi-val   { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+    .kpi-strip { background: var(--blue-dk); padding: 0 24px; display: flex; overflow-x: auto; flex: 0 0 auto; }
+    .kpi-item  { padding: 7px 18px; border-right: 1px solid rgba(255,255,255,0.08); flex: 0 0 auto; min-width: 92px; }
+    .kpi-val   { font-size: 18px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
     .kpi-val.gold  { color: var(--gold); }
     .kpi-val.green { color: #54e295; }
-    .kpi-lbl   { font-size: 10px; color: rgba(255,255,255,0.42); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+    .kpi-lbl   { font-size: 9px; color: rgba(255,255,255,0.42); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
 
-    .tabs { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; }
-    .tab  { padding: 12px 18px; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+    .tabs { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; flex: 0 0 auto; }
+    .tab  { padding: 9px 18px; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
     .tab:hover  { color: var(--blue); }
     .tab.active { color: var(--blue); border-bottom-color: var(--gold); }
 
-    .content { padding: 16px 24px; }
+    .content { padding: 10px 24px 12px; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-    .filterbar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
-    .fb-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .fb-row + .fb-row { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+    .filterbar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-bottom: 10px; flex: 0 0 auto; }
+    .fb-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .fb-row + .fb-row { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
     .fb-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-right: 2px; }
-    .search { display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 6px 11px; width: 230px; }
+    .search { display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 6px 11px; width: 210px; }
     .search input { border: none; outline: none; font-size: 12px; width: 100%; background: transparent; color: var(--text); }
-    select.fb-select { border: 1px solid var(--border); border-radius: 5px; padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--text); background: var(--surface); cursor: pointer; outline: none; min-width: 130px; }
-    select.fb-select:hover { border-color: var(--blue-mid); }
     .pill { padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; transition: all 0.15s; }
     .pill:hover { border-color: var(--blue-mid); color: var(--blue); }
     .pill.active-pill { background: var(--blue); color: #fff; border-color: var(--blue); }
@@ -97,7 +97,34 @@
     .fb-clear:hover { color: var(--red); }
     .fb-count { font-size: 11px; color: var(--muted); margin-left: auto; font-weight: 600; }
 
-    .tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: auto; max-height: calc(100vh - 390px); }
+    /* ── multi-select ── */
+    .ms { position: relative; }
+    .ms-btn { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 5px; padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--text); background: var(--surface); cursor: pointer; outline: none; min-width: 130px; max-width: 220px; }
+    .ms-btn:hover { border-color: var(--blue-mid); }
+    .ms-btn.has-sel { border-color: var(--blue-mid); color: var(--blue); background: var(--blue-soft); }
+    .ms-btn .ms-txt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ms-btn .ms-cnt { background: var(--blue); color: #fff; border-radius: 10px; font-size: 10px; font-weight: 700; padding: 1px 7px; }
+    .ms-btn .ms-car { color: var(--muted); font-size: 9px; }
+    .ms-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 60; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 10px 30px rgba(24,35,63,0.18); width: 250px; display: none; flex-direction: column; overflow: hidden; }
+    .ms-pop.open { display: flex; }
+    .ms-search { padding: 8px; border-bottom: 1px solid var(--border); }
+    .ms-search input { width: 100%; border: 1px solid var(--border); border-radius: 5px; padding: 6px 9px; font-size: 12px; outline: none; }
+    .ms-search input:focus { border-color: var(--blue-mid); }
+    .ms-list { overflow-y: auto; max-height: 240px; padding: 4px; }
+    .ms-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+    .ms-opt:hover { background: var(--blue-soft); }
+    .ms-opt input { width: 15px; height: 15px; accent-color: var(--blue); cursor: pointer; flex: 0 0 auto; }
+    .ms-opt .ms-opt-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ms-opt .ms-opt-sub { color: var(--muted); font-size: 10px; margin-left: 4px; }
+    .ms-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 11px; }
+    .ms-actions { display: flex; justify-content: space-between; gap: 8px; padding: 7px 8px; border-top: 1px solid var(--border); background: var(--bg); }
+    .ms-actions button { font-size: 11px; font-weight: 600; border: none; background: none; cursor: pointer; padding: 3px 6px; border-radius: 4px; }
+    .ms-actions .ms-all { color: var(--blue-mid); }
+    .ms-actions .ms-none { color: var(--red); }
+    .ms-actions button:hover { background: var(--surface); }
+
+    .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }
     table  { width: 100%; border-collapse: collapse; font-size: 12px; }
     thead  { position: sticky; top: 0; z-index: 2; }
     thead tr { background: var(--blue); }
@@ -166,24 +193,6 @@
   </div>
 </header>
 
-<div class="refresh-bar">
-  <div style="display:flex;align-items:center;gap:6px">
-    <label class="toggle-switch">
-      <input type="checkbox" id="autoRefreshToggle" checked>
-      <span class="toggle-slider"></span>
-    </label>
-    <span class="refresh-label">Auto-refresh</span>
-  </div>
-  <label>Every</label>
-  <select class="interval-select" id="intervalSelect">
-    <option value="5">5 min</option>
-    <option value="10">10 min</option>
-    <option value="15" selected>15 min</option>
-    <option value="30">30 min</option>
-  </select>
-  <span class="countdown-pill hidden" id="countdownPill">–:––</span>
-</div>
-
 <div class="datebar">
   <label>Date Range</label>
   <input type="date" class="date-input" id="fromDate">
@@ -195,6 +204,20 @@
   <button class="dq-btn" data-range="month">This month</button>
   <button id="btnApplyDates">Apply</button>
   <span class="date-range-label" id="rangeHint"></span>
+  <div class="db-refresh">
+    <label class="toggle-switch">
+      <input type="checkbox" id="autoRefreshToggle" checked>
+      <span class="toggle-slider"></span>
+    </label>
+    <span class="refresh-label">Auto-refresh</span>
+    <select class="interval-select" id="intervalSelect">
+      <option value="5">5 min</option>
+      <option value="10">10 min</option>
+      <option value="15" selected>15 min</option>
+      <option value="30">30 min</option>
+    </select>
+    <span class="countdown-pill hidden" id="countdownPill">–:––</span>
+  </div>
 </div>
 
 <div class="kpi-strip" id="kpiStrip">
@@ -215,9 +238,11 @@
         <input id="fSearch" placeholder="Search agent or city…">
       </div>
       <span class="fb-label">City</span>
-      <select class="fb-select" id="fCity"><option value="">All cities</option></select>
+      <div class="ms" id="msCity"></div>
       <span class="fb-label">Team Lead</span>
-      <select class="fb-select" id="fTL"><option value="">All TLs</option></select>
+      <div class="ms" id="msTL"></div>
+      <span class="fb-label">LRM</span>
+      <div class="ms" id="msLRM"></div>
       <button class="fb-clear" id="fClear">Clear all</button>
       <span class="fb-count" id="fCount"></span>
     </div>
@@ -233,16 +258,17 @@
       <button class="chip nomeet" data-flag="nomeet"><span class="dot"></span>No meetings</button>
     </div>
   </div>
-  <div id="cityPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
-  <div id="agentPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="cityPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="agentPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
 <script>
 var D = null, activeTab = 'city';
-var F = { q:'', city:'', tl:'', band:'all', flag:'' };
+var F = { q:'', cities:[], tls:[], agents:[], band:'all', flag:'' };
 var citySort  = { col:'totalCalls', dir:-1 };
 var agentSort = { col:'Final Rank',  dir: 1 };
 var countdownTimer = null, countdownSecs = 0;
+var MS = {};  // multi-select instances by key
 
 var CITY_COLS = [
   {k:'city',l:'City'},{k:'totalCalls',l:'Total Calls'},{k:'uniqueDials',l:'Unique Dials'},
@@ -254,15 +280,10 @@ var CITY_COLS = [
 
 /* ── Date helpers ── */
 function toYMD(d) {
-  // d has already been shifted to IST, so read UTC parts to avoid double-shift
   return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');
 }
-function istNow() {
-  return new Date(new Date().getTime() + (5*60+30)*60*1000);
-}
-function todayIST() {
-  return toYMD(istNow());
-}
+function istNow() { return new Date(new Date().getTime() + (5*60+30)*60*1000); }
+function todayIST() { return toYMD(istNow()); }
 function applyQuickRange(range) {
   var today = todayIST(), from = today, to = today;
   if (range === 'yesterday') {
@@ -332,14 +353,20 @@ document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.dq-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       applyQuickRange(btn.getAttribute('data-range'));
-      loadData();   // auto-fetch when a quick range is clicked
+      loadData();
     });
   });
   ['fromDate','toDate'].forEach(function(id) {
     document.getElementById(id).addEventListener('change', function() {
       document.querySelectorAll('.dq-btn').forEach(function(b){ b.classList.remove('active'); });
       updateRangeHint();
-      loadData();   // auto-fetch when a date input is changed manually
+      loadData();
+    });
+  });
+  // close any open multi-select popover on outside click
+  document.addEventListener('click', function(e){
+    Object.keys(MS).forEach(function(k){
+      if (!MS[k].root.contains(e.target)) MS[k].close();
     });
   });
 
@@ -347,7 +374,7 @@ document.addEventListener('DOMContentLoaded', function() {
   loadData();
 });
 
-/* ── Data fetch — now a plain fetch() instead of google.script.run ── */
+/* ── Data fetch (falls back to demo data if the API is unavailable) ── */
 function loadData() {
   var from = document.getElementById('fromDate').value;
   var to   = document.getElementById('toDate').value;
@@ -364,7 +391,10 @@ function loadData() {
       return r.json();
     })
     .then(onData)
-    .catch(function(e){ onErr(e.message); });
+    .catch(function(e){
+      if (window.MOCK) { onData(window.MOCK); }   // offline / preview fallback
+      else onErr(e.message);
+    });
 }
 
 function onData(data) {
@@ -424,18 +454,101 @@ function buildKPI() {
   }).join('');
 }
 
+/* ── Multi-select ── */
+function MultiSelect(hostId, cfg) {
+  this.root = document.getElementById(hostId);
+  this.cfg  = cfg;            // {label, unit, get:()=>selectedArr, set:(arr)=>void, options:[{value,label,sub}]}
+  this.q = '';
+  this.render();
+}
+MultiSelect.prototype.render = function() {
+  var self = this;
+  this.root.innerHTML =
+    '<button class="ms-btn" type="button"><span class="ms-txt"></span><span class="ms-cnt" style="display:none"></span><span class="ms-car">▾</span></button>' +
+    '<div class="ms-pop">' +
+      '<div class="ms-search"><input type="text" placeholder="Search ' + esc(this.cfg.unit) + '…"></div>' +
+      '<div class="ms-list"></div>' +
+      '<div class="ms-actions"><button class="ms-all" type="button">Select all</button><button class="ms-none" type="button">Clear</button></div>' +
+    '</div>';
+  this.btn  = this.root.querySelector('.ms-btn');
+  this.pop  = this.root.querySelector('.ms-pop');
+  this.list = this.root.querySelector('.ms-list');
+  this.searchEl = this.root.querySelector('.ms-search input');
+  this.btn.addEventListener('click', function(e){ e.stopPropagation(); self.toggle(); });
+  this.searchEl.addEventListener('input', function(){ self.q = this.value.toLowerCase(); self.renderList(); });
+  this.root.querySelector('.ms-all').addEventListener('click', function(){ self.selectAllVisible(); });
+  this.root.querySelector('.ms-none').addEventListener('click', function(){ self.cfg.set([]); self.syncBtn(); self.renderList(); self.cfg.onChange(); });
+  this.syncBtn();
+};
+MultiSelect.prototype.setOptions = function(opts) { this.cfg.options = opts; this.renderList(); this.syncBtn(); };
+MultiSelect.prototype.toggle = function() { this.pop.classList.contains('open') ? this.close() : this.open(); };
+MultiSelect.prototype.open = function() {
+  var self = this;
+  Object.keys(MS).forEach(function(k){ if (MS[k] !== self) MS[k].close(); });
+  this.pop.classList.add('open'); this.renderList(); this.searchEl.focus();
+};
+MultiSelect.prototype.close = function() { this.pop.classList.remove('open'); };
+MultiSelect.prototype.renderList = function() {
+  var self = this, sel = this.cfg.get();
+  var opts = (this.cfg.options || []).filter(function(o){
+    if (!self.q) return true;
+    return (o.label + ' ' + (o.sub||'')).toLowerCase().indexOf(self.q) >= 0;
+  });
+  if (!opts.length) { this.list.innerHTML = '<div class="ms-empty">No matches</div>'; return; }
+  this.list.innerHTML = opts.map(function(o){
+    var on = sel.indexOf(o.value) >= 0;
+    return '<label class="ms-opt"><input type="checkbox" data-v="'+esc(o.value)+'"'+(on?' checked':'')+'>' +
+      '<span class="ms-opt-main">'+esc(o.label)+(o.sub?'<span class="ms-opt-sub">'+esc(o.sub)+'</span>':'')+'</span></label>';
+  }).join('');
+  this.list.querySelectorAll('input[type=checkbox]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      var v = this.getAttribute('data-v'), arr = self.cfg.get().slice();
+      var i = arr.indexOf(v);
+      if (this.checked && i < 0) arr.push(v);
+      if (!this.checked && i >= 0) arr.splice(i,1);
+      self.cfg.set(arr); self.syncBtn(); self.cfg.onChange();
+    });
+  });
+};
+MultiSelect.prototype.selectAllVisible = function() {
+  var self = this, arr = this.cfg.get().slice();
+  (this.cfg.options || []).forEach(function(o){
+    if (self.q && (o.label+' '+(o.sub||'')).toLowerCase().indexOf(self.q) < 0) return;
+    if (arr.indexOf(o.value) < 0) arr.push(o.value);
+  });
+  this.cfg.set(arr); this.syncBtn(); this.renderList(); this.cfg.onChange();
+};
+MultiSelect.prototype.syncBtn = function() {
+  var sel = this.cfg.get(), n = sel.length, txt = this.btn.querySelector('.ms-txt'), cnt = this.btn.querySelector('.ms-cnt');
+  if (n === 0) { txt.textContent = 'All ' + this.cfg.unit; cnt.style.display = 'none'; this.btn.classList.remove('has-sel'); }
+  else if (n === 1) {
+    var o = (this.cfg.options||[]).filter(function(x){return x.value===sel[0];})[0];
+    txt.textContent = o ? o.label : sel[0]; cnt.style.display = 'none'; this.btn.classList.add('has-sel');
+  } else { txt.textContent = n + ' ' + this.cfg.unit; cnt.style.display = 'none'; this.btn.classList.add('has-sel'); }
+};
+
 function buildFilterBar() {
   var bar = document.getElementById('filterbar');
   bar.style.display = '';
-  var citySel = document.getElementById('fCity');
-  var tlSel   = document.getElementById('fTL');
-  citySel.innerHTML = '<option value="">All cities</option>'+(D.cityList||[]).map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join('');
-  tlSel.innerHTML   = '<option value="">All TLs</option>'+(D.tlList||[]).map(function(t){return '<option value="'+esc(t)+'">'+esc(t)+'</option>';}).join('');
-  if (bar.getAttribute('data-wired')) { syncFilterUI(); return; }
+
+  var cityOpts = (D.cityList||[]).map(function(c){ return {value:c, label:c}; });
+  var tlOpts   = (D.tlList||[]).map(function(t){ return {value:t, label:t}; });
+  var lrmOpts  = (D.lrmList||[]).map(function(l){ return {value:l.id, label:l.name, sub:l.city}; });
+
+  if (!MS.city) {
+    MS.city = new MultiSelect('msCity', { unit:'cities', options:cityOpts,
+      get:function(){return F.cities;}, set:function(a){F.cities=a;}, onChange:renderActive });
+    MS.tl = new MultiSelect('msTL', { unit:'TLs', options:tlOpts,
+      get:function(){return F.tls;}, set:function(a){F.tls=a;}, onChange:renderActive });
+    MS.lrm = new MultiSelect('msLRM', { unit:'LRMs', options:lrmOpts,
+      get:function(){return F.agents;}, set:function(a){F.agents=a;}, onChange:renderActive });
+  } else {
+    MS.city.setOptions(cityOpts); MS.tl.setOptions(tlOpts); MS.lrm.setOptions(lrmOpts);
+  }
+
+  if (bar.getAttribute('data-wired')) return;
   bar.setAttribute('data-wired','1');
   document.getElementById('fSearch').addEventListener('input', function(){ F.q=this.value.toLowerCase(); renderActive(); });
-  citySel.addEventListener('change', function(){ F.city=this.value; renderActive(); });
-  tlSel.addEventListener('change',   function(){ F.tl=this.value;   renderActive(); });
   bar.querySelectorAll('.pill').forEach(function(btn){
     btn.addEventListener('click', function(){
       F.band=btn.getAttribute('data-band');
@@ -452,17 +565,14 @@ function buildFilterBar() {
     });
   });
   document.getElementById('fClear').addEventListener('click', function(){
-    F={q:'',city:'',tl:'',band:'all',flag:''}; syncFilterUI(); renderActive();
+    F={q:'',cities:[],tls:[],agents:[],band:'all',flag:''};
+    document.getElementById('fSearch').value='';
+    bar.querySelectorAll('.pill').forEach(function(b){b.classList.toggle('active-pill',b.getAttribute('data-band')==='all');});
+    bar.querySelectorAll('.chip').forEach(function(b){b.classList.remove('active-chip');});
+    MS.city.syncBtn(); MS.tl.syncBtn(); MS.lrm.syncBtn();
+    MS.city.close(); MS.tl.close(); MS.lrm.close();
+    renderActive();
   });
-}
-
-function syncFilterUI() {
-  document.getElementById('fSearch').value=F.q;
-  document.getElementById('fCity').value=F.city;
-  document.getElementById('fTL').value=F.tl;
-  var bar=document.getElementById('filterbar');
-  bar.querySelectorAll('.pill').forEach(function(b){b.classList.toggle('active-pill',b.getAttribute('data-band')===F.band);});
-  bar.querySelectorAll('.chip').forEach(function(b){b.classList.toggle('active-chip',b.getAttribute('data-flag')===F.flag&&F.flag!=='');});
 }
 
 function bandPass(pct) {
@@ -475,8 +585,9 @@ function bandPass(pct) {
 function filterAgents() {
   return (D.agentRows||[]).filter(function(r){
     if(!bandPass(r['Connect %'])) return false;
-    if(F.city&&String(r['City']||'')!==F.city) return false;
-    if(F.tl&&String(r['TL Name']||'')!==F.tl)  return false;
+    if(F.cities.length && F.cities.indexOf(String(r['City']||''))<0) return false;
+    if(F.tls.length    && F.tls.indexOf(String(r['TL Name']||''))<0) return false;
+    if(F.agents.length && F.agents.indexOf(String(r['Agent Id']||''))<0) return false;
     if(F.flag==='lowvol'&&!r['_flagLowVol']) return false;
     if(F.flag==='idle'  &&!r['_flagIdle'])   return false;
     if(F.flag==='nomeet'&&!r['_flagNoMeet']) return false;
@@ -486,8 +597,8 @@ function filterAgents() {
 }
 function filterCities() {
   var rows=(D.cityRows||[]).slice();
-  if(F.city) rows=rows.filter(function(r){return r.city===F.city;});
-  if(F.tl||F.flag||F.q){ var keep={}; filterAgents().forEach(function(a){if(a['City'])keep[a['City']]=true;}); rows=rows.filter(function(r){return keep[r.city];}); }
+  if(F.cities.length) rows=rows.filter(function(r){return F.cities.indexOf(r.city)>=0;});
+  if(F.tls.length||F.agents.length||F.flag||F.q){ var keep={}; filterAgents().forEach(function(a){if(a['City'])keep[a['City']]=true;}); rows=rows.filter(function(r){return keep[r.city];}); }
   return rows.filter(function(r){return bandPass(r.connectPct);});
 }
 
