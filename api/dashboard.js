@@ -5,6 +5,11 @@
 // LRM_TL_MAP provides agent -> Cluster (City) + Reporting Team Lead.
 // We ignore LRM-Dashboard / Manager Dashboard (those use TODAY() and are
 // single-date derived views).
+//
+// NOTE: the Ozontel "Total Talk Time" column is already expressed in HOURS
+// (Agent View renders it directly as "0.6 h"). Earlier the city summary and
+// the KPI total divided it by 60 a second time, which collapsed every city's
+// talk time to ~0. Both aggregations now sum the hours as-is.
 
 import { readSheet } from './_sheets.js';
 
@@ -144,7 +149,7 @@ export default async function handler(req, res) {
       c.totalCalls  += Number(r['Total Calls']         || 0);
       c.uniqueDials += Number(r['Unique Leads Dialed']  || 0);
       c.connected   += Number(r['Connected Calls']      || 0);
-      c.totalTT     += Number(r['Total Talk Time']      || 0);
+      c.totalTT     += Number(r['Total Talk Time']      || 0);   // already in hours
       c.activeLRM   += 1;
       c.msToday     += Number(r['MS Today'] || 0);
       c.msT0        += Number(r['MS T+0']   || 0);
@@ -161,7 +166,7 @@ export default async function handler(req, res) {
       return {
         city:c.city, totalCalls:c.totalCalls, uniqueDials:c.uniqueDials, connected:c.connected,
         connectPct: c.totalCalls > 0 ? Math.round((c.connected/c.totalCalls)*10000)/100 : 0,
-        totalTTHr:  c.totalTT > 0 ? Math.round(c.totalTT/60*10)/10 : 0,
+        totalTTHr:  Math.round(c.totalTT * 10) / 10,   // hours summed directly (was /60 -> always 0)
         activeLRM:  c.activeLRM,
         callsPerLRM: c.activeLRM > 0 ? Math.round(c.totalCalls/c.activeLRM) : 0,
         msToday:c.msToday, msT0:c.msT0, msT1:c.msT1, msT2:c.msT2,
@@ -174,15 +179,15 @@ export default async function handler(req, res) {
       acc.totalCalls  += Number(r['Total Calls']        || 0);
       acc.uniqueDials += Number(r['Unique Leads Dialed'] || 0);
       acc.connected   += Number(r['Connected Calls']     || 0);
-      acc.totalTTMin  += Number(r['Total Talk Time']     || 0);
+      acc.totalTTHr   += Number(r['Total Talk Time']     || 0);   // already in hours
       acc.msToday     += Number(r['MS Today'] || 0);
       acc.msT0        += Number(r['MS T+0']   || 0);
       acc.msT1        += Number(r['MS T+1']   || 0);
       acc.dsToday     += Number(r['DS Today'] || 0);
       return acc;
-    }, { totalCalls:0, uniqueDials:0, connected:0, totalTTMin:0, msToday:0, msT0:0, msT1:0, dsToday:0 });
+    }, { totalCalls:0, uniqueDials:0, connected:0, totalTTHr:0, msToday:0, msT0:0, msT1:0, dsToday:0 });
     totals.connectPct = totals.totalCalls > 0 ? Math.round((totals.connected/totals.totalCalls)*10000)/100 : 0;
-    totals.totalTTHr  = Math.round(totals.totalTTMin/60*10)/10;
+    totals.totalTTHr  = Math.round(totals.totalTTHr * 10) / 10;
 
     // 6. Slim agent rows
     const agentCols = [
@@ -205,17 +210,23 @@ export default async function handler(req, res) {
     if (fellBack) dateLabel += ' (latest available)';
 
     // 8. Dropdown lists
-    const citySet = {}, tlSet = {};
+    const citySet = {}, tlSet = {}, lrmSet = {};
     agentRows.forEach(r => {
       if (r['City'])    citySet[r['City']] = true;
       if (r['TL Name']) tlSet[r['TL Name']] = true;
+      const id = String(r['Agent Id'] || '').trim();
+      if (id) lrmSet[id] = nameFromEmail(id) + '||' + (r['City'] || '');
     });
+    const lrmList = Object.keys(lrmSet)
+      .map(id => { const [name, city] = lrmSet[id].split('||'); return { id, name, city }; })
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     return res.status(200).json({
       dateLabel, fromDate: effFrom, toDate: effTo,
       totals, cityRows, agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlSet).sort(),
+      lrmList,
       activeLRMs: agentRows.length, cities: cityRows.length,
     });
   } catch (err) {
@@ -229,6 +240,6 @@ function emptyPayload(from, to) {
     dateLabel: from === to ? from : from + ' – ' + to,
     fromDate: from, toDate: to,
     totals: { totalCalls:0, uniqueDials:0, connected:0, connectPct:0, totalTTHr:0, msToday:0, msT0:0, msT1:0, dsToday:0 },
-    cityRows: [], agentCols: [], agentRows: [], cityList: [], tlList: [], activeLRMs: 0, cities: 0,
+    cityRows: [], agentCols: [], agentRows: [], cityList: [], tlList: [], lrmList: [], activeLRMs: 0, cities: 0,
   };
 }
