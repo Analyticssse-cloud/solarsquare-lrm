@@ -33,9 +33,11 @@
     .hdr-right { display: flex; align-items: center; gap: 10px; }
     .hdr-date  { background: rgba(255,184,28,0.16); border: 1px solid rgba(255,184,28,0.45); color: var(--gold); padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 700; }
     .hdr-ts    { font-size: 10px; color: rgba(255,255,255,0.4); }
-    #btnRefresh { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); color: #fff; padding: 5px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; }
-    #btnRefresh:hover { background: rgba(255,255,255,0.2); }
-    #btnRefresh:disabled { opacity: 0.5; cursor: not-allowed; }
+    #btnRefresh, #btnPDF { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); color: #fff; padding: 5px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    #btnRefresh:hover, #btnPDF:hover { background: rgba(255,255,255,0.2); }
+    #btnRefresh:disabled, #btnPDF:disabled { opacity: 0.5; cursor: not-allowed; }
+    #btnPDF { background: var(--gold); color: #18233f; border-color: var(--gold); font-weight: 700; }
+    #btnPDF:hover { background: var(--gold-dk); border-color: var(--gold-dk); }
 
     /* date + auto-refresh merged into one row */
     .datebar { background: #0f2252; border-bottom: 1px solid rgba(255,255,255,0.07); padding: 6px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 0 0 auto; }
@@ -165,6 +167,29 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .error-box { background: #fdecea; border: 1px solid #f5c2be; color: #9c1f18; padding: 12px 16px; border-radius: 6px; margin: 8px 0; font-size: 12px; }
     .empty { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
+
+    /* ── PDF / print report ── */
+    #printRoot { display: none; }
+    @media print {
+      body { height: auto; overflow: visible; display: block; }
+      body > *:not(#printRoot) { display: none !important; }
+      #printRoot { display: block !important; }
+      @page { size: A4 landscape; margin: 11mm; }
+      thead tr { background: #1b3a8c !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .badge, .rank, .pos, .neg, .score-fill, .prog-fill { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+    .pk-head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid var(--gold); padding-bottom: 8px; margin-bottom: 10px; }
+    .pk-title { font-size: 17px; font-weight: 800; color: var(--blue); }
+    .pk-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .pk-meta { font-size: 10px; color: var(--muted); text-align: right; }
+    .pk-filters { font-size: 10px; color: var(--text); background: var(--blue-soft); border: 1px solid var(--border); border-radius: 4px; padding: 5px 9px; margin-bottom: 10px; }
+    .pk-kpis { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .pk-kpi { border: 1px solid var(--border); border-radius: 4px; padding: 5px 12px; min-width: 78px; }
+    .pk-kv { font-size: 15px; font-weight: 800; color: var(--blue); }
+    .pk-kl { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 1px; }
+    .pk-table table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    .pk-table thead th { background: var(--blue); color: #fff; padding: 6px 7px; text-align: left; font-size: 9px; font-weight: 700; }
+    .pk-table tbody td { padding: 4px 7px; border-bottom: 1px solid #eef0f6; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -188,6 +213,7 @@
   </div>
   <div class="hdr-right">
     <span class="hdr-ts" id="tsLabel"></span>
+    <button id="btnPDF">⬇ PDF</button>
     <button id="btnRefresh">↻ Refresh</button>
     <span class="hdr-date" id="dateLabel">—</span>
   </div>
@@ -261,6 +287,8 @@
   <div class="panel" id="cityPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="agentPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
+
+<div id="printRoot"></div>
 
 <script>
 var D = null, activeTab = 'city';
@@ -341,6 +369,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadData();
   });
   document.getElementById('btnApplyDates').addEventListener('click', loadData);
+  document.getElementById('btnPDF').addEventListener('click', downloadPDF);
   document.getElementById('tabCity').addEventListener('click',  function(){ switchTab('city'); });
   document.getElementById('tabAgent').addEventListener('click', function(){ switchTab('agent'); });
 
@@ -636,7 +665,7 @@ function renderAgent() {
 }
 
 function setCount(txt){var el=document.getElementById('fCount');if(el)el.textContent=txt;}
-function colLabel(c){return c==='TL Name'?'Team Lead':c;}
+function colLabel(c){if(c==='TL Name')return 'Team Lead';if(c==='Total Talk Time')return 'Talk Time (min)';return c;}
 
 function cityCell(k,v,maxCalls){
   if(k==='city')       return '<span class="cell-city">'+esc(String(v||''))+'</span>';
@@ -654,7 +683,7 @@ function agentCell(col,r,maxScore){
   if(col==='Delta')     return deltaCell(v);
   if(col==='Final Rank')return rankBadge(v);
   if(col==='Score'){ var n=Number(v)||0,pct=maxScore>0?Math.round(n/maxScore*100):0; return '<div class="score-wrap"><div class="score-bar"><div class="score-fill" style="width:'+pct+'%"></div></div><span class="score-num">'+Math.round(n)+'</span></div>'; }
-  if(col==='Total Talk Time'){var hr=Number(v)||0;return hr>0?(Math.round(hr*10)/10)+' h':'—';}
+  if(col==='Total Talk Time'){var min=(Number(v)||0)*60;return min>0?Math.round(min).toLocaleString('en-IN'):'—';}
   return fmtCell(v);
 }
 function pctBadge(v){var p=Number(v)||0,cls=p>=50?'badge-high':p>=35?'badge-mid':'badge-low';return '<span class="badge '+cls+'">'+(p%1===0?p:p.toFixed(1))+'%</span>';}
@@ -664,6 +693,45 @@ function fmtCell(v){if(v===undefined||v===null||v==='')return '<span style="colo
 function fmt(v){return Number(v||0).toLocaleString('en-IN');}
 function fmtPct(v){var n=Number(v||0);return(n%1===0?n:n.toFixed(1))+'%';}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+/* ── PDF report (browser print-to-PDF, respects current view + filters) ── */
+function pdfFilterSummary(){
+  var p=[];
+  if(F.q) p.push('Search: “'+F.q+'”');
+  if(F.cities.length) p.push('City: '+F.cities.join(', '));
+  if(F.tls.length) p.push('Team Lead: '+F.tls.join(', '));
+  if(F.agents.length) p.push('LRM: '+F.agents.length+' selected');
+  if(F.band!=='all') p.push('Connect %: '+({high:'≥50%',mid:'35–50%',low:'<35%'}[F.band]||F.band));
+  if(F.flag) p.push('Flag: '+({lowvol:'Low volume',idle:'Idle (0 calls)',nomeet:'No meetings'}[F.flag]||F.flag));
+  return p.length?p.join('  •  '):'None (showing all rows)';
+}
+function downloadPDF(){
+  if(!D){alert('No data to export yet — wait for the dashboard to load.');return;}
+  var panel=activeTab==='city'?document.getElementById('cityPanel'):document.getElementById('agentPanel');
+  var tbl=panel.querySelector('table');
+  if(!tbl){alert('Nothing to export in the current view.');return;}
+  var viewName=activeTab==='city'?'City Summary':'Agent View';
+  var kpis=Array.prototype.map.call(document.querySelectorAll('#kpiStrip .kpi-item'),function(it){
+    var val=it.querySelector('.kpi-val'),lbl=it.querySelector('.kpi-lbl');
+    if(!val||!lbl||val.textContent==='—')return '';
+    return '<div class="pk-kpi"><div class="pk-kv">'+esc(val.textContent)+'</div><div class="pk-kl">'+esc(lbl.textContent)+'</div></div>';
+  }).join('');
+  var root=document.getElementById('printRoot');
+  root.innerHTML=
+    '<div class="pk-head">'+
+      '<div><div class="pk-title">SolarSquare · LRM Operations Report</div>'+
+      '<div class="pk-sub">'+esc(viewName)+' — '+esc(D.dateLabel||'')+'</div></div>'+
+      '<div class="pk-meta">Generated '+esc(new Date().toLocaleString('en-IN'))+'</div>'+
+    '</div>'+
+    '<div class="pk-filters"><b>Filters:</b> '+esc(pdfFilterSummary())+'</div>'+
+    '<div class="pk-kpis">'+kpis+'</div>'+
+    '<div class="pk-table">'+tbl.outerHTML+'</div>';
+  var prevTitle=document.title;
+  document.title='SolarSquare LRM Report — '+(D.dateLabel||'').replace(/[^\w\s–-]/g,'');
+  var restore=function(){document.title=prevTitle;root.innerHTML='';window.removeEventListener('afterprint',restore);};
+  window.addEventListener('afterprint',restore);
+  window.print();
+}
 </script>
 </body>
 </html>
