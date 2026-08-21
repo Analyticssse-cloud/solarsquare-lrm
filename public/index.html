@@ -528,11 +528,53 @@ function switchTab(name) {
 
 function renderActive() {
   if(!D) return;
-  renderCity(); renderAgent(); renderAcademy(); renderAction();
+  buildKPI(); renderCity(); renderAgent(); renderAcademy(); renderAction();
 }
 
+function filtersActive(){ return !!(F.q||F.cities.length||F.tls.length||F.agents.length||F.band!=='all'||F.flag); }
+
 function buildKPI() {
-  var t = D.totals;
+  // KPI strip reflects the current filters. With no filter it equals the server
+  // totals; any filter (city / TL / LRM / band / flag / search) recomputes the
+  // strip from the filtered agent rows so header and table always agree.
+  var t, activeLRMs, cities;
+  if(activeTab==='academy'){
+    // On the Training Academy tab the strip mirrors the cohort: sum the filtered
+    // academy rows (respects City/TL/LRM/band/flag/search within the cohort).
+    var rows=filterAcademy(), citySet={};
+    t={totalCalls:0,uniqueDials:0,connected:0,totalTTHr:0,msToday:0,msT0:0,msT1:0};
+    rows.forEach(function(r){
+      t.totalCalls +=Number(r['Total Calls'])||0;
+      t.uniqueDials+=Number(r['Unique Leads Dialed'])||0;
+      t.connected  +=Number(r['Connected Calls'])||0;
+      t.totalTTHr  +=Number(r['Total Talk Time'])||0;
+      t.msToday    +=Number(r['MS Today'])||0;
+      t.msT0       +=Number(r['MS T+0'])||0;
+      t.msT1       +=Number(r['MS T+1'])||0;
+      if(r['City']) citySet[r['City']]=true;
+    });
+    t.connectPct=t.totalCalls>0?Math.round((t.connected/t.totalCalls)*10000)/100:0;
+    t.totalTTHr=Math.round(t.totalTTHr*10)/10;
+    activeLRMs=rows.length; cities=Object.keys(citySet).length;
+  } else if(filtersActive()){
+    var rows=filterAgents(), citySet={};
+    t={totalCalls:0,uniqueDials:0,connected:0,totalTTHr:0,msToday:0,msT0:0,msT1:0};
+    rows.forEach(function(r){
+      t.totalCalls +=Number(r['Total Calls'])||0;
+      t.uniqueDials+=Number(r['Unique Leads Dialed'])||0;
+      t.connected  +=Number(r['Connected Calls'])||0;
+      t.totalTTHr  +=Number(r['Total Talk Time'])||0;
+      t.msToday    +=Number(r['MS Today'])||0;
+      t.msT0       +=Number(r['MS T+0'])||0;
+      t.msT1       +=Number(r['MS T+1'])||0;
+      if(r['City']) citySet[r['City']]=true;
+    });
+    t.connectPct=t.totalCalls>0?Math.round((t.connected/t.totalCalls)*10000)/100:0;
+    t.totalTTHr=Math.round(t.totalTTHr*10)/10;
+    activeLRMs=rows.length; cities=Object.keys(citySet).length;
+  } else {
+    t=D.totals; activeLRMs=D.activeLRMs; cities=D.cities;
+  }
   var items = [
     {v:fmt(t.totalCalls),    l:'Total Calls',  cls:''},
     {v:fmt(t.uniqueDials),   l:'Unique Dials', cls:''},
@@ -542,8 +584,8 @@ function buildKPI() {
     {v:fmt(t.msToday),       l:'MS Today',     cls:'gold'},
     {v:fmt(t.msT0),          l:'MS T+0',       cls:''},
     {v:fmt(t.msT1),          l:'MS T+1',       cls:''},
-    {v:fmt(D.activeLRMs),    l:'Active LRMs',  cls:''},
-    {v:fmt(D.cities),        l:'Cities',       cls:''}
+    {v:fmt(activeLRMs),      l:'Active LRMs',  cls:''},
+    {v:fmt(cities),          l:'Cities',       cls:''}
   ];
   document.getElementById('kpiStrip').innerHTML = items.map(function(i){
     return '<div class="kpi-item"><div class="kpi-val '+i.cls+'">'+i.v+'</div><div class="kpi-lbl">'+i.l+'</div></div>';
