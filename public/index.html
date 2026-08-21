@@ -292,6 +292,7 @@
 <div class="tabs">
   <div class="tab active" id="tabCity">🏙 City Summary</div>
   <div class="tab"        id="tabAgent">👤 Agent View</div>
+  <div class="tab"        id="tabAcademy">🎓 Training Academy</div>
   <div class="tab"        id="tabAction">⚡ Action Center</div>
 </div>
 
@@ -326,6 +327,7 @@
   </div>
   <div class="panel" id="cityPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="agentPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="academyPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="actionPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
@@ -344,6 +346,10 @@ var D = null, activeTab = 'city';
 var F = { q:'', cities:[], tls:[], agents:[], band:'all', flag:'' };
 var citySort  = { col:'totalCalls', dir:-1 };
 var agentSort = { col:'Final Rank',  dir: 1 };
+var academySort = { col:'Avg Daily Dials', dir:-1 };
+// Training Academy cohort — tracked separately from the main floor.
+// Emails are matched case-insensitively; trailing spaces trimmed.
+var TRAINING_ACADEMY = ['ajit.raut','magesh.m','robin.kamble','harshith.kumar','rajpratap.rajput','anushka.kulkarni','abhishek.raj','abhishek.chouthmal','naushad.shaikh','akanksha.srivastava','pragati.kaltari','bhagyashree.j','bhargavi.j','neha.kokate','nilesh.gayake','shishir.salve','divya.iyer','ansh.sahi','aarti.dalal','ankita.singh','mayuri.meena','sunil.yadav','ashmi.kiruba'].map(function(n){return n+'@solarsquare.in';});
 var countdownTimer = null, countdownSecs = 0;
 var MS = {};  // multi-select instances by key
 var actScope = 'agent';
@@ -423,6 +429,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btnPDF').addEventListener('click', downloadPDF);
   document.getElementById('tabCity').addEventListener('click',  function(){ switchTab('city'); });
   document.getElementById('tabAgent').addEventListener('click', function(){ switchTab('agent'); });
+  document.getElementById('tabAcademy').addEventListener('click', function(){ switchTab('academy'); });
   document.getElementById('tabAction').addEventListener('click', function(){ switchTab('action'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
@@ -469,7 +476,7 @@ function loadData() {
   document.getElementById('btnApplyDates').disabled = true;
   setLoading();
 
-  fetch('/api/dashboard?from=' + from + '&to=' + to)
+  fetch('/api/dashboard?from=' + from + '&to=' + to + '&_t=' + Date.now(), { cache: 'no-store' })
     .then(function(r) {
       if (!r.ok) return r.json().then(function(e){ throw new Error(e.error || r.statusText); });
       return r.json();
@@ -503,22 +510,25 @@ function setLoading() {
   var h = '<div class="loading"><div class="spinner"></div>Fetching live data…</div>';
   document.getElementById('cityPanel').innerHTML  = h;
   document.getElementById('agentPanel').innerHTML = h;
+  document.getElementById('academyPanel').innerHTML = h;
 }
 
 function switchTab(name) {
   activeTab = name;
   document.getElementById('tabCity').classList.toggle('active',   name==='city');
   document.getElementById('tabAgent').classList.toggle('active',  name==='agent');
+  document.getElementById('tabAcademy').classList.toggle('active',name==='academy');
   document.getElementById('tabAction').classList.toggle('active', name==='action');
   document.getElementById('cityPanel').style.display   = name==='city'   ? '' : 'none';
   document.getElementById('agentPanel').style.display  = name==='agent'  ? '' : 'none';
+  document.getElementById('academyPanel').style.display= name==='academy'? '' : 'none';
   document.getElementById('actionPanel').style.display = name==='action' ? '' : 'none';
   renderActive();
 }
 
 function renderActive() {
   if(!D) return;
-  renderCity(); renderAgent(); renderAction();
+  renderCity(); renderAgent(); renderAcademy(); renderAction();
 }
 
 function buildKPI() {
@@ -722,7 +732,42 @@ function renderAgent() {
 }
 
 function setCount(txt){var el=document.getElementById('fCount');if(el)el.textContent=txt;}
-function colLabel(c){if(c==='TL Name')return 'Team Lead';if(c==='Total Talk Time')return 'Talk Time (min)';return c;}
+function colLabel(c){if(c==='TL Name')return 'Team Lead';if(c==='Total Talk Time')return 'Talk Time (min)';if(c==='Avg Daily Dials')return 'Avg Daily Dials';return c;}
+
+/* ── Training Academy (fixed cohort, all agent columns + Avg Daily Dials) ── */
+function filterAcademy(){
+  return filterAgents().filter(function(r){
+    return TRAINING_ACADEMY.indexOf(String(r['Agent Id']||'').trim().toLowerCase())>=0;
+  });
+}
+function academyCols(){
+  var cols=(D.agentCols||[]).slice();
+  if(cols.indexOf('Avg Daily Dials')<0){
+    var at=cols.indexOf('Total Calls');
+    cols.splice(at>=0?at+1:cols.length,0,'Avg Daily Dials');
+  }
+  return cols;
+}
+function renderAcademy(){
+  if(!D) return;
+  var rows=filterAcademy();
+  rows.sort(function(a,b){ var av=a[academySort.col],bv=b[academySort.col]; if(typeof av==='string') return av.localeCompare(bv)*academySort.dir; var an=Number(av)||0,bn=Number(bv)||0; if(academySort.col==='Final Rank'){if(an===0&&bn!==0)return 1;if(bn===0&&an!==0)return -1;} return (an-bn)*academySort.dir; });
+  if(activeTab==='academy') setCount(rows.length+' of '+TRAINING_ACADEMY.length+' academy agents active');
+  var maxScore=Math.max.apply(null,rows.map(function(r){return Number(r['Score'])||0;}))||1;
+  var COLS=academyCols();
+  var panel=document.getElementById('academyPanel');
+  if(!rows.length){panel.innerHTML='<div class="empty">No Training Academy agents match the current filters / date range.</div>';return;}
+  var html='<div class="tbl-wrap"><table><thead><tr>';
+  COLS.forEach(function(c){ var cls=academySort.col===c?(academySort.dir===1?'sort-asc':'sort-desc'):''; html+='<th class="'+cls+'" data-sort="'+esc(c)+'">'+esc(colLabel(c))+'</th>'; });
+  html+='</tr></thead><tbody>';
+  rows.forEach(function(r){ html+='<tr>'; COLS.forEach(function(c){html+='<td>'+academyCell(c,r,maxScore)+'</td>';}); html+='</tr>'; });
+  panel.innerHTML=html+'</tbody></table></div>';
+  panel.querySelectorAll('thead th').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-sort'); academySort.dir=(academySort.col===k)?academySort.dir*-1:-1; academySort.col=k; renderAcademy(); }); });
+}
+function academyCell(col,r,maxScore){
+  if(col==='Avg Daily Dials'){var n=Number(r[col])||0;return '<b style="color:var(--blue)">'+(n%1===0?n:n.toFixed(1))+'</b>';}
+  return agentCell(col,r,maxScore);
+}
 
 function cityCell(k,v,maxCalls){
   if(k==='city')       return '<span class="cell-city">'+esc(String(v||''))+'</span>';
@@ -858,10 +903,10 @@ function downloadPDF(){
     var trs=abk.map(function(b){return b.agents.map(function(a){return '<tr><td>'+esc(a.name)+'</td><td>'+esc(a.city)+'</td><td>'+esc(b.title)+'</td><td>'+esc(a.metric)+'</td><td>'+esc(b.action)+'</td></tr>';}).join('');}).join('');
     tblHTML='<table><thead><tr><th>'+(isCity?'City':'Agent')+'</th><th>'+(isCity?'LRMs':'City')+'</th><th>Issue</th><th>Metric</th><th>Recommended Action</th></tr></thead><tbody>'+trs+'</tbody></table>';
   } else {
-    var panel=activeTab==='city'?document.getElementById('cityPanel'):document.getElementById('agentPanel');
+    var panel=activeTab==='city'?document.getElementById('cityPanel'):activeTab==='academy'?document.getElementById('academyPanel'):document.getElementById('agentPanel');
     var tbl=panel.querySelector('table');
     if(!tbl){alert('Nothing to export in the current view.');return;}
-    viewName=activeTab==='city'?'City Summary':'Agent View';
+    viewName=activeTab==='city'?'City Summary':activeTab==='academy'?'Training Academy':'Agent View';
     tblHTML=tbl.outerHTML;
   }
   var kpis=Array.prototype.map.call(document.querySelectorAll('#kpiStrip .kpi-item'),function(it){
