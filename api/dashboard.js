@@ -30,6 +30,10 @@ function nameFromEmail(email) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  // Never let Vercel's edge or the browser serve a cached snapshot — the whole
+  // point of this endpoint is live sheet data. Without this the numbers freeze
+  // while the "Updated HH:MM" label keeps advancing.
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
@@ -134,6 +138,10 @@ export default async function handler(req, res) {
       r._flagLowVol = calls > 0 && calls < 30;
       r._flagIdle   = calls === 0;
       r._flagNoMeet = msTotal === 0;
+      // Avg daily dials = total calls across the range / days the agent actually
+      // appeared in Ozontel (active days). For a single-day view this equals
+      // Total Calls; over a range it reflects typical daily dialing.
+      r['Avg Daily Dials'] = r._dayCount > 0 ? Math.round((calls / r._dayCount) * 10) / 10 : 0;
     });
 
     // 4. City summary
@@ -196,7 +204,7 @@ export default async function handler(req, res) {
       'MS Today','MS T+0','MS T+1','MS T+2','DS Today','DS T+1','DS T+2',
       'Delta','Score','Final Rank',
     ];
-    const metaKeys = ['TL','_flagLowVol','_flagIdle','_flagNoMeet'];
+    const metaKeys = ['TL','_flagLowVol','_flagIdle','_flagNoMeet','Avg Daily Dials','_dayCount'];
     const agentRowsSlim = agentRows.map(r => {
       const obj = {};
       agentCols.forEach(k => { obj[k] = r[k] !== undefined ? r[k] : ''; });
