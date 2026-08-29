@@ -289,11 +289,53 @@
   <div class="kpi-item"><div class="kpi-val" style="color:rgba(255,255,255,0.2)">—</div><div class="kpi-lbl">Loading</div></div>
 </div>
 
+<style>
+/* ── Sign-in gate ── */
+.auth-bk{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;background:#0b1020;background:radial-gradient(1200px 600px at 50% -10%,#1a2340,#0b1020)}
+.auth-bk.hidden{display:none}
+.auth-card{width:min(420px,92vw);background:#141b2f;border:1px solid #26304d;border-radius:14px;padding:28px 26px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.auth-card h2{margin:0 0 6px;font-size:19px;color:#eef2ff;font-weight:650}
+.auth-card p{margin:0 0 18px;font-size:13px;color:#9aa3bd;line-height:1.55}
+.auth-btn-host{display:flex;justify-content:center;min-height:44px}
+.auth-err{margin-top:16px;font-size:12.5px;color:#ffb4b4;background:rgba(255,90,90,.09);border:1px solid rgba(255,90,90,.28);border-radius:8px;padding:9px 11px;text-align:left;line-height:1.5}
+.auth-err.hidden{display:none}
+.auth-foot{margin-top:16px;font-size:11.5px;color:#6b7490}
+/* ── Who's signed in ── */
+.whoami{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#9aa3bd;margin-left:auto;padding-left:10px}
+.whoami .role-badge{background:#1f2a45;border:1px solid #2e3a5c;color:#c8d2f0;border-radius:5px;padding:1.5px 7px;font-size:10.5px;font-weight:650;letter-spacing:.03em}
+.whoami .signout{color:#7b85a3;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.whoami .signout:hover{color:#c8d2f0}
+/* ── Rollup tables ── */
+.rollup-note{font-size:11.5px;color:#8b94b0;padding:7px 11px;background:#141b2f;border:1px solid #232c47;border-radius:7px;margin-bottom:9px;line-height:1.5}
+.rollup-note b{color:#c8d2f0;font-weight:640}
+.exp-row{cursor:pointer}
+.exp-row:hover{background:#18203a}
+.exp-caret{display:inline-block;width:11px;color:#7b85a3;font-size:9px;transition:transform .12s}
+.exp-open .exp-caret{transform:rotate(90deg)}
+.child-row td{background:#101728;font-size:11.5px;color:#a8b1c9}
+.child-row td:first-child{padding-left:26px}
+.child-lbl{color:#8b94b0}
+.tab.locked{opacity:.34;cursor:not-allowed}
+</style>
+
+<div class="auth-bk hidden" id="authBk">
+  <div class="auth-card">
+    <h2>LRM Operations Dashboard</h2>
+    <p>Sign in with your SolarSquare account. What you can see is based on your role in the reporting hierarchy.</p>
+    <div class="auth-btn-host" id="gsiBtn"></div>
+    <div class="auth-err hidden" id="authErr"></div>
+    <div class="auth-foot" id="authFoot"></div>
+  </div>
+</div>
+
 <div class="tabs">
   <div class="tab active" id="tabCity">🏙 City Summary</div>
   <div class="tab"        id="tabAgent">👤 Agent View</div>
   <div class="tab"        id="tabAcademy">🎓 Training Academy</div>
+  <div class="tab"        id="tabZSM">🧭 ZSM View</div>
+  <div class="tab"        id="tabTL">🧑‍🤝‍🧑 TL View</div>
   <div class="tab"        id="tabAction">⚡ Action Center</div>
+  <div class="whoami" id="whoami"></div>
 </div>
 
 <div class="content">
@@ -328,6 +370,8 @@
   <div class="panel" id="cityPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="agentPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="academyPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="zsmPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="tlPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="actionPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
@@ -343,6 +387,7 @@
 
 <script>
 var D = null, activeTab = 'city';
+var AUTH = { token:'', clientId:'', required:false, email:'', ready:false };
 var F = { q:'', cities:[], tls:[], agents:[], band:'all', flag:'' };
 var citySort  = { col:'totalCalls', dir:-1 };
 var agentSort = { col:'Final Rank',  dir: 1 };
@@ -430,6 +475,8 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabCity').addEventListener('click',  function(){ switchTab('city'); });
   document.getElementById('tabAgent').addEventListener('click', function(){ switchTab('agent'); });
   document.getElementById('tabAcademy').addEventListener('click', function(){ switchTab('academy'); });
+  document.getElementById('tabZSM').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('zsm'); });
+  document.getElementById('tabTL').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('tl'); });
   document.getElementById('tabAction').addEventListener('click', function(){ switchTab('action'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
@@ -462,7 +509,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeActModal(); });
 
   startAutoRefresh();
-  loadData();
+  bootAuth();
 });
 
 /* ── Data fetch (falls back to demo data if the API is unavailable) ── */
@@ -476,13 +523,24 @@ function loadData() {
   document.getElementById('btnApplyDates').disabled = true;
   setLoading();
 
-  fetch('/api/dashboard?from=' + from + '&to=' + to + '&_t=' + Date.now(), { cache: 'no-store' })
+  fetch('/api/dashboard?from=' + from + '&to=' + to + '&_t=' + Date.now(),
+        { cache: 'no-store', headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
     .then(function(r) {
+      if (r.status === 401 || r.status === 403) {
+        return r.json().catch(function(){ return {}; }).then(function(e){
+          var err = new Error(e.error || 'Not authorised');
+          err.authError = true;
+          throw err;
+        });
+      }
       if (!r.ok) return r.json().then(function(e){ throw new Error(e.error || r.statusText); });
       return r.json();
     })
     .then(onData)
     .catch(function(e){
+      // An auth refusal must NEVER fall through to demo data - that would look like
+      // real numbers to someone who is not allowed to see them.
+      if (e.authError) { showAuthGate(authMessage(e.message)); onErr('Sign in to view this dashboard.'); return; }
       if (window.MOCK) { onData(window.MOCK); }   // offline / preview fallback
       else onErr(e.message);
     });
@@ -492,6 +550,7 @@ function onData(data) {
   document.getElementById('btnRefresh').disabled    = false;
   document.getElementById('btnApplyDates').disabled = false;
   D = data;
+  applyRole();
   document.getElementById('dateLabel').textContent = D.dateLabel || '—';
   document.getElementById('tsLabel').textContent   = 'Updated ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
   buildKPI();
@@ -511,24 +570,306 @@ function setLoading() {
   document.getElementById('cityPanel').innerHTML  = h;
   document.getElementById('agentPanel').innerHTML = h;
   document.getElementById('academyPanel').innerHTML = h;
+  document.getElementById('zsmPanel').innerHTML = h;
+  document.getElementById('tlPanel').innerHTML  = h;
 }
 
 function switchTab(name) {
   activeTab = name;
-  document.getElementById('tabCity').classList.toggle('active',   name==='city');
-  document.getElementById('tabAgent').classList.toggle('active',  name==='agent');
-  document.getElementById('tabAcademy').classList.toggle('active',name==='academy');
-  document.getElementById('tabAction').classList.toggle('active', name==='action');
-  document.getElementById('cityPanel').style.display   = name==='city'   ? '' : 'none';
-  document.getElementById('agentPanel').style.display  = name==='agent'  ? '' : 'none';
-  document.getElementById('academyPanel').style.display= name==='academy'? '' : 'none';
-  document.getElementById('actionPanel').style.display = name==='action' ? '' : 'none';
+  var map = { city:'tabCity', agent:'tabAgent', academy:'tabAcademy', zsm:'tabZSM', tl:'tabTL', action:'tabAction' };
+  var panels = { city:'cityPanel', agent:'agentPanel', academy:'academyPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel' };
+  Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
+  Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
+  syncFilterBar();
   renderActive();
 }
 
 function renderActive() {
   if(!D) return;
-  buildKPI(); renderCity(); renderAgent(); renderAcademy(); renderAction();
+  buildKPI(); renderCity(); renderAgent(); renderAcademy(); renderRollup('zsm'); renderRollup('tl'); renderAction();
+}
+
+/* ── Sign-in ─────────────────────────────────────────────────────────────────
+   Reads /api/config to learn whether auth is switched on. If GOOGLE_CLIENT_ID is
+   not set on the deployment, authRequired is false and we load straight through -
+   so the dashboard keeps working before the OAuth client exists. Once the env var
+   is set, the gate appears and every /api/dashboard call carries the ID token.
+   The REAL enforcement is server-side in api/_auth.js; this screen is only UX. */
+function bootAuth() {
+  // Preview harness: preview.html embeds window.MOCK and has no backend. Render it
+  // directly instead of waiting on /api/* calls that never resolve. index.html ships
+  // without window.MOCK, so this branch is inert in production.
+  if (window.MOCK && !window.__forceApi) {
+    AUTH.ready = true; AUTH.required = false;
+    hideAuthGate();
+    onData(window.MOCK);
+    return;
+  }
+
+  var saved = '';
+  try { saved = sessionStorage.getItem('lrm_id_token') || ''; } catch (e) {}
+
+  fetch('/api/config', { cache:'no-store' })
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .catch(function(){ return {}; })
+    .then(function(cfg){
+      AUTH.clientId = cfg.clientId || '';
+      AUTH.required = !!cfg.authRequired;
+      AUTH.ready    = true;
+      var foot = document.getElementById('authFoot');
+      if (foot) foot.textContent = cfg.allowedDomain ? '@' + cfg.allowedDomain + ' accounts only' : '';
+
+      if (!AUTH.required) { hideAuthGate(); loadData(); return; }
+      if (saved) { AUTH.token = saved; hideAuthGate(); loadData(); return; }
+      showAuthGate('');
+    });
+}
+
+function showAuthGate(msg) {
+  var bk = document.getElementById('authBk');
+  if (!bk) return;
+  bk.classList.remove('hidden');
+  var err = document.getElementById('authErr');
+  if (msg) { err.textContent = msg; err.classList.remove('hidden'); }
+  else err.classList.add('hidden');
+  mountGsi();
+}
+function hideAuthGate() {
+  var bk = document.getElementById('authBk');
+  if (bk) bk.classList.add('hidden');
+}
+
+function mountGsi() {
+  if (!AUTH.clientId) {
+    document.getElementById('gsiBtn').innerHTML =
+      '<div style="font-size:12.5px;color:#ffb4b4">GOOGLE_CLIENT_ID is not set on this deployment.</div>';
+    return;
+  }
+  if (window.__gsiMounted) return;
+  var start = function() {
+    if (!window.google || !google.accounts || !google.accounts.id) return;
+    window.__gsiMounted = true;
+    google.accounts.id.initialize({ client_id: AUTH.clientId, callback: onCredential });
+    google.accounts.id.renderButton(document.getElementById('gsiBtn'),
+      { theme:'filled_blue', size:'large', text:'signin_with', shape:'pill' });
+  };
+  if (window.google && window.google.accounts) { start(); return; }
+  var s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client';
+  s.async = true; s.defer = true;
+  s.onload = start;
+  document.head.appendChild(s);
+}
+
+function onCredential(resp) {
+  AUTH.token = (resp && resp.credential) || '';
+  if (!AUTH.token) { showAuthGate('Google did not return a credential. Try again.'); return; }
+  try { sessionStorage.setItem('lrm_id_token', AUTH.token); } catch (e) {}
+  hideAuthGate();
+  loadData();
+}
+
+function signOut() {
+  AUTH.token = '';
+  try { sessionStorage.removeItem('lrm_id_token'); } catch (e) {}
+  if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
+  window.__gsiMounted = false;
+  document.getElementById('gsiBtn').innerHTML = '';
+  showAuthGate('');
+}
+
+function authMessage(reason) {
+  var m = {
+    'not-signed-in':   'Please sign in to continue.',
+    'invalid-token':   'Your session expired. Sign in again.',
+    'verify-failed':   'Could not verify your sign-in. Try again.',
+    'wrong-audience':  'This sign-in was issued for a different app. Sign in again.',
+    'email-unverified':'Your Google account email is not verified.',
+    'wrong-domain':    'Use your SolarSquare account - personal Google accounts cannot access this dashboard.',
+    'not-authorized':  'Your account is not on the access list for this dashboard.'
+  };
+  return m[reason] || ('Access denied' + (reason ? ' (' + reason + ')' : '') + '.');
+}
+
+/* ── Role gating ─────────────────────────────────────────────────────────────
+   The server decides the role and already scoped zsmRows / tlRows to the
+   viewer's downline. This only hides tabs the role cannot use. */
+function applyRole() {
+  var v = (D && D.viewer) || { role:'VIEWER', canSeeZSMView:true, canSeeTLView:true };
+  var zsmTab = document.getElementById('tabZSM');
+  var tlTab  = document.getElementById('tabTL');
+  var hasZ = !!v.canSeeZSMView && (D.zsmRows || []).length > 0;
+  var hasT = !!v.canSeeTLView  && (D.tlRows  || []).length > 0;
+
+  zsmTab.style.display = v.canSeeZSMView ? '' : 'none';
+  tlTab.style.display  = v.canSeeTLView  ? '' : 'none';
+  zsmTab.classList.toggle('locked', !hasZ);
+  tlTab.classList.toggle('locked',  !hasT);
+
+  // If the active tab just became unavailable, fall back to City Summary.
+  if ((activeTab === 'zsm' && !hasZ) || (activeTab === 'tl' && !hasT)) switchTab('city');
+
+  var who = document.getElementById('whoami');
+  if (!who) return;
+  if (!v.authConfigured) {
+    who.innerHTML = '<span class="role-badge">OPEN ACCESS</span><span>sign-in not configured</span>';
+    return;
+  }
+  who.innerHTML = '<span class="role-badge">' + esc(v.role || 'VIEWER') + '</span>' +
+                  '<span>' + esc(v.name || v.email || '') + '</span>' +
+                  '<span class="signout" id="btnSignOut">Sign out</span>';
+  var so = document.getElementById('btnSignOut');
+  if (so) so.addEventListener('click', signOut);
+}
+
+/* ── ZSM / TL rollup views ───────────────────────────────────────────────────
+   Same metric set as the raw table, aggregated one level up. Rows expand to the
+   level below: a ZSM row opens its TLs, a TL row opens its LRMs. */
+var ROLLUP_COLS = [
+  {k:'label',        l:'Name',            t:'txt'},
+  {k:'activeLRM',    l:'LRMs',            t:'int'},
+  {k:'callCount',    l:'Call Count',      t:'int'},
+  {k:'connected',    l:'Connected',       t:'int'},
+  {k:'connectPct',   l:'Connect %',       t:'pct'},
+  {k:'totalTTHr',    l:'Talk Time (hr)',  t:'dec'},
+  {k:'callsLt1',     l:'<1min',           t:'int'},
+  {k:'calls1to2',    l:'1-2min',          t:'int'},
+  {k:'callsGt2',     l:'>2min',           t:'int'},
+  {k:'msToday',      l:'MS Today',        t:'int'},
+  {k:'msT0',         l:'MS T+0',          t:'int'},
+  {k:'msT1',         l:'MS T+1',          t:'int'},
+  {k:'msT2',         l:'MS T+2',          t:'int'},
+  {k:'meetingDone',  l:'Meeting Done',    t:'int'},
+  {k:'msLt1',        l:'MS <1min',        t:'int'},
+  {k:'ms1to2',       l:'MS 1-2min',       t:'int'},
+  {k:'msGt2min',     l:'MS >2min',        t:'int'},
+  {k:'msNoCall',     l:'MS untracked',    t:'int'},
+  {k:'msTrackedPct', l:'MS tracked %',    t:'pct'},
+  {k:'callsPerLRM',  l:'Calls / LRM',     t:'int'},
+  {k:'idleLRM',      l:'Idle LRMs',       t:'int'}
+];
+var rollupSort = { zsm:{col:'callCount',dir:-1}, tl:{col:'callCount',dir:-1} };
+var rollupOpen = { zsm:{}, tl:{} };
+
+function rollupFmt(v, t) {
+  if (v === undefined || v === null || v === '') return '<span class="child-lbl">—</span>';
+  if (t === 'pct') return (Number(v)||0).toFixed(1) + '%';
+  if (t === 'dec') return (Number(v)||0).toFixed(1);
+  if (t === 'int') return String(Math.round(Number(v)||0));
+  return esc(String(v));
+}
+
+function renderRollup(which) {
+  if (!D) return;
+  var panel = document.getElementById(which === 'zsm' ? 'zsmPanel' : 'tlPanel');
+  if (!panel) return;
+  var rows = ((which === 'zsm' ? D.zsmRows : D.tlRows) || []).slice();
+  var v = (D && D.viewer) || {};
+
+  if (!rows.length) {
+    panel.innerHTML = '<div class="empty">No ' + (which === 'zsm' ? 'ZSM' : 'TL') +
+      ' data for your scope in this date range.' +
+      (v.role === 'VIEWER' ? '' : ' Your role is ' + esc(v.role || '') + '.') + '</div>';
+    if (activeTab === which) setCount('0 ' + (which === 'zsm' ? 'ZSMs' : 'TLs'));
+    return;
+  }
+
+  var s = rollupSort[which];
+  rows.sort(function(a,b){
+    var x = a[s.col], y = b[s.col];
+    if (typeof x === 'string' || typeof y === 'string') {
+      return String(x||'').localeCompare(String(y||'')) * s.dir;
+    }
+    return ((Number(x)||0) - (Number(y)||0)) * s.dir;
+  });
+
+  var note = which === 'zsm'
+    ? 'Grouped by <b>ZSM</b>. Click a row to see that ZSM\u2019s Team Leads.'
+    : 'Grouped by <b>Team Lead</b>. Click a row to see that TL\u2019s LRMs.';
+  note += ' <b>MS untracked</b> is meetings with no Ozonetel call on the lead — usually a call placed from a personal phone, not an error.';
+  note += ' Showing <b>' + rows.length + '</b> ' + (which === 'zsm' ? 'ZSM' : 'TL') + (rows.length === 1 ? '' : 's') +
+          ' in your scope. Page filters do not apply to this view.';
+  if (activeTab === which) setCount(rows.length + (which === 'zsm' ? ' ZSMs' : ' TLs'));
+
+  var html = '<div class="rollup-note">' + note + '</div><div class="tbl-wrap"><table><thead><tr>';
+  ROLLUP_COLS.forEach(function(c){
+    var cls = s.col === c.k ? (s.dir === 1 ? 'sort-asc' : 'sort-desc') : '';
+    html += '<th class="' + cls + '" data-sort="' + esc(c.k) + '">' + esc(c.l) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  rows.forEach(function(r){
+    var isOpen = !!rollupOpen[which][r.key];
+    html += '<tr class="exp-row' + (isOpen ? ' exp-open' : '') + '" data-key="' + esc(r.key) + '">';
+    ROLLUP_COLS.forEach(function(c, i){
+      var cell = rollupFmt(r[c.k], c.t);
+      if (i === 0) cell = '<span class="exp-caret">▶</span> ' + cell +
+        (r.childCount ? ' <span class="child-lbl">(' + r.childCount + ')</span>' : '');
+      html += '<td>' + cell + '</td>';
+    });
+    html += '</tr>';
+    if (isOpen) html += rollupChildren(which, r);
+  });
+
+  panel.innerHTML = html + '</tbody></table></div>';
+
+  panel.querySelectorAll('thead th').forEach(function(th){
+    th.addEventListener('click', function(){
+      var k = th.getAttribute('data-sort');
+      rollupSort[which].dir = (rollupSort[which].col === k) ? rollupSort[which].dir * -1 : -1;
+      rollupSort[which].col = k;
+      renderRollup(which);
+    });
+  });
+  panel.querySelectorAll('tr.exp-row').forEach(function(tr){
+    tr.addEventListener('click', function(){
+      var k = tr.getAttribute('data-key');
+      rollupOpen[which][k] = !rollupOpen[which][k];
+      renderRollup(which);
+    });
+  });
+}
+
+// One level down: TL rows under a ZSM, or agent rows under a TL.
+function rollupChildren(which, parent) {
+  var out = '';
+  if (which === 'zsm') {
+    var kids = (D.tlRows || []).filter(function(t){ return (parent.children || []).indexOf(t.key) >= 0; });
+    if (!kids.length) return '<tr class="child-row"><td colspan="' + ROLLUP_COLS.length + '">No Team Leads mapped under this ZSM.</td></tr>';
+    kids.sort(function(a,b){ return b.callCount - a.callCount; });
+    kids.forEach(function(t){
+      out += '<tr class="child-row">';
+      ROLLUP_COLS.forEach(function(c, i){
+        out += '<td>' + (i === 0 ? esc(t.label || t.key) : rollupFmt(t[c.k], c.t)) + '</td>';
+      });
+      out += '</tr>';
+    });
+    return out;
+  }
+  // TL -> its LRMs, straight off the agent rows
+  var agents = (D.agentRows || []).filter(function(a){
+    return String(a['TL'] || '').toLowerCase() === String(parent.key || '').toLowerCase();
+  });
+  if (!agents.length) return '<tr class="child-row"><td colspan="' + ROLLUP_COLS.length + '">No LRMs mapped under this Team Lead.</td></tr>';
+  agents.sort(function(a,b){ return (Number(b['Call Count'])||0) - (Number(a['Call Count'])||0); });
+  var A = {
+    label:'LRM Name', activeLRM:null, callCount:'Call Count', connected:'Connected Calls',
+    connectPct:'Connect %', totalTTHr:'Total Talk Time', callsLt1:'Calls <1min',
+    calls1to2:'Calls 1-2min', callsGt2:'Calls >2min', msToday:'MS Today', msT0:'MS T+0',
+    msT1:'MS T+1', msT2:'MS T+2', meetingDone:'Meeting Done', msLt1:'MS on Calls <1min',
+    ms1to2:'MS on Calls 1-2min', msGt2min:'MS on Calls >2min', msNoCall:'MS - No Tracked Call',
+    msTrackedPct:null, callsPerLRM:null, idleLRM:null
+  };
+  agents.forEach(function(a){
+    out += '<tr class="child-row">';
+    ROLLUP_COLS.forEach(function(c, i){
+      if (i === 0) { out += '<td>' + esc(a['LRM Name'] || a['Agent Id'] || '') + '</td>'; return; }
+      var src = A[c.k];
+      out += '<td>' + (src ? rollupFmt(a[src], c.t) : '<span class="child-lbl">—</span>') + '</td>';
+    });
+    out += '</tr>';
+  });
+  return out;
 }
 
 function filtersActive(){ return !!(F.q||F.cities.length||F.tls.length||F.agents.length||F.band!=='all'||F.flag); }
@@ -544,7 +885,7 @@ function buildKPI() {
     var rows=filterAcademy(), citySet={};
     t={totalCalls:0,uniqueDials:0,connected:0,totalTTHr:0,msToday:0,msT0:0,msT1:0};
     rows.forEach(function(r){
-      t.totalCalls +=Number(r['Total Calls'])||0;
+      t.totalCalls +=Number(r['Call Count'])||0;
       t.uniqueDials+=Number(r['Unique Leads Dialed'])||0;
       t.connected  +=Number(r['Connected Calls'])||0;
       t.totalTTHr  +=Number(r['Total Talk Time'])||0;
@@ -560,7 +901,7 @@ function buildKPI() {
     var rows=filterAgents(), citySet={};
     t={totalCalls:0,uniqueDials:0,connected:0,totalTTHr:0,msToday:0,msT0:0,msT1:0};
     rows.forEach(function(r){
-      t.totalCalls +=Number(r['Total Calls'])||0;
+      t.totalCalls +=Number(r['Call Count'])||0;
       t.uniqueDials+=Number(r['Unique Leads Dialed'])||0;
       t.connected  +=Number(r['Connected Calls'])||0;
       t.totalTTHr  +=Number(r['Total Talk Time'])||0;
@@ -665,6 +1006,15 @@ MultiSelect.prototype.syncBtn = function() {
   } else { txt.textContent = n + ' ' + this.cfg.unit; cnt.style.display = 'none'; this.btn.classList.add('has-sel'); }
 };
 
+// The rollup tabs (ZSM / TL View) do not honour the F filter state, so showing the
+// controls there would be a lie. Single place that decides the bar's visibility.
+function syncFilterBar() {
+  var bar = document.getElementById('filterbar');
+  if (!bar) return;
+  var hide = (activeTab === 'zsm' || activeTab === 'tl');
+  bar.style.display = (hide || !D) ? 'none' : '';
+}
+
 function buildFilterBar() {
   var bar = document.getElementById('filterbar');
   bar.style.display = '';
@@ -702,6 +1052,7 @@ function buildFilterBar() {
       if(F.flag) btn.classList.add('active-chip'); renderActive();
     });
   });
+  syncFilterBar();
   document.getElementById('fClear').addEventListener('click', function(){
     F={q:'',cities:[],tls:[],agents:[],band:'all',flag:''};
     document.getElementById('fSearch').value='';
@@ -785,7 +1136,7 @@ function filterAcademy(){
 function academyCols(){
   var cols=(D.agentCols||[]).slice();
   if(cols.indexOf('Avg Daily Dials')<0){
-    var at=cols.indexOf('Total Calls');
+    var at=cols.indexOf('Call Count');
     cols.splice(at>=0?at+1:cols.length,0,'Avg Daily Dials');
   }
   return cols;
@@ -852,14 +1203,14 @@ function computeAgentActions(rows){
   var maxRank=ranks.length?Math.max.apply(null,ranks):0;
   var bottomCut=maxRank-ACT.bottomN+1;
   var idle=rows.filter(function(r){return r._flagIdle;}).sort(function(a,b){return agentName(a['Agent Id']).localeCompare(agentName(b['Agent Id']));}).map(function(r){return wrap(r,'0 calls');});
-  var lowConn=rows.filter(function(r){return num(r,'Total Calls')>0&&num(r,'Connect %')<ACT.connectTarget;}).sort(function(a,b){return num(a,'Connect %')-num(b,'Connect %');}).map(function(r){return wrap(r,fmtPct(num(r,'Connect %')));});
+  var lowConn=rows.filter(function(r){return num(r,'Call Count')>0&&num(r,'Connect %')<ACT.connectTarget;}).sort(function(a,b){return num(a,'Connect %')-num(b,'Connect %');}).map(function(r){return wrap(r,fmtPct(num(r,'Connect %')));});
   var bottomRank=(maxRank>=ACT.bottomN?rows.filter(function(r){return num(r,'Final Rank')>=bottomCut;}):[]).sort(function(a,b){return num(b,'Final Rank')-num(a,'Final Rank');}).map(function(r){return wrap(r,'Rank '+num(r,'Final Rank'));});
-  var noMeet=rows.filter(function(r){return num(r,'Total Calls')>0&&r._flagNoMeet;}).sort(function(a,b){return num(b,'Total Calls')-num(a,'Total Calls');}).map(function(r){return wrap(r,num(r,'Total Calls')+' calls · 0 mtg');});
+  var noMeet=rows.filter(function(r){return num(r,'Call Count')>0&&r._flagNoMeet;}).sort(function(a,b){return num(b,'Call Count')-num(a,'Call Count');}).map(function(r){return wrap(r,num(r,'Call Count')+' calls · 0 mtg');});
   var negDelta=rows.filter(function(r){return num(r,'Delta')<0;}).sort(function(a,b){return num(a,'Delta')-num(b,'Delta');}).map(function(r){return wrap(r,String(Math.round(num(r,'Delta'))));});
-  var dialNoReach=rows.filter(function(r){return num(r,'Total Calls')>=ACT.lowVol&&num(r,'Unique Leads Dialed')>0&&num(r,'Total Calls')/num(r,'Unique Leads Dialed')>=ACT.dialRatio;}).sort(function(a,b){return (num(b,'Total Calls')/num(b,'Unique Leads Dialed'))-(num(a,'Total Calls')/num(a,'Unique Leads Dialed'));}).map(function(r){return wrap(r,'×'+r1(num(r,'Total Calls')/num(r,'Unique Leads Dialed'))+' dials/lead');});
+  var dialNoReach=rows.filter(function(r){return num(r,'Call Count')>=ACT.lowVol&&num(r,'Unique Leads Dialed')>0&&num(r,'Call Count')/num(r,'Unique Leads Dialed')>=ACT.dialRatio;}).sort(function(a,b){return (num(b,'Call Count')/num(b,'Unique Leads Dialed'))-(num(a,'Call Count')/num(a,'Unique Leads Dialed'));}).map(function(r){return wrap(r,'×'+r1(num(r,'Call Count')/num(r,'Unique Leads Dialed'))+' dials/lead');});
   var shortTalk=(talkMean>0?rows.filter(function(r){return num(r,'Connected Calls')>0&&num(r,'Avg. Talk Time')>0&&num(r,'Avg. Talk Time')<ACT.talkShortFactor*talkMean;}):[]).sort(function(a,b){return num(a,'Avg. Talk Time')-num(b,'Avg. Talk Time');}).map(function(r){return wrap(r,r1(num(r,'Avg. Talk Time'))+' avg talk');});
   var highHandle=(handleMean>0?rows.filter(function(r){return num(r,'Avg. Handling Time')>ACT.handleHighFactor*handleMean;}):[]).sort(function(a,b){return num(b,'Avg. Handling Time')-num(a,'Avg. Handling Time');}).map(function(r){return wrap(r,r1(num(r,'Avg. Handling Time'))+' avg handle');});
-  var lowVol=rows.filter(function(r){return r._flagLowVol;}).sort(function(a,b){return num(a,'Total Calls')-num(b,'Total Calls');}).map(function(r){return wrap(r,num(r,'Total Calls')+' calls');});
+  var lowVol=rows.filter(function(r){return r._flagLowVol;}).sort(function(a,b){return num(a,'Call Count')-num(b,'Call Count');}).map(function(r){return wrap(r,num(r,'Call Count')+' calls');});
   return [
     {key:'idle',    title:'No calls logged',      sev:'sev-high', desc:'Zero calls in the selected range.',                          action:'Confirm the agent is active and dialing today.',         agents:idle},
     {key:'lowconn', title:'Low connect rate',     sev:'sev-mid',  desc:'Connect rate below '+ACT.connectTarget+'% — dialing but not reaching leads.', action:'Review call timing and lead-data quality.',   agents:lowConn},
@@ -945,10 +1296,12 @@ function downloadPDF(){
     var trs=abk.map(function(b){return b.agents.map(function(a){return '<tr><td>'+esc(a.name)+'</td><td>'+esc(a.city)+'</td><td>'+esc(b.title)+'</td><td>'+esc(a.metric)+'</td><td>'+esc(b.action)+'</td></tr>';}).join('');}).join('');
     tblHTML='<table><thead><tr><th>'+(isCity?'City':'Agent')+'</th><th>'+(isCity?'LRMs':'City')+'</th><th>Issue</th><th>Metric</th><th>Recommended Action</th></tr></thead><tbody>'+trs+'</tbody></table>';
   } else {
-    var panel=activeTab==='city'?document.getElementById('cityPanel'):activeTab==='academy'?document.getElementById('academyPanel'):document.getElementById('agentPanel');
+    var panelIds={city:'cityPanel',academy:'academyPanel',zsm:'zsmPanel',tl:'tlPanel',agent:'agentPanel'};
+    var panel=document.getElementById(panelIds[activeTab]||'agentPanel');
     var tbl=panel.querySelector('table');
     if(!tbl){alert('Nothing to export in the current view.');return;}
-    viewName=activeTab==='city'?'City Summary':activeTab==='academy'?'Training Academy':'Agent View';
+    var viewNames={city:'City Summary',academy:'Training Academy',zsm:'ZSM View',tl:'TL View',agent:'Agent View'};
+    viewName=viewNames[activeTab]||'Agent View';
     tblHTML=tbl.outerHTML;
   }
   var kpis=Array.prototype.map.call(document.querySelectorAll('#kpiStrip .kpi-item'),function(it){
