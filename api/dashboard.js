@@ -16,7 +16,7 @@
 //
 // ROLE-BASED ACCESS:
 //   City Summary / Agent View / Training Academy stay visible to everyone.
-//   ADOS additionally gets a ZSM-wise and a TL-wise rollup, scoped to their cluster.
+//   ADOS additionally gets an ADOS-wise, a ZSM-wise and a TL-wise rollup, scoped to their cluster.
 //   ZSM additionally gets a TL-wise rollup, scoped to their TLs.
 //   TL gets their own team. Role is DERIVED from the signed-in email's position in
 //   LRM_TL_MAP — there is no role column to maintain.
@@ -288,7 +288,9 @@ export default async function handler(req, res) {
           connectPct:     a.callCount > 0 ? Math.round((a.connected / a.callCount) * 10000) / 100 : 0,
           realConnectPct: a.callCount > 0 ? Math.round((a.realConnects / a.callCount) * 10000) / 100 : 0,
           totalTTHr:   Math.round(a.totalTTHr * 10) / 10,
+          avgTalkMin:  a.realConnects > 0 ? Math.round((a.totalTTHr * 60 / a.realConnects) * 10) / 10 : 0,
           callsPerLRM: a.activeLRM > 0 ? Math.round(a.callCount / a.activeLRM) : 0,
+          ttPerLRM:    a.activeLRM > 0 ? Math.round((a.totalTTHr / a.activeLRM) * 100) / 100 : 0,
           msPerLRM:    a.activeLRM > 0 ? Math.round((a.msToday / a.activeLRM) * 10) / 10 : 0,
           delta:       a.target > 0 ? Math.round((a.callCount / a.target * 100 - 100) * 100) / 100 : 0,
           // share of this group's meetings we can tie to a tracked call
@@ -303,6 +305,7 @@ export default async function handler(req, res) {
 
     // Rollups are SCOPED to the viewer's downline.
     const scoped  = agentRows.filter(r => r._inScope);
+    const adosRows = rollup(scoped, r => r['ADOS'], (r) => r['ADOS Name'] || r['ADOS'] || '(Unassigned)', r => r['ZSM']);
     const zsmRows = rollup(scoped, r => r['ZSM'], (r) => r['ZSM Name'] || r['ZSM'] || '(Unassigned)', r => r['TL']);
     const tlRows  = rollup(scoped, r => r['TL'],  (r) => r['TL Name']  || r['TL']  || '(Unassigned)', r => norm(r['Agent Id']));
 
@@ -325,21 +328,22 @@ export default async function handler(req, res) {
          msToday:0, msT0:0, msT1:0, meetingDone:0, msNoCall:0, dsToday:0 });
     totals.connectPct     = totals.totalCalls > 0 ? Math.round((totals.connected / totals.totalCalls) * 10000) / 100 : 0;
     totals.realConnectPct = totals.totalCalls > 0 ? Math.round((totals.realConnects / totals.totalCalls) * 10000) / 100 : 0;
+    totals.avgTalkMin     = totals.realConnects > 0 ? Math.round((totals.totalTTHr * 60 / totals.realConnects) * 10) / 10 : 0;
     totals.totalTTHr      = Math.round(totals.totalTTHr * 10) / 10;
 
     // ── 6. Slim agent rows ────────────────────────────────────────────────────
     const agentCols = [
-      'LRM Name', 'Agent Id', 'City', 'TL Name',
-      'Call Count', 'Connected Calls', 'Unique Leads Dialed', 'Unique Numbers Dialed',
-      'Total Talk Time',
+      'Agent Id', 'City', 'TL Name',
+      'Call Count', 'Connected Calls',
+      'Total Talk Time', 'Avg. Talk Time',
       'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'Meeting Done',
       'Calls <1min', 'Calls 1-2min', 'Calls >2min',
       'MS on Calls <1min', 'MS on Calls 1-2min', 'MS on Calls >2min', 'MS - No Tracked Call',
-      'Connect %', 'Real Connects (15s+)', 'Real Connect %',
-      'Avg. Talk Time', 'Avg. Handling Time',
+      'Unique Leads Dialed', 'Unique Numbers Dialed',
+      'Real Connects (15s+)', 'Real Connect %', 'Avg. Handling Time',
       'Progress', 'Delta', 'Score', 'Final Rank',
     ];
-    const metaKeys = ['TL','ZSM','ADOS','ZSM Name','ADOS Name','_flagLowVol','_flagIdle','_flagNoMeet','Avg Daily Dials','_dayCount','_inScope'];
+    const metaKeys = ['LRM Name','Connect %','TL','ZSM','ADOS','ZSM Name','ADOS Name','_flagLowVol','_flagIdle','_flagNoMeet','Avg Daily Dials','_dayCount','_inScope'];
     const agentRowsSlim = agentRows.map(r => {
       const obj = {};
       agentCols.forEach(k => { obj[k] = r[k] !== undefined ? r[k] : ''; });
@@ -370,11 +374,12 @@ export default async function handler(req, res) {
         role,
         authConfigured: !!auth.configured,
         // what the frontend is allowed to show
+        canSeeADOSView: role === 'ADOS' || role === 'VIEWER',
         canSeeZSMView: role === 'ADOS' || role === 'VIEWER',
         canSeeTLView:  role === 'ADOS' || role === 'ZSM' || role === 'VIEWER',
         scopeSize: scoped.length,
       },
-      totals, cityRows, zsmRows, tlRows,
+      totals, cityRows, adosRows, zsmRows, tlRows,
       agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
@@ -392,11 +397,11 @@ function emptyPayload(from, to, viewerEmail) {
     dateLabel: from === to ? from : from + ' – ' + to,
     fromDate: from, toDate: to,
     viewer: { email: viewerEmail, name: '', role: 'VIEWER', authConfigured: false,
-              canSeeZSMView: true, canSeeTLView: true, scopeSize: 0 },
+              canSeeADOSView: true, canSeeZSMView: true, canSeeTLView: true, scopeSize: 0 },
     totals: { totalCalls:0, uniqueDials:0, connected:0, realConnects:0, connectPct:0,
               realConnectPct:0, totalTTHr:0, target:0, msToday:0, msT0:0, msT1:0,
-              meetingDone:0, msNoCall:0, dsToday:0 },
-    cityRows: [], zsmRows: [], tlRows: [],
+              meetingDone:0, msNoCall:0, dsToday:0, avgTalkMin:0 },
+    cityRows: [], adosRows: [], zsmRows: [], tlRows: [],
     agentCols: [], agentRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
