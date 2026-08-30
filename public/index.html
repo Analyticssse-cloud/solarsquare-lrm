@@ -312,10 +312,29 @@
 .exp-row:hover{background:#18203a}
 .exp-caret{display:inline-block;width:11px;color:#7b85a3;font-size:9px;transition:transform .12s}
 .exp-open .exp-caret{transform:rotate(90deg)}
-.child-row td{background:#101728;font-size:11.5px;color:#a8b1c9}
-.child-row td:first-child{padding-left:26px}
+.child-row td{background:#101728;font-size:11.5px;color:#dbe2f2}
+.child-row td:first-child{padding-left:26px;color:#aeb8d2}
 .child-lbl{color:#8b94b0}
+/* ── Numeric legibility ──
+   Parent rows sit on the WHITE table surface, child rows on the dark #101728 band,
+   so the two need opposite palettes. Shared: right-aligned tabular figures. */
+.exp-row td.num,.child-row td.num,thead th.num{text-align:right;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.exp-row td.num{color:var(--text);font-weight:700;font-size:12.5px}
+.exp-row td.num.zero{color:#98a1b8;font-weight:400}
+.exp-row td.g-b{background:rgba(24,35,63,.045)}
+.exp-row:hover td.g-b{background:rgba(24,35,63,.065)}
+.child-row td.num{color:#dbe2f2;font-weight:550}
+.child-row td.num.zero{color:#6b7593}
+.child-row td.g-b{background:#131b2f}
+.heat{display:inline-block;padding:1px 6px;border-radius:4px;font-variant-numeric:tabular-nums;font-weight:700}
+.heat-hi{background:#e6f9ef;color:#0f7a45}
+.heat-md{background:#fff4d6;color:#8a6100}
+.heat-lo{background:#fdeaea;color:#a52121}
+.child-row .heat-hi{background:rgba(26,158,92,.22);color:#5fdc9c}
+.child-row .heat-md{background:rgba(255,184,28,.18);color:#ffcf63}
+.child-row .heat-lo{background:rgba(224,72,72,.18);color:#ff9b9b}
 .tab.locked{opacity:.34;cursor:not-allowed}
+thead th.num.g-b{background:rgba(24,35,63,.045)}
 </style>
 
 <div class="auth-bk hidden" id="authBk">
@@ -726,32 +745,45 @@ function applyRole() {
 var ROLLUP_COLS = [
   {k:'label',        l:'Name',            t:'txt'},
   {k:'activeLRM',    l:'LRMs',            t:'int'},
-  {k:'callCount',    l:'Call Count',      t:'int'},
-  {k:'connected',    l:'Connected',       t:'int'},
+  {k:'callCount',    l:'Call Count',      t:'int',  g:'b'},
+  {k:'connected',    l:'Connected',       t:'int',  g:'b'},
   {k:'totalTTHr',    l:'Talk Time (hr)',  t:'dec'},
   {k:'avgTalkMin',   l:'Avg Talk (min)',  t:'dec'},
   {k:'ttPerLRM',     l:'T.T / LRM (hr)',  t:'dec2'},
   {k:'callsPerLRM',  l:'Calls / LRM',     t:'int'},
-  {k:'msToday',      l:'MS Today',        t:'int'},
-  {k:'msT0',         l:'MS T+0',          t:'int'},
-  {k:'msT1',         l:'MS T+1',          t:'int'},
-  {k:'msT2',         l:'MS T+2',          t:'int'},
-  {k:'meetingDone',  l:'MD',              t:'int'},
+  {k:'msToday',      l:'MS Today',        t:'int',  g:'b'},
+  {k:'msT0',         l:'MS T+0',          t:'int',  g:'b'},
+  {k:'msT1',         l:'MS T+1',          t:'int',  g:'b'},
+  {k:'msT2',         l:'MS T+2',          t:'int',  g:'b'},
+  {k:'meetingDone',  l:'MD',              t:'int',  g:'b'},
   {k:'callsLt1',     l:'Calls <1min',     t:'int'},
   {k:'calls1to2',    l:'Calls 1-2min',    t:'int'},
   {k:'callsGt2',     l:'Calls >2min',     t:'int'},
-  {k:'msLt1',        l:'MS <1min',        t:'int'},
-  {k:'ms1to2',       l:'MS 1-2min',       t:'int'},
-  {k:'msGt2min',     l:'MS >2min',        t:'int'},
-  {k:'msNoCall',     l:'MS untracked',    t:'int'},
-  {k:'msTrackedPct', l:'MS tracked %',    t:'pct'}
+  {k:'msLt1',        l:'MS <1min',        t:'int',  g:'b'},
+  {k:'ms1to2',       l:'MS 1-2min',       t:'int',  g:'b'},
+  {k:'msGt2min',     l:'MS >2min',        t:'int',  g:'b'},
+  {k:'msNoCall',     l:'MS untracked',    t:'int',  g:'b'},
+  {k:'msTrackedPct', l:'MS tracked %',    t:'pct',  g:'b'}
 ];
+// A numeric cell's class: right-aligned + tabular, banded by group, zeros dimmed so
+// the real figures carry the eye.
+function numCls(c, v) {
+  if (c.t === 'txt') return '';
+  var cls = 'num' + (c.g ? ' g-' + c.g : '');
+  var n = Number(v);
+  if (!v || (!isNaN(n) && n === 0)) cls += ' zero';
+  return cls;
+}
 var rollupSort = { ados:{col:'callCount',dir:-1}, zsm:{col:'callCount',dir:-1}, tl:{col:'callCount',dir:-1} };
 var rollupOpen = { ados:{}, zsm:{}, tl:{} };
 
 function rollupFmt(v, t) {
   if (v === undefined || v === null || v === '') return '<span class="child-lbl">—</span>';
-  if (t === 'pct') return (Number(v)||0).toFixed(1) + '%';
+  if (t === 'pct') {
+    var p = Number(v) || 0;
+    var hc = p >= 60 ? 'heat-hi' : p >= 35 ? 'heat-md' : 'heat-lo';
+    return '<span class="heat ' + hc + '">' + p.toFixed(1) + '%</span>';
+  }
   if (t === 'dec') return (Number(v)||0).toFixed(1);
   if (t === 'dec2') return (Number(v)||0).toFixed(2);
   if (t === 'int') return String(Math.round(Number(v)||0));
@@ -798,6 +830,7 @@ function renderRollup(which) {
   var html = '<div class="rollup-note">' + note + '</div><div class="tbl-wrap"><table><thead><tr>';
   ROLLUP_COLS.forEach(function(c){
     var cls = s.col === c.k ? (s.dir === 1 ? 'sort-asc' : 'sort-desc') : '';
+    if (c.t !== 'txt') cls += ' num' + (c.g ? ' g-' + c.g : '');
     html += '<th class="' + cls + '" data-sort="' + esc(c.k) + '">' + esc(c.l) + '</th>';
   });
   html += '</tr></thead><tbody>';
@@ -809,7 +842,7 @@ function renderRollup(which) {
       var cell = rollupFmt(r[c.k], c.t);
       if (i === 0) cell = '<span class="exp-caret">▶</span> ' + cell +
         (r.childCount ? ' <span class="child-lbl">(' + r.childCount + ')</span>' : '');
-      html += '<td>' + cell + '</td>';
+      html += '<td class="' + numCls(c, r[c.k]) + '">' + cell + '</td>';
     });
     html += '</tr>';
     if (isOpen) html += rollupChildren(which, r);
@@ -845,7 +878,8 @@ function rollupChildren(which, parent) {
     kids.forEach(function(t){
       out += '<tr class="child-row">';
       ROLLUP_COLS.forEach(function(c, i){
-        out += '<td>' + (i === 0 ? esc(t.label || t.key) : rollupFmt(t[c.k], c.t)) + '</td>';
+        out += '<td class="' + numCls(c, t[c.k]) + '">' +
+               (i === 0 ? esc(t.label || t.key) : rollupFmt(t[c.k], c.t)) + '</td>';
       });
       out += '</tr>';
     });
@@ -870,7 +904,8 @@ function rollupChildren(which, parent) {
     ROLLUP_COLS.forEach(function(c, i){
       if (i === 0) { out += '<td>' + esc(a['LRM Name'] || a['Agent Id'] || '') + '</td>'; return; }
       var src = A[c.k];
-      out += '<td>' + (src ? rollupFmt(a[src], c.t) : '<span class="child-lbl">—</span>') + '</td>';
+      out += '<td class="' + numCls(c, src ? a[src] : '') + '">' +
+             (src ? rollupFmt(a[src], c.t) : '<span class="child-lbl">—</span>') + '</td>';
     });
     out += '</tr>';
   });
@@ -1016,7 +1051,7 @@ MultiSelect.prototype.syncBtn = function() {
 function syncFilterBar() {
   var bar = document.getElementById('filterbar');
   if (!bar) return;
-  var hide = (activeTab === 'zsm' || activeTab === 'tl');
+  var hide = (activeTab === 'ados' || activeTab === 'zsm' || activeTab === 'tl');
   bar.style.display = (hide || !D) ? 'none' : '';
 }
 
