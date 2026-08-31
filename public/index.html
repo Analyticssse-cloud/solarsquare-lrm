@@ -422,6 +422,10 @@ table.fb-lb td.fb-mini s i{display:block;height:100%;background:var(--gold-dk)}
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9aa3bd" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input id="fSearch" placeholder="Search LRM or city…">
       </div>
+      <span class="fb-label">ADOS</span>
+      <div class="ms" id="msADOS"></div>
+      <span class="fb-label">ZSM</span>
+      <div class="ms" id="msZSM"></div>
       <span class="fb-label">City</span>
       <div class="ms" id="msCity"></div>
       <span class="fb-label">Team Lead</span>
@@ -455,7 +459,7 @@ table.fb-lb td.fb-mini s i{display:block;height:100%;background:var(--gold-dk)}
 <script>
 var D = null, activeTab = 'floor';
 var AUTH = { token:'', clientId:'', required:false, email:'', ready:false };
-var F = { q:'', cities:[], tls:[], agents:[], band:'all', flag:'' };
+var F = { q:'', ados:[], zsms:[], cities:[], tls:[], agents:[], band:'all', flag:'' };
 var citySort  = { col:'totalCalls', dir:-1 };
 var agentSort = { col:'Final Rank',  dir: 1 };
 var academySort = { col:'Avg Daily Dials', dir:-1 };
@@ -979,7 +983,7 @@ function rollupChildren(which, parent) {
   return out;
 }
 
-function filtersActive(){ return !!(F.q||F.cities.length||F.tls.length||F.agents.length||F.band!=='all'||F.flag); }
+function filtersActive(){ return !!(F.q||F.ados.length||F.zsms.length||F.cities.length||F.tls.length||F.agents.length||F.band!=='all'||F.flag); }
 
 function buildKPI() {
   // KPI strip reflects the current filters. With no filter it equals the server
@@ -1141,9 +1145,20 @@ function shiftPace(){
    09:00-19:00 shift. */
 function hourlyBox(rows, target, cityBars){
   var hrs = D.hourlyRows || D.hourly || null;
+  // Per-agent rows let the curve follow the filter bar. When the feed carries no
+  // agent column (older payload) it is floor-wide, so it is only shown unfiltered.
+  if(hrs && hrs.length && hrs[0] && (hrs[0].agent !== undefined || hrs[0]['Agent Id'] !== undefined)){
+    var keep = {};
+    rows.forEach(function(r){ keep[String(r['Agent Id']||'').trim().toLowerCase()] = 1; });
+    hrs = hrs.filter(function(x){ return keep[String(x.agent || x['Agent Id'] || '').trim().toLowerCase()]; });
+  } else if(hrs && hrs.length && filtersActive()){
+    hrs = null;
+  }
   if(!hrs || !hrs.length){
     return '<h4>Dials by city</h4><div class="fb-bars">'+cityBars+'</div>'
-         + '<div class="fb-hrnote">Hourly achievement needs the \'hourly\' sheet tab &mdash; showing dials by city until then.</div>';
+         + '<div class="fb-hrnote">' + (filtersActive() && D.hourlyRows && D.hourlyRows.length
+              ? 'No hourly rows for this selection.'
+              : 'Hourly achievement needs the \'hourly\' sheet tab &mdash; showing dials by city until then.') + '</div>';
   }
   var byHour = {};
   hrs.forEach(function(r){
@@ -1281,11 +1296,18 @@ function buildFilterBar() {
   var bar = document.getElementById('filterbar');
   bar.style.display = '';
 
+  var uniqBy = function(key){ var seen={}, out=[]; (D.agentRows||[]).forEach(function(r){ var v=String(r[key]||'').trim(); if(v && !seen[v]){ seen[v]=1; out.push({value:v, label:v}); } }); return out.sort(function(a,b){return a.label.localeCompare(b.label);}); };
+  var adosOpts = uniqBy('ADOS Name');
+  var zsmOpts  = uniqBy('ZSM Name');
   var cityOpts = (D.cityList||[]).map(function(c){ return {value:c, label:c}; });
   var tlOpts   = (D.tlList||[]).map(function(t){ return {value:t, label:t}; });
   var lrmOpts  = (D.lrmList||[]).map(function(l){ return {value:l.id, label:l.name, sub:l.city}; });
 
   if (!MS.city) {
+    MS.ados = new MultiSelect('msADOS', { unit:'ADOS', options:adosOpts,
+      get:function(){return F.ados;}, set:function(a){F.ados=a;}, onChange:renderActive });
+    MS.zsm = new MultiSelect('msZSM', { unit:'ZSMs', options:zsmOpts,
+      get:function(){return F.zsms;}, set:function(a){F.zsms=a;}, onChange:renderActive });
     MS.city = new MultiSelect('msCity', { unit:'cities', options:cityOpts,
       get:function(){return F.cities;}, set:function(a){F.cities=a;}, onChange:renderActive });
     MS.tl = new MultiSelect('msTL', { unit:'TLs', options:tlOpts,
@@ -1293,6 +1315,7 @@ function buildFilterBar() {
     MS.lrm = new MultiSelect('msLRM', { unit:'LRMs', options:lrmOpts,
       get:function(){return F.agents;}, set:function(a){F.agents=a;}, onChange:renderActive });
   } else {
+    MS.ados.setOptions(adosOpts); MS.zsm.setOptions(zsmOpts);
     MS.city.setOptions(cityOpts); MS.tl.setOptions(tlOpts); MS.lrm.setOptions(lrmOpts);
   }
 
@@ -1316,11 +1339,11 @@ function buildFilterBar() {
   });
   syncFilterBar();
   document.getElementById('fClear').addEventListener('click', function(){
-    F={q:'',cities:[],tls:[],agents:[],band:'all',flag:''};
+    F={q:'',ados:[],zsms:[],cities:[],tls:[],agents:[],band:'all',flag:''};
     document.getElementById('fSearch').value='';
     bar.querySelectorAll('.pill').forEach(function(b){b.classList.toggle('active-pill',b.getAttribute('data-band')==='all');});
     bar.querySelectorAll('.chip').forEach(function(b){b.classList.remove('active-chip');});
-    MS.city.syncBtn(); MS.tl.syncBtn(); MS.lrm.syncBtn();
+    MS.ados.syncBtn(); MS.zsm.syncBtn(); MS.city.syncBtn(); MS.tl.syncBtn(); MS.lrm.syncBtn();
     MS.city.close(); MS.tl.close(); MS.lrm.close();
     renderActive();
   });
@@ -1336,6 +1359,8 @@ function bandPass(pct) {
 function filterAgents() {
   return (D.agentRows||[]).filter(function(r){
     if(!bandPass(r['Connect %'])) return false;
+    if(F.ados.length  && F.ados.indexOf(String(r['ADOS Name']||''))<0) return false;
+    if(F.zsms.length  && F.zsms.indexOf(String(r['ZSM Name']||''))<0) return false;
     if(F.cities.length && F.cities.indexOf(String(r['City']||''))<0) return false;
     if(F.tls.length    && F.tls.indexOf(String(r['TL Name']||''))<0) return false;
     if(F.agents.length && F.agents.indexOf(String(r['Agent Id']||''))<0) return false;
@@ -1349,7 +1374,7 @@ function filterAgents() {
 function filterCities() {
   var rows=(D.cityRows||[]).slice();
   if(F.cities.length) rows=rows.filter(function(r){return F.cities.indexOf(r.city)>=0;});
-  if(F.tls.length||F.agents.length||F.flag||F.q){ var keep={}; filterAgents().forEach(function(a){if(a['City'])keep[a['City']]=true;}); rows=rows.filter(function(r){return keep[r.city];}); }
+  if(F.ados.length||F.zsms.length||F.tls.length||F.agents.length||F.flag||F.q){ var keep={}; filterAgents().forEach(function(a){if(a['City'])keep[a['City']]=true;}); rows=rows.filter(function(r){return keep[r.city];}); }
   return rows.filter(function(r){return bandPass(r.connectPct);});
 }
 
@@ -1539,6 +1564,8 @@ function closeActModal(){ document.getElementById('actModalBk').classList.remove
 function pdfFilterSummary(){
   var p=[];
   if(F.q) p.push('Search: “'+F.q+'”');
+  if(F.ados.length) p.push('ADOS: '+F.ados.join(', '));
+  if(F.zsms.length) p.push('ZSM: '+F.zsms.join(', '));
   if(F.cities.length) p.push('City: '+F.cities.join(', '));
   if(F.tls.length) p.push('Team Lead: '+F.tls.join(', '));
   if(F.agents.length) p.push('LRM: '+F.agents.length+' selected');
