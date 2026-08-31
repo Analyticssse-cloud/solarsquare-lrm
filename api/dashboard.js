@@ -290,7 +290,7 @@ export default async function handler(req, res) {
           totalTTHr:   Math.round(a.totalTTHr * 10) / 10,
           avgTalkMin:  a.realConnects > 0 ? Math.round((a.totalTTHr * 60 / a.realConnects) * 10) / 10 : 0,
           callsPerLRM: a.activeLRM > 0 ? Math.round(a.callCount / a.activeLRM) : 0,
-          ttPerLRM:    a.activeLRM > 0 ? Math.round((a.totalTTHr / a.activeLRM) * 100) / 100 : 0,
+          ttPerLRM:    a.activeLRM > 0 ? Math.round((a.totalTTHr * 60 / a.activeLRM) * 10) / 10 : 0,
           msPerLRM:    a.activeLRM > 0 ? Math.round((a.msToday / a.activeLRM) * 10) / 10 : 0,
           delta:       a.target > 0 ? Math.round((a.callCount / a.target * 100 - 100) * 100) / 100 : 0,
           // share of this group's meetings we can tie to a tracked call
