@@ -357,7 +357,9 @@ thead th.num.g-b{background:rgba(24,35,63,.045)}
 .fb-strip>div:last-child{border-right:none}
 .fb-strip b{display:block;font-size:20px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;letter-spacing:-.4px}
 .fb-strip span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:2px}
-.fb-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+.fb-cols{display:grid;grid-template-columns:1.2fr .95fr .85fr;gap:10px;align-items:start}
+table.fb-lb tr.fb-bot td.fb-rk{color:#c0392b}
+table.fb-lb td.fb-zero{color:#c0392b}
 .fb-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:13px 16px 14px}
 .fb-box h4{margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
 .fb-hrs{position:relative;display:flex;align-items:flex-end;gap:5px;height:138px;margin-top:2px}
@@ -1251,6 +1253,16 @@ function renderFloor(){
          + '<td class="fb-mini"><s><i style="width:'+Math.max(2,(n(r,'Call Count')/(lmax||1)*100)).toFixed(1)+'%"></i></s></td></tr>';
   }).join('') || '<tr><td colspan="7" class="fb-sub">No LRMs in this range.</td></tr>';
 
+  var bt = rows.slice().sort(function(a,b){ return n(a,'Call Count')-n(b,'Call Count'); }).slice(0,5);
+  var btRows = bt.map(function(r,i){
+    var d = n(r,'Call Count');
+    return '<tr class="fb-bot"><td class="fb-rk">'+(i+1)+'</td>'
+         + '<td class="fb-nm">'+esc(r['LRM Name'] || agentName(r['Agent Id']))+'</td>'
+         + '<td'+(d===0?' class="fb-zero"':'')+'>'+fmt(d)+'</td><td>'+fmt(n(r,'Connected Calls'))+'</td>'
+         + '<td>'+fmt(Math.round(n(r,'Total Talk Time')*60))+'</td>'
+         + '<td>'+fmt(n(r,'MS Today'))+'</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="fb-sub">No LRMs in this range.</td></tr>';
+
   var now = istNow();
   var asOf = String(now.getUTCHours()).padStart(2,'0')+':'+String(now.getUTCMinutes()).padStart(2,'0');
 
@@ -1282,6 +1294,9 @@ function renderFloor(){
     +   '<div class="fb-box">'+hourlyBox(rows, target, bars)+'</div>'
     +   '<div class="fb-box"><h4>Top 7 LRMs by dials</h4><table class="fb-lb">'
     +     '<tr><th></th><th>LRM</th><th>Dials</th><th>Conn</th><th>TT (min)</th><th>MS</th><th></th></tr>'+lbRows+'</table></div>'
+    +   '<div class="fb-box"><h4>Bottom 5 LRMs by dials</h4><table class="fb-lb">'
+    +     '<tr><th></th><th>LRM</th><th>Dials</th><th>Conn</th><th>TT (min)</th><th>MS</th></tr>'+btRows+'</table>'
+    +     '<div class="fb-sub" style="margin-top:8px">Lowest dials in view &mdash; the follow-up list for the floor.</div></div>'
     + '</div>'
     + '<div class="fb-foot"><span class="fb-link" id="fbToTable">Details &mdash; full LRM table &rsaquo;</span>'
     +   '<span class="fb-note">MD is dated by closure date, so it will not tie to MS Today on this board.</span></div>'
