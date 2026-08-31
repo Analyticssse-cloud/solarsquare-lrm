@@ -354,6 +354,45 @@ export default async function handler(req, res) {
     let dateLabel = effFrom === effTo ? fmtLabel(effFrom) : fmtLabel(effFrom) + ' – ' + fmtLabel(effTo);
     if (fellBack) dateLabel += ' (latest available)';
 
+    // ── 6b. Hourly achievement (optional 'hourly' tab) ────────────────────────
+    // One row per Date x Hour x Agent, written by Code.gs's autoUpdateHourly().
+    // Absent tab is not an error: the Floor Board falls back to dials-by-city.
+    let hourlyRows = [];
+    try {
+      const hRaw = await readSheet('hourly');
+      if (hRaw.length > 1) {
+        const hHdr    = hRaw[0].map(h => String(h).trim());
+        const hiDate  = findCol(hHdr, ['Date']);
+        const hiHour  = findCol(hHdr, ['Hour']);
+        const hiAgent = findCol(hHdr, ['Agent Id', 'LRM Email']);
+        const hiCalls = findCol(hHdr, ['Call Count', 'Total Calls']);
+        const hiConn  = findCol(hHdr, ['Connected Calls']);
+        const hiTT    = findCol(hHdr, ['Total Talk Time']);
+        const known   = new Set(agentRows.map(r => norm(r['Agent Id'])));
+        const acc = {};
+        for (let i = 1; i < hRaw.length; i++) {
+          const r = hRaw[i];
+          if (!r) continue;
+          const day = rowDate(r[hiDate]);
+          if (day < effFrom || day > effTo) continue;
+          const email = norm(r[hiAgent]);
+          if (!email || !known.has(email)) continue;
+          const hr = parseInt(String(r[hiHour]).slice(0, 2), 10);
+          if (isNaN(hr)) continue;
+          const a = acc[hr] || (acc[hr] = { hour: hr, calls: 0, connected: 0, talkHr: 0 });
+          a.calls     += num(r[hiCalls]);
+          a.connected += num(r[hiConn]);
+          a.talkHr    += num(r[hiTT]);
+        }
+        hourlyRows = Object.keys(acc).map(k => {
+          const a = acc[k];
+          return { hour: a.hour, calls: a.calls, connected: a.connected, talkHr: Math.round(a.talkHr * 100) / 100 };
+        }).sort((x, y) => x.hour - y.hour);
+      }
+    } catch (e) {
+      console.warn('No hourly tab: ' + e.message);
+    }
+
     // ── 7. Dropdown lists ─────────────────────────────────────────────────────
     const citySet = {}, tlNameSet = {}, lrmSet = {};
     agentRows.forEach(r => {
@@ -379,7 +418,7 @@ export default async function handler(req, res) {
         canSeeTLView:  role === 'ADOS' || role === 'ZSM' || role === 'VIEWER',
         scopeSize: scoped.length,
       },
-      totals, cityRows, adosRows, zsmRows, tlRows,
+      totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows,
       agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
@@ -401,7 +440,7 @@ function emptyPayload(from, to, viewerEmail) {
     totals: { totalCalls:0, uniqueDials:0, connected:0, realConnects:0, connectPct:0,
               realConnectPct:0, totalTTHr:0, target:0, msToday:0, msT0:0, msT1:0,
               meetingDone:0, msNoCall:0, dsToday:0, avgTalkMin:0 },
-    cityRows: [], adosRows: [], zsmRows: [], tlRows: [],
+    cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [],
     agentCols: [], agentRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
