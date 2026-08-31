@@ -335,6 +335,61 @@
 .child-row .heat-lo{background:rgba(224,72,72,.18);color:#ff9b9b}
 .tab.locked{opacity:.34;cursor:not-allowed}
 thead th.num.g-b{background:rgba(24,35,63,.045)}
+/* ── Floor Board ── */
+.fb-wrap{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.fb-stamp{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--muted)}
+.fb-stamp b{color:var(--text);font-weight:700}
+.fb-stamp .fb-live{background:rgba(26,158,92,.12);border:1px solid rgba(26,158,92,.35);color:#0f7a45;border-radius:12px;padding:2px 9px;font-size:10.5px;font-weight:700}
+.fb-hero{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.fb-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px 13px}
+.fb-lab{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.fb-num{font-size:40px;line-height:1.04;font-weight:700;letter-spacing:-1.5px;color:var(--blue);font-variant-numeric:tabular-nums;margin-top:4px}
+.fb-num u{text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0;color:var(--muted);margin-left:5px}
+.fb-trk{position:relative;height:7px;background:#e8edf8;border-radius:4px;margin:9px 0 7px;overflow:visible}
+.fb-trk i{position:absolute;left:0;top:0;bottom:0;background:var(--blue-mid);border-radius:4px}
+.fb-trk i.gold{background:var(--gold-dk)}
+.fb-trk i.green{background:var(--green)}
+.fb-trk u{position:absolute;top:-3px;width:2px;height:13px;background:var(--text)}
+.fb-sub{font-size:11.5px;color:var(--muted)}
+.fb-sub b{color:var(--text);font-weight:700}
+.fb-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 4px}
+.fb-strip>div{padding:0 14px;border-right:1px solid var(--border)}
+.fb-strip>div:last-child{border-right:none}
+.fb-strip b{display:block;font-size:20px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;letter-spacing:-.4px}
+.fb-strip span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:2px}
+.fb-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+.fb-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:13px 16px 14px}
+.fb-box h4{margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.fb-hrs{position:relative;display:flex;align-items:flex-end;gap:5px;height:138px;margin-top:2px}
+.fb-hr{flex:1 1 0;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px;height:100%}
+.fb-hr s{text-decoration:none;width:100%;background:var(--blue-mid);border-radius:2px 2px 0 0;min-height:2px}
+.fb-hr s.now{background:var(--gold-dk)}
+.fb-hr s.future{background:#eef2fa}
+.fb-hr b{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text)}
+.fb-hr em{font-style:normal;font-size:9.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.fb-tline{position:absolute;left:0;right:0;border-top:1px dashed var(--red);pointer-events:none}
+.fb-tline span{position:absolute;right:0;top:2px;font-size:9px;font-weight:700;color:var(--red);background:var(--surface);padding:0 3px}
+.fb-hrnote{font-size:11px;color:var(--muted);margin-top:8px;font-style:italic}
+.fb-bars{display:flex;flex-direction:column;gap:7px}
+.fb-bar{display:grid;grid-template-columns:96px 1fr 54px;align-items:center;gap:9px;font-size:12px}
+.fb-bar em{font-style:normal;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fb-bar s{text-decoration:none;display:block;height:12px;background:#eef2fa;border-radius:3px;overflow:hidden}
+.fb-bar s i{display:block;height:100%;background:var(--blue-mid)}
+.fb-bar strong{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:var(--text)}
+table.fb-lb{width:100%;border-collapse:collapse;font-size:12px}
+table.fb-lb th{padding:0 8px 6px;text-align:right;font-size:9.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);background:none;cursor:default;white-space:nowrap}
+table.fb-lb th:nth-child(1),table.fb-lb th:nth-child(2){text-align:left}
+table.fb-lb td{padding:6px 8px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+table.fb-lb td.fb-rk{width:24px;text-align:left;color:var(--muted);font-weight:700}
+table.fb-lb tr.fb-top td.fb-rk{color:var(--gold-dk)}
+table.fb-lb td.fb-nm{text-align:left;font-weight:600;color:var(--text);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.fb-lb td.fb-mini{width:78px}
+table.fb-lb td.fb-mini s{text-decoration:none;display:block;height:8px;background:#eef2fa;border-radius:2px;overflow:hidden}
+table.fb-lb td.fb-mini s i{display:block;height:100%;background:var(--gold-dk)}
+.fb-foot{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--muted);padding-bottom:4px}
+.fb-link{color:var(--blue-mid);font-weight:700;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.fb-link:hover{color:var(--blue)}
+.fb-note{margin-left:auto;font-style:italic}
 </style>
 
 <div class="auth-bk hidden" id="authBk">
@@ -348,7 +403,8 @@ thead th.num.g-b{background:rgba(24,35,63,.045)}
 </div>
 
 <div class="tabs">
-  <div class="tab active" id="tabCity">🏙 City Summary</div>
+  <div class="tab active" id="tabFloor">📊 Floor Board</div>
+  <div class="tab"        id="tabCity">🏙 City Summary</div>
   <div class="tab"        id="tabAgent">👤 LRM View</div>
   <div class="tab"        id="tabAcademy">🎓 Training Academy</div>
   <div class="tab"        id="tabADOS">🗺 ADOS View</div>
@@ -376,7 +432,8 @@ thead th.num.g-b{background:rgba(24,35,63,.045)}
       <span class="fb-count" id="fCount"></span>
     </div>
   </div>
-  <div class="panel" id="cityPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="floorPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="cityPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="agentPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="academyPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="adosPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
@@ -396,7 +453,7 @@ thead th.num.g-b{background:rgba(24,35,63,.045)}
 </div>
 
 <script>
-var D = null, activeTab = 'city';
+var D = null, activeTab = 'floor';
 var AUTH = { token:'', clientId:'', required:false, email:'', ready:false };
 var F = { q:'', cities:[], tls:[], agents:[], band:'all', flag:'' };
 var citySort  = { col:'totalCalls', dir:-1 };
@@ -588,8 +645,8 @@ function setLoading() {
 
 function switchTab(name) {
   activeTab = name;
-  var map = { city:'tabCity', agent:'tabAgent', academy:'tabAcademy', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction' };
-  var panels = { city:'cityPanel', agent:'agentPanel', academy:'academyPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel' };
+  var map = { floor:'tabFloor', city:'tabCity', agent:'tabAgent', academy:'tabAcademy', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction' };
+  var panels = { floor:'floorPanel', city:'cityPanel', agent:'agentPanel', academy:'academyPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -598,7 +655,7 @@ function switchTab(name) {
 
 function renderActive() {
   if(!D) return;
-  buildKPI(); renderCity(); renderAgent(); renderAcademy(); renderRollup('ados'); renderRollup('zsm'); renderRollup('tl'); renderAction();
+  buildKPI(); renderFloor(); renderCity(); renderAgent(); renderAcademy(); renderRollup('ados'); renderRollup('zsm'); renderRollup('tl'); renderAction();
 }
 
 /* ── Sign-in ─────────────────────────────────────────────────────────────────
@@ -747,7 +804,7 @@ var ROLLUP_COLS = [
   {k:'activeLRM',    l:'LRMs',            t:'int'},
   {k:'callCount',    l:'Call Count',      t:'int',  g:'b'},
   {k:'connected',    l:'Connected',       t:'int',  g:'b'},
-  {k:'totalTTHr',    l:'Talk Time (hr)',  t:'dec'},
+  {k:'totalTTHr',    l:'Talk Time',       t:'hr'},
   {k:'avgTalkMin',   l:'Avg Talk (min)',  t:'dec'},
   {k:'uniqueDials',  l:'Unique Dials',    t:'int'},
   {k:'ttPerLRM',     l:'T.T / LRM (min)', t:'dec'},
@@ -780,6 +837,8 @@ var rollupOpen = { ados:{}, zsm:{}, tl:{} };
 
 function rollupFmt(v, t) {
   if (v === undefined || v === null || v === '') return '<span class="child-lbl">—</span>';
+  // Totals stay in hours; LRM-level rows are rendered in minutes at the call site.
+  if (t === 'hr') return (Math.round((Number(v)||0)*10)/10).toLocaleString('en-IN') + ' <span class="child-lbl">hr</span>';
   if (t === 'pct') {
     var p = Number(v) || 0;
     var hc = p >= 60 ? 'heat-hi' : p >= 35 ? 'heat-md' : 'heat-lo';
@@ -906,6 +965,12 @@ function rollupChildren(which, parent) {
     ROLLUP_COLS.forEach(function(c, i){
       if (i === 0) { out += '<td>' + esc(a['LRM Name'] || a['Agent Id'] || '') + '</td>'; return; }
       var src = A[c.k];
+      // An LRM's own talk time is minutes, not hours (user rule, 31 Aug).
+      if (c.k === 'totalTTHr') {
+        var mn = Math.round((Number(a[src])||0)*60);
+        out += '<td class="' + numCls(c, mn) + '">' + (mn ? fmt(mn) + ' <span class="child-lbl">min</span>' : '<span class="child-lbl">—</span>') + '</td>';
+        return;
+      }
       out += '<td class="' + numCls(c, src ? a[src] : '') + '">' +
              (src ? rollupFmt(a[src], c.t) : '<span class="child-lbl">—</span>') + '</td>';
     });
@@ -925,34 +990,38 @@ function buildKPI() {
     // On the Training Academy tab the strip mirrors the cohort: sum the filtered
     // academy rows (respects City/TL/LRM/band/flag/search within the cohort).
     var rows=filterAcademy(), citySet={};
-    t={totalCalls:0,uniqueDials:0,connected:0,totalTTHr:0,msToday:0,msT0:0,msT1:0};
+    t={totalCalls:0,uniqueDials:0,connected:0,realConnects:0,totalTTHr:0,msToday:0,msT0:0,msT1:0};
     rows.forEach(function(r){
       t.totalCalls +=Number(r['Call Count'])||0;
       t.uniqueDials+=Number(r['Unique Leads Dialed'])||0;
       t.connected  +=Number(r['Connected Calls'])||0;
       t.totalTTHr  +=Number(r['Total Talk Time'])||0;
+      t.realConnects+=Number(r['Real Connects (15s+)'])||0;
       t.msToday    +=Number(r['MS Today'])||0;
       t.msT0       +=Number(r['MS T+0'])||0;
       t.msT1       +=Number(r['MS T+1'])||0;
       if(r['City']) citySet[r['City']]=true;
     });
     t.connectPct=t.totalCalls>0?Math.round((t.connected/t.totalCalls)*10000)/100:0;
+    t.avgTalkMin=t.realConnects>0?Math.round((t.totalTTHr*60/t.realConnects)*10)/10:0;
     t.totalTTHr=Math.round(t.totalTTHr*10)/10;
     activeLRMs=rows.length; cities=Object.keys(citySet).length;
   } else if(filtersActive()){
     var rows=filterAgents(), citySet={};
-    t={totalCalls:0,uniqueDials:0,connected:0,totalTTHr:0,msToday:0,msT0:0,msT1:0};
+    t={totalCalls:0,uniqueDials:0,connected:0,realConnects:0,totalTTHr:0,msToday:0,msT0:0,msT1:0};
     rows.forEach(function(r){
       t.totalCalls +=Number(r['Call Count'])||0;
       t.uniqueDials+=Number(r['Unique Leads Dialed'])||0;
       t.connected  +=Number(r['Connected Calls'])||0;
       t.totalTTHr  +=Number(r['Total Talk Time'])||0;
+      t.realConnects+=Number(r['Real Connects (15s+)'])||0;
       t.msToday    +=Number(r['MS Today'])||0;
       t.msT0       +=Number(r['MS T+0'])||0;
       t.msT1       +=Number(r['MS T+1'])||0;
       if(r['City']) citySet[r['City']]=true;
     });
     t.connectPct=t.totalCalls>0?Math.round((t.connected/t.totalCalls)*10000)/100:0;
+    t.avgTalkMin=t.realConnects>0?Math.round((t.totalTTHr*60/t.realConnects)*10)/10:0;
     t.totalTTHr=Math.round(t.totalTTHr*10)/10;
     activeLRMs=rows.length; cities=Object.keys(citySet).length;
   } else {
@@ -1050,6 +1119,157 @@ MultiSelect.prototype.syncBtn = function() {
 
 // The rollup tabs (ZSM / TL View) do not honour the F filter state, so showing the
 // controls there would be a lie. Single place that decides the bar's visibility.
+
+/* ── Floor Board ───────────────────────────────────────────────────────────────
+   Direction 01 of the mock-ups: four hero numbers, a five-item strip, dials by
+   city and a top-7 leaderboard. Everything here is derived from data the sheet
+   already carries (no new backend), and it honours the filter bar + viewer scope
+   because it reads filterAgents(). The hourly dial curve from the mock-up needs
+   intra-day grain the sheet does not have yet, so the same slot shows dials by
+   city until an \'hourly\' tab exists. */
+var FLOOR_TARGET = { callsPerLRM:150, talkMinPerLRM:120, shiftStart:9, shiftEnd:19 };
+function shiftPace(){
+  var d = istNow(), mins = d.getUTCHours()*60 + d.getUTCMinutes();
+  var st = FLOOR_TARGET.shiftStart*60, en = FLOOR_TARGET.shiftEnd*60;
+  return Math.max(0, Math.min(1, (mins - st) / (en - st)));
+}
+
+/* Hourly achievement. Renders the real per-hour curve when the sheet carries an
+   \'hourly\' tab (api/dashboard.js returns it as D.hourlyRows: {hour, calls}), and
+   falls back to dials-by-city until that exists - the daily sheet has no
+   intra-day grain. Target line = the day's dial target spread evenly over the
+   09:00-19:00 shift. */
+function hourlyBox(rows, target, cityBars){
+  var hrs = D.hourlyRows || D.hourly || null;
+  if(!hrs || !hrs.length){
+    return '<h4>Dials by city</h4><div class="fb-bars">'+cityBars+'</div>'
+         + '<div class="fb-hrnote">Hourly achievement needs the \'hourly\' sheet tab &mdash; showing dials by city until then.</div>';
+  }
+  var byHour = {};
+  hrs.forEach(function(r){
+    var hv = r.hour !== undefined ? r.hour : (r['Hour'] !== undefined ? r['Hour'] : r['hour']);
+    var hn = parseInt(String(hv).slice(0,2), 10);
+    if(isNaN(hn)) return;
+    var c = Number(r.calls !== undefined ? r.calls : r['Call Count'])||0;
+    byHour[hn] = (byHour[hn]||0) + c;
+  });
+  var start = FLOOR_TARGET.shiftStart, end = FLOOR_TARGET.shiftEnd, span = end - start;
+  var perHour = span > 0 ? target/span : 0;
+  var nowH = istNow().getUTCHours();
+  var vals = [], i;
+  for(i = start; i < end; i++) vals.push({ h:i, v:byHour[i]||0 });
+  // 1.15 headroom keeps the target line off the container's top edge, so it never
+  // reads as a chart border and its label can never escape the plot.
+  var vmax = (Math.max(perHour, vals.reduce(function(m,x){ return Math.max(m,x.v); }, 0)) || 1) * 1.15;
+  var cols = vals.map(function(x){
+    var cls = x.h > nowH ? ' class="future"' : (x.h === nowH ? ' class="now"' : '');
+    return '<div class="fb-hr"><b>'+(x.v?fmt(x.v):'')+'</b>'
+         + '<s'+cls+' style="height:'+Math.max(1,(x.v/vmax*100)).toFixed(1)+'%"></s>'
+         + '<em>'+String(x.h).padStart(2,'0')+'</em></div>';
+  }).join('');
+  var hit = vals.filter(function(x){ return x.h <= nowH && x.v >= perHour; }).length;
+  var elapsed = Math.max(0, Math.min(span, nowH + 1 - start));
+  return '<h4>Hourly achievement &mdash; dials vs '+Math.round(perHour)+'/hr target</h4>'
+       + '<div class="fb-hrs"><div class="fb-tline" style="bottom:'+((perHour/vmax)*100).toFixed(1)+'%"><span>'+Math.round(perHour)+'</span></div>'+cols+'</div>'
+       + '<div class="fb-hrnote"><b>'+hit+' of '+elapsed+'</b> hours so far at or above target.</div>';
+}
+
+function renderFloor(){
+  var el = document.getElementById('floorPanel');
+  if(!el || !D) return;
+  var rows = filterAgents(), n = function(r,k){ return Number(r[k])||0; };
+  var s = { dials:0, conn:0, tt:0, ms:0, md:0, gt2:0, rc:0, onfloor:0 }, cityMap = {};
+  rows.forEach(function(r){
+    var c = n(r,'Call Count');
+    s.dials += c; s.conn += n(r,'Connected Calls'); s.tt += n(r,'Total Talk Time');
+    s.ms += n(r,'MS Today'); s.md += n(r,'Meeting Done'); s.gt2 += n(r,'Calls >2min');
+    s.rc += n(r,'Real Connects (15s+)');
+    if(c > 0) s.onfloor++;
+    var city = r['City'] || '—';
+    cityMap[city] = (cityMap[city]||0) + c;
+  });
+  // Unfiltered, defer to the server-computed figure so the board can never disagree
+  // with the KPI strip above it; recompute only when filters narrow the row set.
+  var avgTalk = (!filtersActive() && D.totals && D.totals.avgTalkMin != null)
+    ? Number(D.totals.avgTalkMin)
+    : (s.rc > 0 ? Math.round((s.tt*60/s.rc)*10)/10 : 0);
+  var connPct = s.dials > 0 ? Math.round(s.conn/s.dials*1000)/10 : 0;
+  var gt2Pct  = s.conn  > 0 ? Math.round(s.gt2/s.conn*1000)/10  : 0;
+  var mdPct   = s.ms    > 0 ? Math.round(s.md/s.ms*100) : 0;
+  // Targets are per-LRM constants agreed with ops, scaled by the LRMs in view -
+  // NOT the sheet's Ex.Call Count column, so the board reads the same whichever
+  // slice you filter to.
+  var lrmN   = rows.length;
+  var target = lrmN * FLOOR_TARGET.callsPerLRM;
+  var progress = target > 0 ? s.dials/target : 0;
+  var ttTargetHr = lrmN * FLOOR_TARGET.talkMinPerLRM / 60;
+  var ttProgress = ttTargetHr > 0 ? s.tt/ttTargetHr : 0;
+  var pace = shiftPace();
+
+  var dialTrk = target > 0
+    ? '<div class="fb-trk"><i style="width:'+Math.min(100,progress*100).toFixed(1)+'%"></i><u style="left:'+(pace*100).toFixed(1)+'%"></u></div>'
+      + '<div class="fb-sub"><b>'+Math.round(progress*100)+'%</b> of '+fmt(target)+' &middot; '
+      + FLOOR_TARGET.callsPerLRM+'/LRM &times; '+fmt(lrmN)+' &middot; pace notch '+Math.round(pace*100)+'%</div>'
+    : '<div class="fb-trk"><i style="width:100%"></i></div><div class="fb-sub">no LRMs in this range</div>';
+
+  var cityList = Object.keys(cityMap).map(function(k){ return {k:k, v:cityMap[k]}; })
+                   .sort(function(a,b){ return b.v-a.v; }).slice(0,8);
+  var cmax = cityList.length ? cityList[0].v : 1;
+  var bars = cityList.map(function(c){
+    return '<div class="fb-bar"><em title="'+esc(c.k)+'">'+esc(c.k)+'</em>'
+         + '<s><i style="width:'+Math.max(2,(c.v/cmax*100)).toFixed(1)+'%"></i></s>'
+         + '<strong>'+fmt(c.v)+'</strong></div>';
+  }).join('') || '<div class="fb-sub">No dials in this range.</div>';
+
+  var lb = rows.slice().sort(function(a,b){ return n(b,'Call Count')-n(a,'Call Count'); }).slice(0,7);
+  var lmax = lb.length ? n(lb[0],'Call Count') : 1;
+  var lbRows = lb.map(function(r,i){
+    return '<tr'+(i<3?' class="fb-top"':'')+'><td class="fb-rk">'+(i+1)+'</td>'
+         + '<td class="fb-nm">'+esc(r['LRM Name'] || agentName(r['Agent Id']))+'</td>'
+         + '<td>'+fmt(n(r,'Call Count'))+'</td><td>'+fmt(n(r,'Connected Calls'))+'</td>'
+         + '<td>'+fmt(n(r,'MS Today'))+'</td>'
+         + '<td class="fb-mini"><s><i style="width:'+Math.max(2,(n(r,'Call Count')/(lmax||1)*100)).toFixed(1)+'%"></i></s></td></tr>';
+  }).join('') || '<tr><td colspan="6" class="fb-sub">No LRMs in this range.</td></tr>';
+
+  var now = istNow();
+  var asOf = String(now.getUTCHours()).padStart(2,'0')+':'+String(now.getUTCMinutes()).padStart(2,'0');
+
+  el.innerHTML =
+    '<div class="fb-wrap">'
+    + '<div class="fb-stamp"><span class="fb-live">AS OF '+asOf+' IST</span>'
+    + '<span>'+esc(D.dateLabel||'')+' &middot; <b>'+fmt(rows.length)+'</b> LRMs in view'
+    + (filtersActive()?' (filtered)':'')+' &middot; data refreshes every 15 min from the sheet</span></div>'
+    + '<div class="fb-hero">'
+    +   '<div class="fb-card"><div class="fb-lab">Dials today</div><div class="fb-num">'+fmt(s.dials)+'</div>'+dialTrk+'</div>'
+    +   '<div class="fb-card"><div class="fb-lab">Connected calls</div><div class="fb-num">'+fmt(s.conn)+'</div>'
+    +     '<div class="fb-trk"><i class="green" style="width:'+Math.min(100,connPct).toFixed(1)+'%"></i></div>'
+    +     '<div class="fb-sub"><b>'+connPct+'%</b> of dials connected</div></div>'
+    +   '<div class="fb-card"><div class="fb-lab">Talk time</div><div class="fb-num">'+fmt(Math.round(s.tt*10)/10)+'<u>hr</u></div>'
+    +     '<div class="fb-trk"><i class="gold" style="width:'+Math.min(100,ttProgress*100).toFixed(1)+'%"></i><u style="left:'+(pace*100).toFixed(1)+'%"></u></div>'
+    +     '<div class="fb-sub"><b>'+Math.round(ttProgress*100)+'%</b> of '+FLOOR_TARGET.talkMinPerLRM+' min/LRM &middot; avg <b>'+avgTalk+' min</b> per connect</div></div>'
+    +   '<div class="fb-card"><div class="fb-lab">Meetings scheduled</div><div class="fb-num">'+fmt(s.ms)+'</div>'
+    +     '<div class="fb-trk"><i style="width:'+Math.min(100,mdPct).toFixed(1)+'%"></i></div>'
+    +     '<div class="fb-sub"><b>'+fmt(s.md)+'</b> closures logged today (MD)</div></div>'
+    + '</div>'
+    + '<div class="fb-strip">'
+    +   '<div><b>'+fmt(s.onfloor)+' / '+fmt(rows.length)+'</b><span>LRMs on floor</span></div>'
+    +   '<div><b>'+avgTalk+'</b><span>Avg talk (min)</span></div>'
+    +   '<div><b>'+fmt(s.gt2)+'</b><span>Calls over 2 min</span></div>'
+    +   '<div><b>'+fmt(s.md)+'</b><span>MD (closures today)</span></div>'
+    +   '<div><b>'+(target>0?Math.round(progress*100)+'%':'—')+'</b><span>Target progress</span></div>'
+    + '</div>'
+    + '<div class="fb-cols">'
+    +   '<div class="fb-box">'+hourlyBox(rows, target, bars)+'</div>'
+    +   '<div class="fb-box"><h4>Top 7 LRMs by dials</h4><table class="fb-lb">'
+    +     '<tr><th></th><th>LRM</th><th>Dials</th><th>Conn</th><th>MS</th><th></th></tr>'+lbRows+'</table></div>'
+    + '</div>'
+    + '<div class="fb-foot"><span class="fb-link" id="fbToTable">Details &mdash; full LRM table &rsaquo;</span>'
+    +   '<span class="fb-note">MD is dated by closure date, so it will not tie to MS Today on this board.</span></div>'
+    + '</div>';
+  var lnk = document.getElementById('fbToTable');
+  if(lnk) lnk.onclick = function(){ switchTab('agent'); };
+}
+
 function syncFilterBar() {
   var bar = document.getElementById('filterbar');
   if (!bar) return;
@@ -1167,7 +1387,7 @@ function renderAgent() {
 }
 
 function setCount(txt){var el=document.getElementById('fCount');if(el)el.textContent=txt;}
-function colLabel(c){if(c==='Agent Id')return 'LRM';if(c==='TL Name')return 'Team Lead';if(c==='Total Talk Time')return 'Talk Time (hr)';if(c==='Avg. Talk Time')return 'Avg Talk (min)';if(c==='Avg. Handling Time')return 'Avg Handling (min)';if(c==='Avg Daily Dials')return 'Avg Daily Dials';return c;}
+function colLabel(c){if(c==='Agent Id')return 'LRM';if(c==='TL Name')return 'Team Lead';if(c==='Total Talk Time')return 'Talk Time (min)';if(c==='Avg. Talk Time')return 'Avg Talk (min)';if(c==='Avg. Handling Time')return 'Avg Handling (min)';if(c==='Avg Daily Dials')return 'Avg Daily Dials';return c;}
 
 /* ── Training Academy (fixed cohort, all agent columns + Avg Daily Dials) ── */
 function filterAcademy(){
@@ -1219,7 +1439,7 @@ function agentCell(col,r,maxScore){
   if(col==='Delta')     return deltaCell(v);
   if(col==='Final Rank')return rankBadge(v);
   if(col==='Score'){ var n=Number(v)||0,pct=maxScore>0?Math.round(n/maxScore*100):0; return '<div class="score-wrap"><div class="score-bar"><div class="score-fill" style="width:'+pct+'%"></div></div><span class="score-num">'+Math.round(n)+'</span></div>'; }
-  if(col==='Total Talk Time'){var hr=Number(v)||0;return hr>0?hr.toFixed(1):'—';}
+  if(col==='Total Talk Time'){var mn=Math.round((Number(v)||0)*60);return mn>0?fmt(mn):'—';}
   return fmtCell(v);
 }
 function pctBadge(v){var p=Number(v)||0,cls=p>=50?'badge-high':p>=35?'badge-mid':'badge-low';return '<span class="badge '+cls+'">'+(p%1===0?p:p.toFixed(1))+'%</span>';}
