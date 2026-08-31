@@ -379,15 +379,18 @@ export default async function handler(req, res) {
           if (!email || !known.has(email)) continue;
           const hr = parseInt(String(r[hiHour]).slice(0, 2), 10);
           if (isNaN(hr)) continue;
-          const a = acc[hr] || (acc[hr] = { hour: hr, calls: 0, connected: 0, talkHr: 0 });
+          // Keyed by agent + hour (not hour alone) so the frontend can re-aggregate
+          // under the filter bar - ADOS / ZSM / City / TL / LRM all narrow this.
+          const k = email + '|' + hr;
+          const a = acc[k] || (acc[k] = { agent: email, hour: hr, calls: 0, connected: 0, talkHr: 0 });
           a.calls     += num(r[hiCalls]);
           a.connected += num(r[hiConn]);
           a.talkHr    += num(r[hiTT]);
         }
         hourlyRows = Object.keys(acc).map(k => {
           const a = acc[k];
-          return { hour: a.hour, calls: a.calls, connected: a.connected, talkHr: Math.round(a.talkHr * 100) / 100 };
-        }).sort((x, y) => x.hour - y.hour);
+          return { agent: a.agent, hour: a.hour, calls: a.calls, connected: a.connected, talkHr: Math.round(a.talkHr * 100) / 100 };
+        }).sort((x, y) => x.hour - y.hour || x.agent.localeCompare(y.agent));
       }
     } catch (e) {
       console.warn('No hourly tab: ' + e.message);
