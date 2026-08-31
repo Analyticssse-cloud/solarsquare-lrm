@@ -749,7 +749,8 @@ var ROLLUP_COLS = [
   {k:'connected',    l:'Connected',       t:'int',  g:'b'},
   {k:'totalTTHr',    l:'Talk Time (hr)',  t:'dec'},
   {k:'avgTalkMin',   l:'Avg Talk (min)',  t:'dec'},
-  {k:'ttPerLRM',     l:'T.T / LRM (hr)',  t:'dec2'},
+  {k:'uniqueDials',  l:'Unique Dials',    t:'int'},
+  {k:'ttPerLRM',     l:'T.T / LRM (min)', t:'dec'},
   {k:'callsPerLRM',  l:'Calls / LRM',     t:'int'},
   {k:'msToday',      l:'MS Today',        t:'int',  g:'b'},
   {k:'msT0',         l:'MS T+0',          t:'int',  g:'b'},
@@ -897,7 +898,8 @@ function rollupChildren(which, parent) {
     calls1to2:'Calls 1-2min', callsGt2:'Calls >2min', msToday:'MS Today', msT0:'MS T+0',
     msT1:'MS T+1', msT2:'MS T+2', meetingDone:'Meeting Done', msLt1:'MS on Calls <1min',
     ms1to2:'MS on Calls 1-2min', msGt2min:'MS on Calls >2min', msNoCall:'MS - No Tracked Call',
-    msTrackedPct:null, callsPerLRM:null, ttPerLRM:null, avgTalkMin:'Avg. Talk Time'
+    msTrackedPct:null, callsPerLRM:null, ttPerLRM:null, avgTalkMin:'Avg. Talk Time',
+    uniqueDials:'Unique Leads Dialed'
   };
   agents.forEach(function(a){
     out += '<tr class="child-row">';
@@ -1165,7 +1167,7 @@ function renderAgent() {
 }
 
 function setCount(txt){var el=document.getElementById('fCount');if(el)el.textContent=txt;}
-function colLabel(c){if(c==='Agent Id')return 'LRM';if(c==='TL Name')return 'Team Lead';if(c==='Total Talk Time')return 'Talk Time (hr)';if(c==='Avg Daily Dials')return 'Avg Daily Dials';return c;}
+function colLabel(c){if(c==='Agent Id')return 'LRM';if(c==='TL Name')return 'Team Lead';if(c==='Total Talk Time')return 'Talk Time (hr)';if(c==='Avg. Talk Time')return 'Avg Talk (min)';if(c==='Avg. Handling Time')return 'Avg Handling (min)';if(c==='Avg Daily Dials')return 'Avg Daily Dials';return c;}
 
 /* ── Training Academy (fixed cohort, all agent columns + Avg Daily Dials) ── */
 function filterAcademy(){
