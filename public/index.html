@@ -543,6 +543,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   document.getElementById('btnApplyDates').addEventListener('click', loadData);
   document.getElementById('btnPDF').addEventListener('click', downloadPDF);
+  document.getElementById('tabFloor').addEventListener('click', function(){ switchTab('floor'); });
   document.getElementById('tabCity').addEventListener('click',  function(){ switchTab('city'); });
   document.getElementById('tabAgent').addEventListener('click', function(){ switchTab('agent'); });
   document.getElementById('tabAcademy').addEventListener('click', function(){ switchTab('academy'); });
@@ -581,6 +582,9 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeActModal(); });
 
   startAutoRefresh();
+  // The board carries a clock (as-of stamp, current-hour bar, pace notch), so it
+  // re-renders every 60s even between the 15-min data pulls.
+  setInterval(function(){ if (D && activeTab === 'floor') renderFloor(); }, 60000);
   bootAuth();
 });
 
@@ -1242,9 +1246,10 @@ function renderFloor(){
     return '<tr'+(i<3?' class="fb-top"':'')+'><td class="fb-rk">'+(i+1)+'</td>'
          + '<td class="fb-nm">'+esc(r['LRM Name'] || agentName(r['Agent Id']))+'</td>'
          + '<td>'+fmt(n(r,'Call Count'))+'</td><td>'+fmt(n(r,'Connected Calls'))+'</td>'
+         + '<td>'+fmt(Math.round(n(r,'Total Talk Time')*60))+'</td>'
          + '<td>'+fmt(n(r,'MS Today'))+'</td>'
          + '<td class="fb-mini"><s><i style="width:'+Math.max(2,(n(r,'Call Count')/(lmax||1)*100)).toFixed(1)+'%"></i></s></td></tr>';
-  }).join('') || '<tr><td colspan="6" class="fb-sub">No LRMs in this range.</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="fb-sub">No LRMs in this range.</td></tr>';
 
   var now = istNow();
   var asOf = String(now.getUTCHours()).padStart(2,'0')+':'+String(now.getUTCMinutes()).padStart(2,'0');
@@ -1258,7 +1263,7 @@ function renderFloor(){
     +   '<div class="fb-card"><div class="fb-lab">Dials today</div><div class="fb-num">'+fmt(s.dials)+'</div>'+dialTrk+'</div>'
     +   '<div class="fb-card"><div class="fb-lab">Connected calls</div><div class="fb-num">'+fmt(s.conn)+'</div>'
     +     '<div class="fb-trk"><i class="green" style="width:'+Math.min(100,connPct).toFixed(1)+'%"></i></div>'
-    +     '<div class="fb-sub"><b>'+connPct+'%</b> of dials connected</div></div>'
+    +     '</div>'
     +   '<div class="fb-card"><div class="fb-lab">Talk time</div><div class="fb-num">'+fmt(Math.round(s.tt*10)/10)+'<u>hr</u></div>'
     +     '<div class="fb-trk"><i class="gold" style="width:'+Math.min(100,ttProgress*100).toFixed(1)+'%"></i><u style="left:'+(pace*100).toFixed(1)+'%"></u></div>'
     +     '<div class="fb-sub"><b>'+Math.round(ttProgress*100)+'%</b> of '+FLOOR_TARGET.talkMinPerLRM+' min/LRM &middot; avg <b>'+avgTalk+' min</b> per connect</div></div>'
@@ -1276,7 +1281,7 @@ function renderFloor(){
     + '<div class="fb-cols">'
     +   '<div class="fb-box">'+hourlyBox(rows, target, bars)+'</div>'
     +   '<div class="fb-box"><h4>Top 7 LRMs by dials</h4><table class="fb-lb">'
-    +     '<tr><th></th><th>LRM</th><th>Dials</th><th>Conn</th><th>MS</th><th></th></tr>'+lbRows+'</table></div>'
+    +     '<tr><th></th><th>LRM</th><th>Dials</th><th>Conn</th><th>TT (min)</th><th>MS</th><th></th></tr>'+lbRows+'</table></div>'
     + '</div>'
     + '<div class="fb-foot"><span class="fb-link" id="fbToTable">Details &mdash; full LRM table &rsaquo;</span>'
     +   '<span class="fb-note">MD is dated by closure date, so it will not tie to MS Today on this board.</span></div>'
