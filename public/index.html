@@ -175,6 +175,26 @@
     .act-seg button:hover { color: var(--blue); }
     .act-seg button.on { background: var(--blue); color: #fff; }
     .act-note { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .dist-wrap { overflow: auto; flex: 1 1 auto; min-height: 0; }
+    .dist-lead { font-size: 11px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; }
+    .dist-lead b { color: var(--text); }
+    .dist-lvl { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+    .dist-lvl button { border: none; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 700; padding: 5px 14px; cursor: pointer; }
+    .dist-lvl button:hover { color: var(--blue); }
+    .dist-lvl button.on { background: var(--blue-mid); color: #fff; }
+    table.dist { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    table.dist th { position: sticky; top: 0; z-index: 2; background: #eef2fb; color: var(--muted); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; font-weight: 800; text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    table.dist th.g1 { background: #efeaf7; } table.dist th.g2 { background: #e6f3f9; } table.dist th.g3 { background: #fdf0e4; }
+    table.dist th:first-child, table.dist td:first-child { text-align: left; }
+    table.dist td { text-align: right; padding: 7px 10px; border-bottom: 1px solid #f1f4fa; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    table.dist tr:last-child td { border-bottom: none; }
+    table.dist td.nm { font-weight: 700; color: var(--blue); }
+    table.dist tr.dist-total td { background: #f7f9ff; font-weight: 800; border-top: 2px solid var(--border); }
+    table.dist td.bad { color: var(--red); font-weight: 800; }
+    table.dist td.ok { color: var(--green, #1e8e5a); font-weight: 700; }
+    table.dist td.sep { border-left: 1px solid var(--border); }
+    table.dist td.clk { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+    table.dist td.clk:hover { background: #eef2fb; color: var(--blue); }
     .action-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-content: start; align-items: start; overflow-y: auto; flex: 1 1 auto; min-height: 0; padding-bottom: 4px; }
     .acard { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; }
     .acard-hd { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
@@ -471,6 +491,9 @@ var TRAINING_ACADEMY = ['ajit.raut','magesh.m','robin.kamble','harshith.kumar','
 var countdownTimer = null, countdownSecs = 0;
 var MS = {};  // multi-select instances by key
 var actScope = 'agent';
+var distLevel = 'ados';
+/* Distribution ("who is below the bar"), not averages. Present = made more than PRESENT_MIN calls. */
+var DIST = { presentMin:10, dial:150, ttMin:120, ms:10 };
 var ACT = { connectTarget:35, lowVol:30, scoreTarget:50, bottomN:10, dialRatio:1.8, talkShortFactor:0.6, handleHighFactor:1.5, connectCityTarget:40, callsPerLRM:50, cityTalkFactor:0.6 };
 
 var CITY_COLS = [
@@ -1543,6 +1566,77 @@ function computeCityActions(rows){
     {key:'citytalk', title:'Talk-time outlier city',      sev:'sev-info', desc:'Talk time per connect well below the median city.',       action:'Check call quality — short connects across the city.', agents:talkOut}
   ];
 }
+/* ── Distribution view: counts of LRMs BELOW each bar, per manager ── */
+function computeDistribution(rows, level){
+  var num=function(r,k){return Number(r[k])||0;};
+  var keyOf={ados:function(r){return r['ADOS Name'];},zsm:function(r){return r['ZSM Name'];},tl:function(r){return r['TL Name']||(r['TL']?agentName(r['TL']):'');},overall:function(){return 'All LRMs in view';}}[level];
+  var g={},order=[];
+  rows.forEach(function(r){
+    var k=String(keyOf(r)||'').trim()||'— Unmapped —';
+    if(!g[k]){ g[k]={name:k,onroll:0,present:0,lowDial:0,lowTT:0,lowMS:0}; order.push(k); }
+    var b=g[k]; b.onroll++;
+    if(num(r,'Call Count')>DIST.presentMin){
+      b.present++;
+      if(num(r,'Call Count')<DIST.dial) b.lowDial++;
+      if(num(r,'Total Talk Time')*60<DIST.ttMin) b.lowTT++;
+      if(num(r,'MS Today')<DIST.ms) b.lowMS++;
+    }
+  });
+  var out=order.map(function(k){return g[k];});
+  out.sort(function(a,b){ var pa=a.present?a.lowDial/a.present:0, pb=b.present?b.lowDial/b.present:0; return pb-pa || b.present-a.present; });
+  return out;
+}
+function distPctCell(n,d){ if(!d) return '<td>—</td>'; var p=Math.round(n/d*100); return '<td class="'+(p>=25?'bad':(p<=10?'ok':''))+'">'+p+'%</td>'; }
+function renderDistribution(rows){
+  var levels=[['overall','Our level'],['ados','AD'],['zsm','ZSM'],['tl','TL']];
+  var seg='<div class="dist-lvl">'+levels.map(function(l){return '<button data-lvl="'+l[0]+'" class="'+(distLevel===l[0]?'on':'')+'">'+l[1]+'</button>';}).join('')+'</div>';
+  var lead='<div class="dist-lead">Measure the <b>distribution</b>, not the average. A team averaging 200 dials can still hide an LRM at 100 — this counts the LRMs <b>below the bar</b> so they can be held accountable. Population = LRMs with more than <b>'+DIST.presentMin+' calls</b> today (Present). Bars: <b>'+DIST.dial+' dials</b>, <b>'+DIST.ttMin+' min talk time</b>, <b>'+DIST.ms+' meetings scheduled</b>.</div>';
+  var g=computeDistribution(rows,distLevel);
+  var tot={name:'Total',onroll:0,present:0,lowDial:0,lowTT:0,lowMS:0};
+  g.forEach(function(b){ tot.onroll+=b.onroll; tot.present+=b.present; tot.lowDial+=b.lowDial; tot.lowTT+=b.lowTT; tot.lowMS+=b.lowMS; });
+  var hdName={overall:'Scope',ados:'AD',zsm:'ZSM',tl:'Team Lead'}[distLevel];
+  var row=function(b,cls){
+    var g=cls?'__ALL__':b.name;
+    var cell=function(n,metric,sep){ return '<td class="'+(sep?'sep ':'')+(n?'clk':'')+'" data-grp="'+esc(g)+'" data-met="'+metric+'">'+n+'</td>'; };
+    return '<tr class="'+(cls||'')+'"><td class="nm">'+esc(b.name)+'</td><td>'+b.onroll+'</td>'
+      + cell(b.present,'present')
+      + cell(b.lowDial,'dial',1)+distPctCell(b.lowDial,b.present)
+      + cell(b.lowTT,'tt',1)+distPctCell(b.lowTT,b.present)
+      + cell(b.lowMS,'ms',1)+distPctCell(b.lowMS,b.present)+'</tr>';
+  };
+  var head='<tr><th>'+hdName+'</th><th>Onroll LRM</th><th>Present LRM</th>'
+    + '<th class="g1 sep">#LRM &lt;'+DIST.dial+' Dial</th><th class="g1">%age</th>'
+    + '<th class="g2 sep">#LRM &lt;'+DIST.ttMin+' min TT</th><th class="g2">%age</th>'
+    + '<th class="g3 sep">#LRM &lt;'+DIST.ms+' MS</th><th class="g3">%age</th></tr>';
+  var body=g.length?g.map(function(b){return row(b);}).join('')+(g.length>1?row(tot,'dist-total'):''):'<tr><td colspan="9" class="fb-sub" style="text-align:center;padding:20px">No LRMs in this range.</td></tr>';
+  return lead+seg+'<div class="dist-wrap"><table class="dist">'+head+body+'</table></div>';
+}
+var DIST_MET={
+  present:{title:'Present LRMs',   sev:'sev-info', desc:'LRMs with more than '+0+' calls today.', action:'Population used for every percentage below.', pass:function(n,r){return true;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
+  dial:   {title:'Below dial bar', sev:'sev-high', desc:'', action:'Hold accountable for the dial gap — not the team average.', pass:function(n,r){return n(r,'Call Count')<DIST.dial;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
+  tt:     {title:'Below talk-time bar', sev:'sev-mid', desc:'', action:'Check conversation depth, not just dial count.',        pass:function(n,r){return n(r,'Total Talk Time')*60<DIST.ttMin;}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
+  ms:     {title:'Below meetings bar',  sev:'sev-high',desc:'', action:'Coach on pitch and conversion.',                         pass:function(n,r){return n(r,'MS Today')<DIST.ms;}, sortVal:function(n,r){return n(r,'MS Today');}, metric:function(n,r){return n(r,'MS Today')+' MS';}}
+};
+function openDistModal(grp,met){
+  var cfg=DIST_MET[met]; if(!cfg) return;
+  var num=function(r,k){return Number(r[k])||0;};
+  var keyOf={ados:function(r){return r['ADOS Name'];},zsm:function(r){return r['ZSM Name'];},tl:function(r){return r['TL Name']||(r['TL']?agentName(r['TL']):'');},overall:function(){return 'All LRMs in view';}}[distLevel];
+  var list=filterAgents().filter(function(r){
+    if(num(r,'Call Count')<=DIST.presentMin) return false;
+    if(grp!=='__ALL__' && (String(keyOf(r)||'').trim()||'— Unmapped —')!==grp) return false;
+    return cfg.pass(num,r);
+  }).sort(function(a,b){ return cfg.sortVal(num,a)-cfg.sortVal(num,b); }).map(function(r){
+    return {name:agentName(r['Agent Id']),city:(String(keyOf(r)||'').trim()||'—')+' · '+(r['City']||'—'),metric:cfg.metric(num,r)};
+  });
+  var bars={present:'more than '+DIST.presentMin+' calls',dial:'under '+DIST.dial+' dials',tt:'under '+DIST.ttMin+' min talk time',ms:'under '+DIST.ms+' meetings scheduled'};
+  var bk=document.getElementById('actModalBk');
+  bk.querySelector('.am-sev').className='acard-sev am-sev '+cfg.sev;
+  bk.querySelector('.am-title').textContent=cfg.title+(grp==='__ALL__'?' — all':' — '+grp);
+  var cnt=bk.querySelector('.am-count'); cnt.textContent=list.length; cnt.className='am-count '+cfg.sev;
+  bk.querySelector('.am-sub').innerHTML='LRMs '+esc(bars[met])+'. &nbsp;·&nbsp; <b>Do:</b> '+esc(cfg.action);
+  bk.querySelector('.am-list').innerHTML=list.length?list.map(function(a){return '<div class="arow"><span class="arow-name" title="'+esc(a.name)+'">'+esc(a.name)+'</span><span class="arow-city">'+esc(a.city)+'</span><span class="arow-metric '+cfg.sev+'">'+esc(a.metric)+'</span></div>';}).join(''):'<div class="empty">No LRMs here.</div>';
+  bk.classList.add('open');
+}
 var actBuckets=[];
 function renderAction(){
   if(!D) return;
@@ -1553,7 +1647,16 @@ function renderAction(){
   actBuckets=(isCity?computeCityActions(filterCities()):computeAgentActions(filterAgents())).filter(function(b){return b.agents.length;});
   var flagged={}; actBuckets.forEach(function(b){b.agents.forEach(function(a){flagged[a.id]=1;});});
   if(activeTab==='action') setCount(Object.keys(flagged).length+' of '+srcCount+' '+unit+' flagged');
-  var head='<div class="act-head"><div class="act-seg"><button data-scope="agent" class="'+(isCity?'':'on')+'">LRM-wise</button><button data-scope="city" class="'+(isCity?'on':'')+'">City-wise</button></div><span class="act-note">'+Object.keys(flagged).length+' '+unit+' need attention · click a card for details</span></div>';
+  var isDist=actScope==='dist';
+  var head='<div class="act-head"><div class="act-seg"><button data-scope="agent" class="'+(actScope==='agent'?'on':'')+'">LRM-wise</button><button data-scope="city" class="'+(isCity?'on':'')+'">City-wise</button><button data-scope="dist" class="'+(isDist?'on':'')+'">Distribution</button></div><span class="act-note">'+(isDist?'Counts of LRMs below the bar — click any number for the names':Object.keys(flagged).length+' '+unit+' need attention · click a card for details')+'</span></div>';
+  if(isDist){
+    panel.innerHTML=head+renderDistribution(filterAgents());
+    if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
+    panel.querySelectorAll('.act-seg button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); actScope=btn.getAttribute('data-scope'); renderAction(); }); });
+    panel.querySelectorAll('.dist-lvl button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); distLevel=btn.getAttribute('data-lvl'); renderAction(); }); });
+    panel.querySelectorAll('table.dist td.clk').forEach(function(td){ td.addEventListener('click',function(){ openDistModal(td.getAttribute('data-grp'),td.getAttribute('data-met')); }); });
+    return;
+  }
   var body;
   if(!actBuckets.length){ body='<div class="empty">✓ No action items — everything in view is on track.</div>'; }
   else {
@@ -1597,11 +1700,21 @@ function downloadPDF(){
   var viewName, tblHTML;
   if(activeTab==='action'){
     var isCity=actScope==='city';
+    if(actScope==='dist'){
+      var dg=computeDistribution(filterAgents(),distLevel);
+      var dhd={overall:'Scope',ados:'AD',zsm:'ZSM',tl:'Team Lead'}[distLevel];
+      viewName='Action Center · Distribution ('+dhd+')';
+      var pct=function(n,d){return d?Math.round(n/d*100)+'%':'—';};
+      tblHTML='<table><thead><tr><th>'+dhd+'</th><th>Onroll LRM</th><th>Present LRM</th><th>#LRM &lt;'+DIST.dial+' Dial</th><th>%age</th><th>#LRM &lt;'+DIST.ttMin+' min TT</th><th>%age</th><th>#LRM &lt;'+DIST.ms+' MS</th><th>%age</th></tr></thead><tbody>'
+        + dg.map(function(b){return '<tr><td>'+esc(b.name)+'</td><td>'+b.onroll+'</td><td>'+b.present+'</td><td>'+b.lowDial+'</td><td>'+pct(b.lowDial,b.present)+'</td><td>'+b.lowTT+'</td><td>'+pct(b.lowTT,b.present)+'</td><td>'+b.lowMS+'</td><td>'+pct(b.lowMS,b.present)+'</td></tr>';}).join('')
+        + '</tbody></table>';
+    } else {
     var abk=(isCity?computeCityActions(filterCities()):computeAgentActions(filterAgents())).filter(function(b){return b.agents.length;});
     if(!abk.length){alert('No action items to export — everything is on track.');return;}
     viewName='Action Center · '+(isCity?'Cities':'LRMs');
     var trs=abk.map(function(b){return b.agents.map(function(a){return '<tr><td>'+esc(a.name)+'</td><td>'+esc(a.city)+'</td><td>'+esc(b.title)+'</td><td>'+esc(a.metric)+'</td><td>'+esc(b.action)+'</td></tr>';}).join('');}).join('');
     tblHTML='<table><thead><tr><th>'+(isCity?'City':'LRM')+'</th><th>'+(isCity?'LRMs':'City')+'</th><th>Issue</th><th>Metric</th><th>Recommended Action</th></tr></thead><tbody>'+trs+'</tbody></table>';
+    }
   } else {
     var panelIds={city:'cityPanel',academy:'academyPanel',ados:'adosPanel',zsm:'zsmPanel',tl:'tlPanel',agent:'agentPanel'};
     var panel=document.getElementById(panelIds[activeTab]||'agentPanel');
