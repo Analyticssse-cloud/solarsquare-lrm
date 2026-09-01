@@ -143,6 +143,20 @@ export default async function handler(req, res) {
       if (ados)   adosSet.add(ados);
     }
 
+    // Full onroll roster straight off the mapping sheet (independent of call data).
+    const rosterAll = Array.from(lrmSet2).map(email => {
+      const m = tlMap[email] || {};
+      return {
+        'Agent Id': email,
+        'LRM Name': nameFromEmail(email),
+        'City': cityMap[email] || '',
+        'TL': m.tlMail || '',
+        'TL Name': m.tlName || (m.tlMail ? nameFromEmail(m.tlMail) : ''),
+        'ZSM': m.zsm || '', 'ZSM Name': m.zsm ? nameFromEmail(m.zsm) : '',
+        'ADOS': m.ados || '', 'ADOS Name': m.ados ? nameFromEmail(m.ados) : '',
+      };
+    });
+
     // Role is derived from where the viewer sits in the hierarchy. Checked most
     // senior first so someone listed twice resolves to their highest role.
     let role = 'VIEWER';
@@ -421,6 +435,7 @@ export default async function handler(req, res) {
         canSeeTLView:  role === 'ADOS' || role === 'ZSM' || role === 'VIEWER',
         scopeSize: scoped.length,
       },
+      rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
       totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows,
       agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),
@@ -444,7 +459,7 @@ function emptyPayload(from, to, viewerEmail) {
               realConnectPct:0, totalTTHr:0, target:0, msToday:0, msT0:0, msT1:0,
               meetingDone:0, msNoCall:0, dsToday:0, avgTalkMin:0 },
     cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [],
-    agentCols: [], agentRows: [], cityList: [], tlList: [], lrmList: [],
+    agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
 }
