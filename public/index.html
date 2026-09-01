@@ -493,7 +493,7 @@ var MS = {};  // multi-select instances by key
 var actScope = 'agent';
 var distLevel = 'ados';
 /* Distribution ("who is below the bar"), not averages. Present = made more than PRESENT_MIN calls. */
-var DIST = { presentMin:10, dial:150, ttMin:120, ms:10 };
+var DIST = { presentMin:1, dial:150, ttMin:120, ms:10 };
 var ACT = { connectTarget:35, lowVol:30, scoreTarget:50, bottomN:10, dialRatio:1.8, talkShortFactor:0.6, handleHighFactor:1.5, connectCityTarget:40, callsPerLRM:50, cityTalkFactor:0.6 };
 
 var CITY_COLS = [
@@ -1218,6 +1218,13 @@ function hourlyBox(rows, target, cityBars){
        + '<div class="fb-hrnote"><b>'+hit+' of '+elapsed+'</b> hours so far at or above target.</div>';
 }
 
+/* Progress against where the bar SHOULD be by this hour, in plain words. */
+function paceVerdict(progress,pace){
+  if(!pace) return 'day not started';
+  var v=Math.round(progress/pace*100);
+  if(v>=100) return '<b>'+v+'% of target for this time of day</b>';
+  return '<b>'+(100-v)+'% behind target for this time of day</b>';
+}
 function renderFloor(){
   var el = document.getElementById('floorPanel');
   if(!el || !D) return;
@@ -1253,7 +1260,7 @@ function renderFloor(){
   var dialTrk = target > 0
     ? '<div class="fb-trk"><i style="width:'+Math.min(100,progress*100).toFixed(1)+'%"></i><u style="left:'+(pace*100).toFixed(1)+'%"></u></div>'
       + '<div class="fb-sub"><b>'+Math.round(progress*100)+'%</b> of '+fmt(target)+' &middot; '
-      + FLOOR_TARGET.callsPerLRM+'/LRM &times; '+fmt(lrmN)+' &middot; pace notch '+Math.round(pace*100)+'%</div>'
+      + FLOOR_TARGET.callsPerLRM+'/LRM &times; '+fmt(lrmN)+' &middot; '+paceVerdict(progress,pace)+'</div>'
     : '<div class="fb-trk"><i style="width:100%"></i></div><div class="fb-sub">no LRMs in this range</div>';
 
   var cityList = Object.keys(cityMap).map(function(k){ return {k:k, v:cityMap[k]}; })
@@ -1398,6 +1405,18 @@ function bandPass(pct) {
   if(F.band==='mid')  return p>=35&&p<50;
   if(F.band==='low')  return p<35;
   return true;
+}
+/* Onroll roster from the LRM_TL mapping sheet, narrowed by the same filter bar. */
+function filterRoster() {
+  return (D.rosterRows||[]).filter(function(r){
+    if(F.ados.length  && F.ados.indexOf(String(r['ADOS Name']||''))<0) return false;
+    if(F.zsms.length  && F.zsms.indexOf(String(r['ZSM Name']||''))<0) return false;
+    if(F.cities.length && F.cities.indexOf(String(r['City']||''))<0) return false;
+    if(F.tls.length    && F.tls.indexOf(String(r['TL Name']||''))<0) return false;
+    if(F.agents.length && F.agents.indexOf(String(r['Agent Id']||''))<0) return false;
+    if(F.q){ var hay=(String(r['Agent Id']||'')+' '+String(r['City']||'')+' '+String(r['TL Name']||'')).toLowerCase(); if(hay.indexOf(F.q)<0) return false; }
+    return true;
+  });
 }
 function filterAgents() {
   return (D.agentRows||[]).filter(function(r){
@@ -1567,15 +1586,22 @@ function computeCityActions(rows){
   ];
 }
 /* ── Distribution view: counts of LRMs BELOW each bar, per manager ── */
+function distKeyOf(level){
+  return {ados:function(r){return r['ADOS Name'];},zsm:function(r){return r['ZSM Name'];},tl:function(r){return r['TL Name']||(r['TL']?agentName(r['TL']):'');},overall:function(){return 'All LRMs in view';}}[level];
+}
 function computeDistribution(rows, level){
   var num=function(r,k){return Number(r[k])||0;};
-  var keyOf={ados:function(r){return r['ADOS Name'];},zsm:function(r){return r['ZSM Name'];},tl:function(r){return r['TL Name']||(r['TL']?agentName(r['TL']):'');},overall:function(){return 'All LRMs in view';}}[level];
+  var keyOf=distKeyOf(level);
   var g={},order=[];
+  var touch=function(k){ if(!g[k]){ g[k]={name:k,onroll:0,present:0,lowDial:0,lowTT:0,lowMS:0}; order.push(k); } return g[k]; };
+  // Onroll = every LRM on the mapping sheet (whether or not they dialled today).
+  var roster=filterRoster();
+  if(roster.length) roster.forEach(function(r){ touch(String(keyOf(r)||'').trim()||'— Unmapped —').onroll++; });
   rows.forEach(function(r){
     var k=String(keyOf(r)||'').trim()||'— Unmapped —';
-    if(!g[k]){ g[k]={name:k,onroll:0,present:0,lowDial:0,lowTT:0,lowMS:0}; order.push(k); }
-    var b=g[k]; b.onroll++;
-    if(num(r,'Call Count')>DIST.presentMin){
+    var b=touch(k);
+    if(!roster.length) b.onroll++;
+    if(num(r,'Call Count')>=DIST.presentMin){
       b.present++;
       if(num(r,'Call Count')<DIST.dial) b.lowDial++;
       if(num(r,'Total Talk Time')*60<DIST.ttMin) b.lowTT++;
@@ -1590,7 +1616,7 @@ function distPctCell(n,d){ if(!d) return '<td>—</td>'; var p=Math.round(n/d*10
 function renderDistribution(rows){
   var levels=[['overall','Our level'],['ados','AD'],['zsm','ZSM'],['tl','TL']];
   var seg='<div class="dist-lvl">'+levels.map(function(l){return '<button data-lvl="'+l[0]+'" class="'+(distLevel===l[0]?'on':'')+'">'+l[1]+'</button>';}).join('')+'</div>';
-  var lead='<div class="dist-lead">Measure the <b>distribution</b>, not the average. A team averaging 200 dials can still hide an LRM at 100 — this counts the LRMs <b>below the bar</b> so they can be held accountable. Population = LRMs with more than <b>'+DIST.presentMin+' calls</b> today (Present). Bars: <b>'+DIST.dial+' dials</b>, <b>'+DIST.ttMin+' min talk time</b>, <b>'+DIST.ms+' meetings scheduled</b>.</div>';
+  var lead='<div class="dist-lead">Measure the <b>distribution</b>, not the average. A team averaging 200 dials can still hide an LRM at 100 — this counts the LRMs <b>below the bar</b> so they can be held accountable. <b>Onroll</b> = every LRM on the LRM_TL mapping sheet. <b>Present</b> = the LRMs who actually made calls today, and every %age is out of Present. Bars: <b>'+DIST.dial+' dials</b>, <b>'+DIST.ttMin+' min talk time</b>, <b>'+DIST.ms+' meetings scheduled</b>.</div>';
   var g=computeDistribution(rows,distLevel);
   var tot={name:'Total',onroll:0,present:0,lowDial:0,lowTT:0,lowMS:0};
   g.forEach(function(b){ tot.onroll+=b.onroll; tot.present+=b.present; tot.lowDial+=b.lowDial; tot.lowTT+=b.lowTT; tot.lowMS+=b.lowMS; });
@@ -1612,7 +1638,7 @@ function renderDistribution(rows){
   return lead+seg+'<div class="dist-wrap"><table class="dist">'+head+body+'</table></div>';
 }
 var DIST_MET={
-  present:{title:'Present LRMs',   sev:'sev-info', desc:'LRMs with more than '+0+' calls today.', action:'Population used for every percentage below.', pass:function(n,r){return true;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
+  present:{title:'Present LRMs',   sev:'sev-info', desc:'LRMs who made at least one call today.', action:'Population used for every percentage below.', pass:function(n,r){return true;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
   dial:   {title:'Below dial bar', sev:'sev-high', desc:'', action:'Hold accountable for the dial gap — not the team average.', pass:function(n,r){return n(r,'Call Count')<DIST.dial;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
   tt:     {title:'Below talk-time bar', sev:'sev-mid', desc:'', action:'Check conversation depth, not just dial count.',        pass:function(n,r){return n(r,'Total Talk Time')*60<DIST.ttMin;}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
   ms:     {title:'Below meetings bar',  sev:'sev-high',desc:'', action:'Coach on pitch and conversion.',                         pass:function(n,r){return n(r,'MS Today')<DIST.ms;}, sortVal:function(n,r){return n(r,'MS Today');}, metric:function(n,r){return n(r,'MS Today')+' MS';}}
@@ -1620,15 +1646,15 @@ var DIST_MET={
 function openDistModal(grp,met){
   var cfg=DIST_MET[met]; if(!cfg) return;
   var num=function(r,k){return Number(r[k])||0;};
-  var keyOf={ados:function(r){return r['ADOS Name'];},zsm:function(r){return r['ZSM Name'];},tl:function(r){return r['TL Name']||(r['TL']?agentName(r['TL']):'');},overall:function(){return 'All LRMs in view';}}[distLevel];
+  var keyOf=distKeyOf(distLevel);
   var list=filterAgents().filter(function(r){
-    if(num(r,'Call Count')<=DIST.presentMin) return false;
+    if(num(r,'Call Count')<DIST.presentMin) return false;
     if(grp!=='__ALL__' && (String(keyOf(r)||'').trim()||'— Unmapped —')!==grp) return false;
     return cfg.pass(num,r);
   }).sort(function(a,b){ return cfg.sortVal(num,a)-cfg.sortVal(num,b); }).map(function(r){
     return {name:agentName(r['Agent Id']),city:(String(keyOf(r)||'').trim()||'—')+' · '+(r['City']||'—'),metric:cfg.metric(num,r)};
   });
-  var bars={present:'more than '+DIST.presentMin+' calls',dial:'under '+DIST.dial+' dials',tt:'under '+DIST.ttMin+' min talk time',ms:'under '+DIST.ms+' meetings scheduled'};
+  var bars={present:'who made calls today',dial:'under '+DIST.dial+' dials',tt:'under '+DIST.ttMin+' min talk time',ms:'under '+DIST.ms+' meetings scheduled'};
   var bk=document.getElementById('actModalBk');
   bk.querySelector('.am-sev').className='acard-sev am-sev '+cfg.sev;
   bk.querySelector('.am-title').textContent=cfg.title+(grp==='__ALL__'?' — all':' — '+grp);
