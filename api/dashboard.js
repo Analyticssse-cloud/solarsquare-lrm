@@ -422,6 +422,105 @@ export default async function handler(req, res) {
       console.warn('No hourly tab: ' + e.message);
     }
 
+    // ── 6c. Speed to Lead (optional 'speed' + 'speed_leads' tabs) ─────────────
+    // 'speed'       one row per Agent x lead-ASSIGNMENT day, written by autoUpdateSpeed().
+    // 'speed_leads' the actionable tail only (never called, or first call > 60 min).
+    // A lead counts against the day it was ASSIGNED, so never-called leads are in the
+    // denominator and read as breaches. Buckets are cumulative-able counts, so summing
+    // them across days is valid — the medians in the sheet are NOT summable and are only
+    // read through when a single day is in view.
+    // Absent tabs are not an error: the frontend shows a "no source yet" note.
+    const SPEED_BUCKETS = ['TAT 0-5', 'TAT 5-15', 'TAT 15-30', 'TAT 30-60', 'TAT 60-240', 'TAT 240-1440', 'TAT >1440'];
+    let speedRows = [], speedLeads = [], speedHas = false;
+    try {
+      const sRaw = await readSheet('speed');
+      if (sRaw.length > 1) {
+        speedHas = true;
+        const sHdr = sRaw[0].map(h => String(h).trim());
+        const si = (names) => findCol(sHdr, names);
+        const siDate = si(['Date']), siAgent = si(['Agent Id', 'LRM Email']);
+        const siAsg = si(['Leads Assigned']), siCalled = si(['Leads Called']), siNever = si(['Never Called']);
+        const siMed = si(['Median TAT (min)']), siAvg = si(['Avg TAT (min)']);
+        const siB = SPEED_BUCKETS.map(b => sHdr.findIndex(h => h.toLowerCase() === b.toLowerCase()));
+        const known = new Set(rosterAll.map(r => norm(r['Agent Id'])));
+        const acc = {};
+        for (let i = 1; i < sRaw.length; i++) {
+          const r = sRaw[i];
+          if (!r) continue;
+          const day = rowDate(r[siDate]);
+          if (day < effFrom || day > effTo) continue;
+          const email = norm(r[siAgent]);
+          if (!email || !email.includes('@')) continue;
+          if (known.size && !known.has(email)) continue;
+          const a = acc[email] || (acc[email] = {
+            agent: email, assigned: 0, called: 0, never: 0,
+            buckets: SPEED_BUCKETS.map(() => 0), tatSum: 0, days: 0, medianDay: null,
+          });
+          const called = num(r[siCalled]);
+          a.assigned += num(r[siAsg]);
+          a.called   += called;
+          a.never    += num(r[siNever]);
+          siB.forEach((ci, k) => { a.buckets[k] += ci < 0 ? 0 : num(r[ci]); });
+          // weighted so a multi-day average is by lead, not by day
+          a.tatSum   += num(r[siAvg]) * called;
+          a.days++;
+          if (effFrom === effTo && siMed >= 0) a.medianDay = num(r[siMed]);
+        }
+        const meta = {};
+        rosterAll.forEach(r => { meta[norm(r['Agent Id'])] = r; });
+        speedRows = Object.keys(acc).map(k => {
+          const a = acc[k], m = meta[k] || {};
+          return {
+            ...a,
+            name: m['LRM Name'] || nameFromEmail(k),
+            city: m['City'] || '', tl: m['TL'] || '', tlName: m['TL Name'] || '',
+            zsm: m['ZSM'] || '', zsmName: m['ZSM Name'] || '',
+            ados: m['ADOS'] || '', adosName: m['ADOS Name'] || '',
+            avgTat: a.called > 0 ? Math.round((a.tatSum / a.called) * 10) / 10 : 0,
+            _inScope: inScope(k),
+          };
+        }).sort((x, y) => y.assigned - x.assigned);
+      }
+    } catch (e) {
+      console.warn('No speed tab: ' + e.message);
+    }
+    try {
+      const lRaw = await readSheet('speed_leads');
+      if (lRaw.length > 1) {
+        const lHdr = lRaw[0].map(h => String(h).trim());
+        const li = (names) => findCol(lHdr, names);
+        const c = {
+          date: li(['Date']), agent: li(['Agent Id', 'LRM Email']), lead: li(['Lead Id']),
+          cluster: li(['Cluster']), stage: li(['Stage']), status: li(['Status']),
+          asg: li(['Assigned At']), call: li(['First Call At']), tat: li(['TAT (min)']), flag: li(['Flag']),
+        };
+        for (let i = 1; i < lRaw.length; i++) {
+          const r = lRaw[i];
+          if (!r) continue;
+          const day = rowDate(r[c.date]);
+          if (day < effFrom || day > effTo) continue;
+          const email = norm(r[c.agent]);
+          if (!email || !email.includes('@')) continue;
+          speedLeads.push({
+            date: day, agent: email,
+            lead: String(r[c.lead] || '').trim(),
+            cluster: c.cluster < 0 ? '' : String(r[c.cluster] || '').trim(),
+            stage: c.stage < 0 ? '' : String(r[c.stage] || '').trim(),
+            status: c.status < 0 ? '' : String(r[c.status] || '').trim(),
+            assignedAt: String(r[c.asg] || '').trim(),
+            firstCallAt: c.call < 0 ? '' : String(r[c.call] || '').trim(),
+            tat: c.tat < 0 || r[c.tat] === '' ? null : num(r[c.tat]),
+            flag: c.flag < 0 ? '' : String(r[c.flag] || '').trim(),
+          });
+        }
+        // never-called first, then slowest — the drill reads top-down as a worklist
+        speedLeads.sort((a, b) => (a.tat === null ? -1 : b.tat === null ? 1 : b.tat - a.tat));
+        if (speedLeads.length > 4000) speedLeads = speedLeads.slice(0, 4000);
+      }
+    } catch (e) {
+      console.warn('No speed_leads tab: ' + e.message);
+    }
+
     // ── 7. Dropdown lists ─────────────────────────────────────────────────────
     const citySet = {}, tlNameSet = {}, lrmSet = {};
     agentRows.forEach(r => {
@@ -449,6 +548,7 @@ export default async function handler(req, res) {
       },
       rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
       totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows, hourlyHasMS,
+      speedRows, speedLeads, speedHas, speedBuckets: SPEED_BUCKETS,
       agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
@@ -471,6 +571,7 @@ function emptyPayload(from, to, viewerEmail) {
               realConnectPct:0, totalTTHr:0, target:0, msToday:0, msT0:0, msT1:0,
               meetingDone:0, msNoCall:0, dsToday:0, avgTalkMin:0 },
     cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [], hourlyHasMS: false,
+    speedRows: [], speedLeads: [], speedHas: false, speedBuckets: [],
     agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
