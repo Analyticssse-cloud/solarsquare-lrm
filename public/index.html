@@ -355,6 +355,17 @@
 .child-row .heat-lo{background:rgba(224,72,72,.18);color:#ff9b9b}
 .tab.locked{opacity:.34;cursor:not-allowed}
 thead th.num.g-b{background:rgba(24,35,63,.045)}
+/* ── Distribution (hourly achievement heatmaps) ── */
+.dist-chart{width:100%;height:300px;border-top:1px solid var(--border);margin-top:8px}
+#distPulse{height:150px}
+#distGrid{height:340px}
+#distPat{height:280px}
+.dist-lg{display:inline-flex;align-items:center;gap:6px}
+.dist-lg i{display:block;width:110px;height:9px;border-radius:2px;background:linear-gradient(90deg,#b0382c,#e8a05c,#f2ce7e,#a9c47e,#3f8a55,#1f6b45)}
+.dist-lg em{font-style:normal;font-size:10px;color:var(--muted)}
+.dist-drillbar{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--muted);margin-top:9px}
+.dist-drillbar b{color:var(--text);font-weight:700}
+.dist-x{margin-left:auto;color:var(--blue-mid);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 /* ── Floor Board ── */
 .fb-wrap{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px}
 .fb-stamp{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--muted)}
@@ -378,6 +389,9 @@ thead th.num.g-b{background:rgba(24,35,63,.045)}
 .fb-strip b{display:block;font-size:20px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;letter-spacing:-.4px}
 .fb-strip span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:2px}
 .fb-cols{display:grid;grid-template-columns:1.2fr .95fr .85fr;gap:10px;align-items:start}
+.fb-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+table.fb-lb td b.ok{color:#0f7a45;font-weight:700}
+table.fb-lb td b.no{color:#c0392b;font-weight:700}
 table.fb-lb tr.fb-bot td.fb-rk{color:#c0392b}
 table.fb-lb td.fb-zero{color:#c0392b}
 .fb-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:13px 16px 14px}
@@ -408,6 +422,46 @@ table.fb-lb td.fb-nm{text-align:left;font-weight:600;color:var(--text);max-width
 table.fb-lb td.fb-mini{width:78px}
 table.fb-lb td.fb-mini s{text-decoration:none;display:block;height:8px;background:#eef2fa;border-radius:2px;overflow:hidden}
 table.fb-lb td.fb-mini s i{display:block;height:100%;background:var(--gold-dk)}
+.hl-hd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.hl-hd h4{margin:0;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.hl-chips{display:flex;gap:5px;flex-wrap:wrap}
+.hl-chips button{font:inherit;font-size:10.5px;font-weight:700;padding:3px 9px;border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:20px;cursor:pointer}
+.hl-chips button.on{background:var(--blue-mid);border-color:var(--blue-mid);color:#fff}
+.hl-chips button:hover{border-color:var(--blue-mid);color:var(--blue-mid)}
+.hl-chips button.on:hover{color:#fff}
+.hl-last{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 16px;margin-bottom:10px}
+.hl-last>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hl-last span{font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
+.hl-last b{font-size:17px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;letter-spacing:-.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hl-last b.win{color:var(--gold-dk)}
+.hl-last em{font-style:normal;font-size:10.5px;color:var(--muted)}
+.hl-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+table.hl{width:100%;border-collapse:collapse;font-size:12px}
+table.hl th{padding:0 5px 6px;text-align:right;font-size:9.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);background:none;white-space:nowrap}
+table.hl th:nth-child(1),table.hl th:nth-child(2),table.hl th.hl-strip{text-align:left}
+table.hl td{padding:5px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+table.hl td.rk{width:20px;text-align:left;color:var(--muted);font-weight:700}
+table.hl tr.win td.rk{color:var(--gold-dk)}
+table.hl tr.lose td.rk{color:#c0392b}
+table.hl td.nm{text-align:left;color:var(--text);max-width:120px;overflow:hidden;text-overflow:ellipsis}
+table.hl td.strip{padding:5px 6px}
+.hl-cells{display:flex;gap:2px}
+.hl-cells i{flex:1 1 0;height:15px;border-radius:2px;background:#e6ebf3;font-style:normal;font-size:8.5px;line-height:15px;text-align:center;color:#8a94a6;font-weight:700;font-variant-numeric:tabular-nums}
+.hl-cells i.hit{background:var(--blue-mid);color:#fff}
+.hl-cells i.near{background:#b8cdea;color:#22364f}
+.hl-cells i.miss{background:#f6d9d5;color:#a5352a}
+.hl-cells i.fut{background:#f2f4f8;color:transparent}
+.hl-cells i.now{outline:2px solid var(--gold-dk);outline-offset:-2px}
+table.hl td.pc b{font-weight:700}
+table.hl td.pc .ok{color:#1d7a45}
+table.hl td.pc .no{color:#c0392b}
+.hl-note{font-size:11px;color:var(--muted);margin-top:8px}
+.hl-undef{color:#b0772a;font-weight:700}
+.tab-review{display:none}
+.tabs.review-on .tab-review{display:block}
+.tab-more{align-self:center;margin-left:6px;padding:4px 11px;border-radius:20px;border:1px dashed rgba(255,255,255,.32);background:transparent;color:rgba(255,255,255,.6);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;user-select:none}
+.tab-more:hover{border-color:var(--gold);color:var(--gold);border-style:solid}
+.tabs.review-on .tab-more{border-style:solid;border-color:rgba(255,255,255,.3);color:rgba(255,255,255,.75)}
 .fb-foot{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--muted);padding-bottom:4px}
 .fb-link{color:var(--blue-mid);font-weight:700;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .fb-link:hover{color:var(--blue)}
@@ -425,14 +479,16 @@ table.fb-lb td.fb-mini s i{display:block;height:100%;background:var(--gold-dk)}
 </div>
 
 <div class="tabs">
-  <div class="tab active" id="tabFloor">📊 Floor Board</div>
-  <div class="tab"        id="tabCity">🏙 City Summary</div>
-  <div class="tab"        id="tabAgent">👤 LRM View</div>
+  <div class="tab active" id="tabDist">📶 Distribution</div>
+  <div class="tab" id="tabFloor">📊 Floor Board</div>
+  <div class="tab tab-review" id="tabCity">🏙 City Summary</div>
+  <div class="tab tab-review" id="tabAgent">👤 LRM View</div>
   <div class="tab"        id="tabAcademy">🎓 Training Academy</div>
   <div class="tab"        id="tabADOS">🗺 ADOS View</div>
   <div class="tab"        id="tabZSM">🧭 ZSM View</div>
   <div class="tab"        id="tabTL">🧑‍🤝‍🧑 TL View</div>
   <div class="tab"        id="tabAction">⚡ Action Center</div>
+  <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
 </div>
 
@@ -458,7 +514,8 @@ table.fb-lb td.fb-mini s i{display:block;height:100%;background:var(--gold-dk)}
       <span class="fb-count" id="fCount"></span>
     </div>
   </div>
-  <div class="panel" id="floorPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="distPanel"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="floorPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="cityPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="agentPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="academyPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
@@ -479,7 +536,7 @@ table.fb-lb td.fb-mini s i{display:block;height:100%;background:var(--gold-dk)}
 </div>
 
 <script>
-var D = null, activeTab = 'floor';
+var D = null, activeTab = 'dist';
 var AUTH = { token:'', clientId:'', required:false, email:'', ready:false };
 var F = { q:'', ados:[], zsms:[], cities:[], tls:[], agents:[], band:'all', flag:'' };
 var citySort  = { col:'totalCalls', dir:-1 };
@@ -490,11 +547,11 @@ var academySort = { col:'Avg Daily Dials', dir:-1 };
 var TRAINING_ACADEMY = ['ajit.raut','magesh.m','robin.kamble','harshith.kumar','rajpratap.rajput','anushka.kulkarni','abhishek.raj','abhishek.chouthmal','naushad.shaikh','akanksha.srivastava','pragati.kaltari','bhagyashree.j','bhargavi.j','neha.kokate','nilesh.gayake','shishir.salve','divya.iyer','ansh.sahi','aarti.dalal','ankita.singh','mayuri.meena','sunil.yadav','ashmi.kiruba'].map(function(n){return n+'@solarsquare.in';});
 var countdownTimer = null, countdownSecs = 0;
 var MS = {};  // multi-select instances by key
-var actScope = 'agent';
+var actScope = 'dist';
 var distLevel = 'ados';
 /* Distribution ("who is below the bar"), not averages. Present = made more than PRESENT_MIN calls. */
 var DIST = { presentMin:1, dial:150, ttMin:120, ms:10 };
-var ACT = { connectTarget:35, lowVol:30, scoreTarget:50, bottomN:10, dialRatio:1.8, talkShortFactor:0.6, handleHighFactor:1.5, connectCityTarget:40, callsPerLRM:50, cityTalkFactor:0.6 };
+var ACT = { bottomN:10 };   // connect-rate and volume thresholds went with the alert cards
 
 var CITY_COLS = [
   {k:'city',l:'City'},{k:'totalCalls',l:'Total Calls'},{k:'uniqueDials',l:'Unique Dials'},
@@ -568,8 +625,11 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   document.getElementById('btnApplyDates').addEventListener('click', loadData);
   document.getElementById('btnPDF').addEventListener('click', downloadPDF);
+  document.getElementById('tabDist').addEventListener('click', function(){ switchTab('dist'); });
   document.getElementById('tabFloor').addEventListener('click', function(){ switchTab('floor'); });
   document.getElementById('tabCity').addEventListener('click',  function(){ switchTab('city'); });
+  document.getElementById('tabMore').addEventListener('click', function(){ setReviewViews(!reviewOpen); });
+  applyReviewViews();
   document.getElementById('tabAgent').addEventListener('click', function(){ switchTab('agent'); });
   document.getElementById('tabAcademy').addEventListener('click', function(){ switchTab('academy'); });
   document.getElementById('tabADOS').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('ados'); });
@@ -609,7 +669,7 @@ document.addEventListener('DOMContentLoaded', function() {
   startAutoRefresh();
   // The board carries a clock (as-of stamp, current-hour bar, pace notch), so it
   // re-renders every 60s even between the 15-min data pulls.
-  setInterval(function(){ if (D && activeTab === 'floor') renderFloor(); }, 60000);
+  setInterval(function(){ if (D && activeTab === 'floor') renderFloor(); if (D && activeTab === 'dist') renderHourlyBoard(); }, 60000);
   bootAuth();
 });
 
@@ -676,10 +736,28 @@ function setLoading() {
   document.getElementById('tlPanel').innerHTML  = h;
 }
 
+/* City Summary and LRM View are the deep review tables - kept out of the way
+   behind a chip so the daily floor read is Floor Board / Action Center only.
+   The choice sticks per browser; jumping to either view opens the group. */
+var reviewOpen = false;
+try { reviewOpen = localStorage.getItem('lrmReviewViews') === '1'; } catch(e){}
+function applyReviewViews(){
+  var bar = document.querySelector('.tabs'), chip = document.getElementById('tabMore');
+  if(!bar || !chip) return;
+  bar.classList.toggle('review-on', reviewOpen);
+  chip.textContent = reviewOpen ? '\u00d7 Hide review views' : '\u22ef Review views';
+}
+function setReviewViews(on){
+  reviewOpen = !!on;
+  try { localStorage.setItem('lrmReviewViews', reviewOpen ? '1' : '0'); } catch(e){}
+  applyReviewViews();
+  if(!reviewOpen && (activeTab === 'city' || activeTab === 'agent')) switchTab('dist');
+}
 function switchTab(name) {
+  if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { floor:'tabFloor', city:'tabCity', agent:'tabAgent', academy:'tabAcademy', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction' };
-  var panels = { floor:'floorPanel', city:'cityPanel', agent:'agentPanel', academy:'academyPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', academy:'tabAcademy', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', academy:'academyPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -688,7 +766,7 @@ function switchTab(name) {
 
 function renderActive() {
   if(!D) return;
-  buildKPI(); renderFloor(); renderCity(); renderAgent(); renderAcademy(); renderRollup('ados'); renderRollup('zsm'); renderRollup('tl'); renderAction();
+  buildKPI(); renderHourlyBoard(); renderFloor(); renderCity(); renderAgent(); renderAcademy(); renderRollup('ados'); renderRollup('zsm'); renderRollup('tl'); renderAction();
 }
 
 /* ── Sign-in ─────────────────────────────────────────────────────────────────
@@ -986,7 +1064,7 @@ function rollupChildren(which, parent) {
   agents.sort(function(a,b){ return (Number(b['Call Count'])||0) - (Number(a['Call Count'])||0); });
   var A = {
     label:'LRM Name', activeLRM:null, callCount:'Call Count', connected:'Connected Calls',
-    connectPct:'Connect %', totalTTHr:'Total Talk Time', callsLt1:'Calls <1min',
+    totalTTHr:'Total Talk Time', callsLt1:'Calls <1min',
     calls1to2:'Calls 1-2min', callsGt2:'Calls >2min', msToday:'MS Today', msT0:'MS T+0',
     msT1:'MS T+1', msT2:'MS T+2', meetingDone:'Meeting Done', msLt1:'MS on Calls <1min',
     ms1to2:'MS on Calls 1-2min', msGt2min:'MS on Calls >2min', msNoCall:'MS - No Tracked Call',
@@ -1035,7 +1113,6 @@ function buildKPI() {
       t.msT1       +=Number(r['MS T+1'])||0;
       if(r['City']) citySet[r['City']]=true;
     });
-    t.connectPct=t.totalCalls>0?Math.round((t.connected/t.totalCalls)*10000)/100:0;
     t.avgTalkMin=t.realConnects>0?Math.round((t.totalTTHr*60/t.realConnects)*10)/10:0;
     t.totalTTHr=Math.round(t.totalTTHr*10)/10;
     activeLRMs=rows.length; cities=Object.keys(citySet).length;
@@ -1053,7 +1130,6 @@ function buildKPI() {
       t.msT1       +=Number(r['MS T+1'])||0;
       if(r['City']) citySet[r['City']]=true;
     });
-    t.connectPct=t.totalCalls>0?Math.round((t.connected/t.totalCalls)*10000)/100:0;
     t.avgTalkMin=t.realConnects>0?Math.round((t.totalTTHr*60/t.realConnects)*10)/10:0;
     t.totalTTHr=Math.round(t.totalTTHr*10)/10;
     activeLRMs=rows.length; cities=Object.keys(citySet).length;
@@ -1153,183 +1229,68 @@ MultiSelect.prototype.syncBtn = function() {
 // The rollup tabs (ZSM / TL View) do not honour the F filter state, so showing the
 // controls there would be a lie. Single place that decides the bar's visibility.
 
-/* ── Floor Board ───────────────────────────────────────────────────────────────
-   Direction 01 of the mock-ups: four hero numbers, a five-item strip, dials by
-   city and a top-7 leaderboard. Everything here is derived from data the sheet
-   already carries (no new backend), and it honours the filter bar + viewer scope
-   because it reads filterAgents(). The hourly dial curve from the mock-up needs
-   intra-day grain the sheet does not have yet, so the same slot shows dials by
-   city until an \'hourly\' tab exists. */
-var FLOOR_TARGET = { callsPerLRM:150, talkMinPerLRM:120, shiftStart:9, shiftEnd:19 };
-function shiftPace(){
-  var d = istNow(), mins = d.getUTCHours()*60 + d.getUTCMinutes();
-  var st = FLOOR_TARGET.shiftStart*60, en = FLOOR_TARGET.shiftEnd*60;
-  return Math.max(0, Math.min(1, (mins - st) / (en - st)));
-}
-
-/* Hourly achievement. Renders the real per-hour curve when the sheet carries an
-   \'hourly\' tab (api/dashboard.js returns it as D.hourlyRows: {hour, calls}), and
-   falls back to dials-by-city until that exists - the daily sheet has no
-   intra-day grain. Target line = the day's dial target spread evenly over the
-   09:00-19:00 shift. */
-function hourlyBox(rows, target, cityBars){
-  var hrs = D.hourlyRows || D.hourly || null;
-  // Per-agent rows let the curve follow the filter bar. When the feed carries no
-  // agent column (older payload) it is floor-wide, so it is only shown unfiltered.
-  if(hrs && hrs.length && hrs[0] && (hrs[0].agent !== undefined || hrs[0]['Agent Id'] !== undefined)){
-    var keep = {};
-    rows.forEach(function(r){ keep[String(r['Agent Id']||'').trim().toLowerCase()] = 1; });
-    hrs = hrs.filter(function(x){ return keep[String(x.agent || x['Agent Id'] || '').trim().toLowerCase()]; });
-  } else if(hrs && hrs.length && filtersActive()){
-    hrs = null;
-  }
-  if(!hrs || !hrs.length){
-    return '<h4>Dials by city</h4><div class="fb-bars">'+cityBars+'</div>'
-         + '<div class="fb-hrnote">' + (filtersActive() && D.hourlyRows && D.hourlyRows.length
-              ? 'No hourly rows for this selection.'
-              : 'Hourly achievement needs the \'hourly\' sheet tab &mdash; showing dials by city until then.') + '</div>';
-  }
-  var byHour = {};
-  hrs.forEach(function(r){
-    var hv = r.hour !== undefined ? r.hour : (r['Hour'] !== undefined ? r['Hour'] : r['hour']);
-    var hn = parseInt(String(hv).slice(0,2), 10);
-    if(isNaN(hn)) return;
-    var c = Number(r.calls !== undefined ? r.calls : r['Call Count'])||0;
-    byHour[hn] = (byHour[hn]||0) + c;
-  });
-  var start = FLOOR_TARGET.shiftStart, end = FLOOR_TARGET.shiftEnd, span = end - start;
-  var perHour = span > 0 ? target/span : 0;
-  var nowH = istNow().getUTCHours();
-  var vals = [], i;
-  for(i = start; i < end; i++) vals.push({ h:i, v:byHour[i]||0 });
-  // 1.15 headroom keeps the target line off the container's top edge, so it never
-  // reads as a chart border and its label can never escape the plot.
-  var vmax = (Math.max(perHour, vals.reduce(function(m,x){ return Math.max(m,x.v); }, 0)) || 1) * 1.15;
-  var cols = vals.map(function(x){
-    var cls = x.h > nowH ? ' class="future"' : (x.h === nowH ? ' class="now"' : '');
-    return '<div class="fb-hr"><b>'+(x.v?fmt(x.v):'')+'</b>'
-         + '<s'+cls+' style="height:'+Math.max(1,(x.v/vmax*100)).toFixed(1)+'%"></s>'
-         + '<em>'+String(x.h).padStart(2,'0')+'</em></div>';
-  }).join('');
-  var hit = vals.filter(function(x){ return x.h <= nowH && x.v >= perHour; }).length;
-  var elapsed = Math.max(0, Math.min(span, nowH + 1 - start));
-  return '<h4>Hourly achievement &mdash; dials vs '+Math.round(perHour)+'/hr target</h4>'
-       + '<div class="fb-hrs"><div class="fb-tline" style="bottom:'+((perHour/vmax)*100).toFixed(1)+'%"><span>'+Math.round(perHour)+'</span></div>'+cols+'</div>'
-       + '<div class="fb-hrnote"><b>'+hit+' of '+elapsed+'</b> hours so far at or above target.</div>';
-}
-
-/* Progress against where the bar SHOULD be by this hour, in plain words. */
-function paceVerdict(progress,pace){
-  if(!pace) return 'day not started';
-  var v=Math.round(progress/pace*100);
-  if(v>=100) return '<b>'+v+'% of target for this time of day</b>';
-  return '<b>'+(100-v)+'% behind target for this time of day</b>';
+/* ── Floor Board — top 10 / bottom 10 only ─────────────────────────────────────
+   Deliberately just six leaderboards: best and worst 10 LRMs by dials, by talk
+   time and by meetings scheduled. No hero numbers, no strip, no city bars, no
+   hourly curve — the hourly read lives on the Distribution tab, and the KPI strip
+   above already carries the floor totals. Repeating either here only invited the
+   two to disagree.
+   Honours the filter bar and viewer scope, because it reads filterAgents(). */
+var FLOOR_TARGET = { dials:150, talkMin:120, ms:10 };
+/* One column set per metric: how the value is read off a row, how it prints, and
+   the per-LRM day target it is scored against. */
+var FLOOR_BOARDS = [
+  { key:'dials', label:'Dials',       unit:'',      target:FLOOR_TARGET.dials,
+    get:function(r){ return Number(r['Call Count'])||0; },
+    show:function(v){ return fmt(v); } },
+  { key:'talk',  label:'Talk time',   unit:' min',  target:FLOOR_TARGET.talkMin,
+    // Sheet stores hours; the unit rule is averages and per-LRM figures in minutes.
+    get:function(r){ return Math.round((Number(r['Total Talk Time'])||0)*60); },
+    show:function(v){ return fmt(v)+' min'; } },
+  { key:'ms',    label:'Meetings scheduled', unit:'', target:FLOOR_TARGET.ms,
+    get:function(r){ return Number(r['MS Today'])||0; },
+    show:function(v){ return fmt(v); } }
+];
+function floorTable(rows, board, dir){
+  // dir 1 = top (highest first), -1 = bottom (lowest first).
+  var sorted = rows.slice().sort(function(a,b){
+    var d = (board.get(b) - board.get(a)) * dir;
+    // Tie-break by name so the order is stable between 15-min refreshes instead of
+    // reshuffling equal scores (a whole column of zeroes, most days).
+    if(d) return d;
+    return String(a['LRM Name']||a['Agent Id']||'').localeCompare(String(b['LRM Name']||b['Agent Id']||''));
+  }).slice(0,10);
+  var max = rows.reduce(function(m,r){ return Math.max(m, board.get(r)); }, 0) || 1;
+  var body = sorted.map(function(r,i){
+    var v = board.get(r), pct = board.target ? Math.round(v/board.target*100) : 0;
+    return '<tr class="'+(dir===1?'fb-top':'fb-bot')+'"><td class="fb-rk">'+(i+1)+'</td>'
+         + '<td class="fb-nm" title="'+esc(r['Agent Id']||'')+'">'+esc(r['LRM Name'] || agentName(r['Agent Id']))+'</td>'
+         + '<td'+(v===0?' class="fb-zero"':'')+'>'+board.show(v)+'</td>'
+         + '<td><b class="'+(pct>=100?'ok':'no')+'">'+pct+'%</b></td>'
+         + '<td class="fb-mini"><s><i style="width:'+Math.max(2,(v/max*100)).toFixed(1)+'%"></i></s></td></tr>';
+  }).join('') || '<tr><td colspan="5" class="fb-sub">No LRMs in this range.</td></tr>';
+  return '<div class="fb-box"><h4>'+(dir===1?'Top 10':'Bottom 10')+' &mdash; '+board.label+'</h4>'
+       + '<table class="fb-lb"><tr><th></th><th>LRM</th><th>'+board.label+'</th>'
+       + '<th>vs '+board.target+board.unit+'</th><th></th></tr>'+body+'</table></div>';
 }
 function renderFloor(){
   var el = document.getElementById('floorPanel');
   if(!el || !D) return;
-  var rows = filterAgents(), n = function(r,k){ return Number(r[k])||0; };
-  var s = { dials:0, conn:0, tt:0, ms:0, md:0, gt2:0, rc:0, onfloor:0 }, cityMap = {};
-  rows.forEach(function(r){
-    var c = n(r,'Call Count');
-    s.dials += c; s.conn += n(r,'Connected Calls'); s.tt += n(r,'Total Talk Time');
-    s.ms += n(r,'MS Today'); s.md += n(r,'Meeting Done'); s.gt2 += n(r,'Calls >2min');
-    s.rc += n(r,'Real Connects (15s+)');
-    if(c > 0) s.onfloor++;
-    var city = r['City'] || '—';
-    cityMap[city] = (cityMap[city]||0) + c;
-  });
-  // Unfiltered, defer to the server-computed figure so the board can never disagree
-  // with the KPI strip above it; recompute only when filters narrow the row set.
-  var avgTalk = (!filtersActive() && D.totals && D.totals.avgTalkMin != null)
-    ? Number(D.totals.avgTalkMin)
-    : (s.rc > 0 ? Math.round((s.tt*60/s.rc)*10)/10 : 0);
-  var connPct = s.dials > 0 ? Math.round(s.conn/s.dials*1000)/10 : 0;
-  var gt2Pct  = s.conn  > 0 ? Math.round(s.gt2/s.conn*1000)/10  : 0;
-  var mdPct   = s.ms    > 0 ? Math.round(s.md/s.ms*100) : 0;
-  // Targets are per-LRM constants agreed with ops, scaled by the LRMs in view -
-  // NOT the sheet's Ex.Call Count column, so the board reads the same whichever
-  // slice you filter to.
-  var lrmN   = rows.length;
-  var target = lrmN * FLOOR_TARGET.callsPerLRM;
-  var progress = target > 0 ? s.dials/target : 0;
-  var ttTargetHr = lrmN * FLOOR_TARGET.talkMinPerLRM / 60;
-  var ttProgress = ttTargetHr > 0 ? s.tt/ttTargetHr : 0;
-  var pace = shiftPace();
-
-  var dialTrk = target > 0
-    ? '<div class="fb-trk"><i style="width:'+Math.min(100,progress*100).toFixed(1)+'%"></i><u style="left:'+(pace*100).toFixed(1)+'%"></u></div>'
-      + '<div class="fb-sub"><b>'+Math.round(progress*100)+'%</b> of '+fmt(target)+' &middot; '
-      + FLOOR_TARGET.callsPerLRM+'/LRM &times; '+fmt(lrmN)+' &middot; '+paceVerdict(progress,pace)+'</div>'
-    : '<div class="fb-trk"><i style="width:100%"></i></div><div class="fb-sub">no LRMs in this range</div>';
-
-  var cityList = Object.keys(cityMap).map(function(k){ return {k:k, v:cityMap[k]}; })
-                   .sort(function(a,b){ return b.v-a.v; }).slice(0,8);
-  var cmax = cityList.length ? cityList[0].v : 1;
-  var bars = cityList.map(function(c){
-    return '<div class="fb-bar"><em title="'+esc(c.k)+'">'+esc(c.k)+'</em>'
-         + '<s><i style="width:'+Math.max(2,(c.v/cmax*100)).toFixed(1)+'%"></i></s>'
-         + '<strong>'+fmt(c.v)+'</strong></div>';
-  }).join('') || '<div class="fb-sub">No dials in this range.</div>';
-
-  var lb = rows.slice().sort(function(a,b){ return n(b,'Call Count')-n(a,'Call Count'); }).slice(0,7);
-  var lmax = lb.length ? n(lb[0],'Call Count') : 1;
-  var lbRows = lb.map(function(r,i){
-    return '<tr'+(i<3?' class="fb-top"':'')+'><td class="fb-rk">'+(i+1)+'</td>'
-         + '<td class="fb-nm">'+esc(r['LRM Name'] || agentName(r['Agent Id']))+'</td>'
-         + '<td>'+fmt(n(r,'Call Count'))+'</td><td>'+fmt(n(r,'Connected Calls'))+'</td>'
-         + '<td>'+fmt(Math.round(n(r,'Total Talk Time')*60))+'</td>'
-         + '<td>'+fmt(n(r,'MS Today'))+'</td>'
-         + '<td class="fb-mini"><s><i style="width:'+Math.max(2,(n(r,'Call Count')/(lmax||1)*100)).toFixed(1)+'%"></i></s></td></tr>';
-  }).join('') || '<tr><td colspan="7" class="fb-sub">No LRMs in this range.</td></tr>';
-
-  var bt = rows.slice().sort(function(a,b){ return n(a,'Call Count')-n(b,'Call Count'); }).slice(0,5);
-  var btRows = bt.map(function(r,i){
-    var d = n(r,'Call Count');
-    return '<tr class="fb-bot"><td class="fb-rk">'+(i+1)+'</td>'
-         + '<td class="fb-nm">'+esc(r['LRM Name'] || agentName(r['Agent Id']))+'</td>'
-         + '<td'+(d===0?' class="fb-zero"':'')+'>'+fmt(d)+'</td><td>'+fmt(n(r,'Connected Calls'))+'</td>'
-         + '<td>'+fmt(Math.round(n(r,'Total Talk Time')*60))+'</td>'
-         + '<td>'+fmt(n(r,'MS Today'))+'</td></tr>';
-  }).join('') || '<tr><td colspan="6" class="fb-sub">No LRMs in this range.</td></tr>';
-
+  var rows = filterAgents();
   var now = istNow();
   var asOf = String(now.getUTCHours()).padStart(2,'0')+':'+String(now.getUTCMinutes()).padStart(2,'0');
-
   el.innerHTML =
     '<div class="fb-wrap">'
     + '<div class="fb-stamp"><span class="fb-live">AS OF '+asOf+' IST</span>'
-    + '<span>'+esc(D.dateLabel||'')+' &middot; <b>'+fmt(rows.length)+'</b> LRMs in view'
-    + (filtersActive()?' (filtered)':'')+' &middot; data refreshes every 15 min from the sheet</span></div>'
-    + '<div class="fb-hero">'
-    +   '<div class="fb-card"><div class="fb-lab">Dials today</div><div class="fb-num">'+fmt(s.dials)+'</div>'+dialTrk+'</div>'
-    +   '<div class="fb-card"><div class="fb-lab">Connected calls</div><div class="fb-num">'+fmt(s.conn)+'</div>'
-    +     '<div class="fb-trk"><i class="green" style="width:'+Math.min(100,connPct).toFixed(1)+'%"></i></div>'
-    +     '</div>'
-    +   '<div class="fb-card"><div class="fb-lab">Talk time</div><div class="fb-num">'+fmt(Math.round(s.tt*10)/10)+'<u>hr</u></div>'
-    +     '<div class="fb-trk"><i class="gold" style="width:'+Math.min(100,ttProgress*100).toFixed(1)+'%"></i><u style="left:'+(pace*100).toFixed(1)+'%"></u></div>'
-    +     '<div class="fb-sub"><b>'+Math.round(ttProgress*100)+'%</b> of '+FLOOR_TARGET.talkMinPerLRM+' min/LRM &middot; avg <b>'+avgTalk+' min</b> per connect</div></div>'
-    +   '<div class="fb-card"><div class="fb-lab">Meetings scheduled</div><div class="fb-num">'+fmt(s.ms)+'</div>'
-    +     '<div class="fb-trk"><i style="width:'+Math.min(100,mdPct).toFixed(1)+'%"></i></div>'
-    +     '<div class="fb-sub"><b>'+fmt(s.md)+'</b> closures logged today (MD)</div></div>'
-    + '</div>'
-    + '<div class="fb-strip">'
-    +   '<div><b>'+fmt(s.onfloor)+' / '+fmt(rows.length)+'</b><span>LRMs on floor</span></div>'
-    +   '<div><b>'+avgTalk+'</b><span>Avg talk (min)</span></div>'
-    +   '<div><b>'+fmt(s.gt2)+'</b><span>Calls over 2 min</span></div>'
-    +   '<div><b>'+fmt(s.md)+'</b><span>MD (closures today)</span></div>'
-    +   '<div><b>'+(target>0?Math.round(progress*100)+'%':'—')+'</b><span>Target progress</span></div>'
-    + '</div>'
-    + '<div class="fb-cols">'
-    +   '<div class="fb-box">'+hourlyBox(rows, target, bars)+'</div>'
-    +   '<div class="fb-box"><h4>Top 7 LRMs by dials</h4><table class="fb-lb">'
-    +     '<tr><th></th><th>LRM</th><th>Dials</th><th>Conn</th><th>TT (min)</th><th>MS</th><th></th></tr>'+lbRows+'</table></div>'
-    +   '<div class="fb-box"><h4>Bottom 5 LRMs by dials</h4><table class="fb-lb">'
-    +     '<tr><th></th><th>LRM</th><th>Dials</th><th>Conn</th><th>TT (min)</th><th>MS</th></tr>'+btRows+'</table>'
-    +     '<div class="fb-sub" style="margin-top:8px">Lowest dials in view &mdash; the follow-up list for the floor.</div></div>'
-    + '</div>'
+    +   '<span>'+esc(D.dateLabel||'')+' &middot; <b>'+fmt(rows.length)+'</b> LRMs in view'
+    +   (filtersActive()?' (filtered)':'')
+    +   ' &middot; scored against '+FLOOR_TARGET.dials+' dials / '+FLOOR_TARGET.talkMin
+    +   ' talk-min / '+FLOOR_TARGET.ms+' MS per LRM per day</span></div>'
+    + FLOOR_BOARDS.map(function(b){
+        return '<div class="fb-pair">'+floorTable(rows,b,1)+floorTable(rows,b,-1)+'</div>';
+      }).join('')
     + '<div class="fb-foot"><span class="fb-link" id="fbToTable">Details &mdash; full LRM table &rsaquo;</span>'
-    +   '<span class="fb-note">MD is dated by closure date, so it will not tie to MS Today on this board.</span></div>'
+    +   '<span class="fb-note">Hourly pace and the on-pace distribution live on the Distribution tab.</span></div>'
     + '</div>';
   var lnk = document.getElementById('fbToTable');
   if(lnk) lnk.onclick = function(){ switchTab('agent'); };
@@ -1399,13 +1360,11 @@ function buildFilterBar() {
   });
 }
 
-function bandPass(pct) {
-  var p=Number(pct)||0;
-  if(F.band==='high') return p>=50;
-  if(F.band==='mid')  return p>=35&&p<50;
-  if(F.band==='low')  return p<35;
-  return true;
-}
+/* Connect % is no longer a user-facing metric anywhere, so the connect-rate band
+   filter is gone with it. Kept as a pass-through (rather than deleted) because
+   filterAgents / filterCities and F.band are referenced in several places; the
+   band pills were already out of the markup, so nothing can set F.band now. */
+function bandPass() { return true; }
 /* Onroll roster from the LRM_TL mapping sheet, narrowed by the same filter bar. */
 function filterRoster() {
   return (D.rosterRows||[]).filter(function(r){
@@ -1420,7 +1379,6 @@ function filterRoster() {
 }
 function filterAgents() {
   return (D.agentRows||[]).filter(function(r){
-    if(!bandPass(r['Connect %'])) return false;
     if(F.ados.length  && F.ados.indexOf(String(r['ADOS Name']||''))<0) return false;
     if(F.zsms.length  && F.zsms.indexOf(String(r['ZSM Name']||''))<0) return false;
     if(F.cities.length && F.cities.indexOf(String(r['City']||''))<0) return false;
@@ -1437,7 +1395,7 @@ function filterCities() {
   var rows=(D.cityRows||[]).slice();
   if(F.cities.length) rows=rows.filter(function(r){return F.cities.indexOf(r.city)>=0;});
   if(F.ados.length||F.zsms.length||F.tls.length||F.agents.length||F.flag||F.q){ var keep={}; filterAgents().forEach(function(a){if(a['City'])keep[a['City']]=true;}); rows=rows.filter(function(r){return keep[r.city];}); }
-  return rows.filter(function(r){return bandPass(r.connectPct);});
+  return rows;
 }
 
 function renderCity() {
@@ -1513,7 +1471,6 @@ function academyCell(col,r,maxScore){
 
 function cityCell(k,v,maxCalls){
   if(k==='city')       return '<span class="cell-city">'+esc(String(v||''))+'</span>';
-  if(k==='connectPct') return pctBadge(v);
   if(k==='delta')      return deltaCell(v);
   if(k==='callsPerLRM'){ var n=Number(v)||0,pct=maxCalls>0?Math.min(100,Math.round(n/maxCalls*100)):0; var col=n>=80?'var(--green)':n>=50?'var(--gold-dk)':'var(--red)'; return '<div class="prog-wrap"><div class="prog-bar"><div class="prog-fill" style="background:'+col+';width:'+pct+'%"></div></div><span class="prog-num">'+n+'</span></div>'; }
   return fmtCell(v);
@@ -1542,50 +1499,10 @@ function agentName(v){return String(v||'').split('@')[0].replace(/\./g,' ').repl
 function actPeerMean(rows,pred,val){var v=rows.filter(pred).map(val);return v.length?v.reduce(function(a,b){return a+b;},0)/v.length:0;}
 function actMedian(arr){if(!arr.length)return 0;var s=arr.slice().sort(function(a,b){return a-b;});var m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2;}
 function r1(n){return Math.round(n*10)/10;}
-function computeAgentActions(rows){
-  var num=function(r,k){return Number(r[k])||0;};
-  var wrap=function(r,metric){return {id:r['Agent Id'],name:agentName(r['Agent Id']),city:r['City']||'—',metric:metric};};
-  var talkMean=actPeerMean(rows,function(r){return num(r,'Connected Calls')>0&&num(r,'Avg. Talk Time')>0;},function(r){return num(r,'Avg. Talk Time');});
-  var handleMean=actPeerMean(rows,function(r){return num(r,'Avg. Handling Time')>0;},function(r){return num(r,'Avg. Handling Time');});
-  var ranks=rows.filter(function(r){return num(r,'Final Rank')>0;}).map(function(r){return num(r,'Final Rank');});
-  var maxRank=ranks.length?Math.max.apply(null,ranks):0;
-  var bottomCut=maxRank-ACT.bottomN+1;
-  var idle=rows.filter(function(r){return r._flagIdle;}).sort(function(a,b){return agentName(a['Agent Id']).localeCompare(agentName(b['Agent Id']));}).map(function(r){return wrap(r,'0 calls');});
-  var lowConn=rows.filter(function(r){return num(r,'Call Count')>0&&num(r,'Connect %')<ACT.connectTarget;}).sort(function(a,b){return num(a,'Connect %')-num(b,'Connect %');}).map(function(r){return wrap(r,fmtPct(num(r,'Connect %')));});
-  var bottomRank=(maxRank>=ACT.bottomN?rows.filter(function(r){return num(r,'Final Rank')>=bottomCut;}):[]).sort(function(a,b){return num(b,'Final Rank')-num(a,'Final Rank');}).map(function(r){return wrap(r,'Rank '+num(r,'Final Rank'));});
-  var noMeet=rows.filter(function(r){return num(r,'Call Count')>0&&r._flagNoMeet;}).sort(function(a,b){return num(b,'Call Count')-num(a,'Call Count');}).map(function(r){return wrap(r,num(r,'Call Count')+' calls · 0 mtg');});
-  var negDelta=rows.filter(function(r){return num(r,'Delta')<0;}).sort(function(a,b){return num(a,'Delta')-num(b,'Delta');}).map(function(r){return wrap(r,String(Math.round(num(r,'Delta'))));});
-  var dialNoReach=rows.filter(function(r){return num(r,'Call Count')>=ACT.lowVol&&num(r,'Unique Leads Dialed')>0&&num(r,'Call Count')/num(r,'Unique Leads Dialed')>=ACT.dialRatio;}).sort(function(a,b){return (num(b,'Call Count')/num(b,'Unique Leads Dialed'))-(num(a,'Call Count')/num(a,'Unique Leads Dialed'));}).map(function(r){return wrap(r,'×'+r1(num(r,'Call Count')/num(r,'Unique Leads Dialed'))+' dials/lead');});
-  var shortTalk=(talkMean>0?rows.filter(function(r){return num(r,'Connected Calls')>0&&num(r,'Avg. Talk Time')>0&&num(r,'Avg. Talk Time')<ACT.talkShortFactor*talkMean;}):[]).sort(function(a,b){return num(a,'Avg. Talk Time')-num(b,'Avg. Talk Time');}).map(function(r){return wrap(r,r1(num(r,'Avg. Talk Time'))+' avg talk');});
-  var highHandle=(handleMean>0?rows.filter(function(r){return num(r,'Avg. Handling Time')>ACT.handleHighFactor*handleMean;}):[]).sort(function(a,b){return num(b,'Avg. Handling Time')-num(a,'Avg. Handling Time');}).map(function(r){return wrap(r,r1(num(r,'Avg. Handling Time'))+' avg handle');});
-  var lowVol=rows.filter(function(r){return r._flagLowVol;}).sort(function(a,b){return num(a,'Call Count')-num(b,'Call Count');}).map(function(r){return wrap(r,num(r,'Call Count')+' calls');});
-  return [
-    {key:'idle',    title:'No calls logged',      sev:'sev-high', desc:'Zero calls in the selected range.',                          action:'Confirm the LRM is active and dialing today.',         agents:idle},
-    {key:'lowconn', title:'Low connect rate',     sev:'sev-mid',  desc:'Connect rate below '+ACT.connectTarget+'% — dialing but not reaching leads.', action:'Review call timing and lead-data quality.',   agents:lowConn},
-    {key:'bottomrank',title:'Bottom-rank watch',  sev:'sev-high', desc:'In the bottom '+ACT.bottomN+' by Final Rank.',                action:'Prioritise for coaching / call shadowing.',              agents:bottomRank},
-    {key:'nomeet',  title:'Calls but no meetings',sev:'sev-info', desc:'Making calls but booked zero meetings.',                     action:'Coach on pitch & conversion; review recordings.',        agents:noMeet},
-    {key:'negdelta',title:'Call target shortfall',sev:'sev-high', desc:'Negative call delta — calls under plan for the day.',       action:'Push dialing to close the call gap.',                    agents:negDelta},
-    {key:'dialnoreach',title:'Dialing without reach',sev:'sev-info',desc:'Re-dialing the same numbers ≥'+ACT.dialRatio+'× per lead.', action:'Refresh the lead list; stop over-dialing.',              agents:dialNoReach},
-    {key:'shorttalk',title:'Very short talk time',sev:'sev-mid',  desc:'Avg. talk time well below peers — connecting but dropping fast.', action:'Check openers and objection handling.',              agents:shortTalk},
-    {key:'highhandle',title:'High handling time', sev:'sev-mid',  desc:'Avg. handling time well above peers.',                        action:'Review wrap-up / after-call workflow.',                  agents:highHandle},
-    {key:'lowvol',  title:'Low call volume',      sev:'sev-mid',  desc:'Fewer than '+ACT.lowVol+' calls in the range.',              action:'Push to increase daily dialing activity.',               agents:lowVol}
-  ];
-}
-function computeCityActions(rows){
-  var num=function(r,k){return Number(r[k])||0;};
-  var wrap=function(r,metric){return {id:r.city,name:r.city,city:num(r,'activeLRM')+' LRMs',metric:metric};};
-  var tpc=function(r){var c=num(r,'connected');return c>0?(num(r,'totalTTHr')*60)/c:0;};
-  var tpcMed=actMedian(rows.filter(function(r){return num(r,'connected')>0;}).map(tpc));
-  var lowConn=rows.filter(function(r){return num(r,'connectPct')<ACT.connectCityTarget;}).sort(function(a,b){return num(a,'connectPct')-num(b,'connectPct');}).map(function(r){return wrap(r,fmtPct(num(r,'connectPct')));});
-  var underUtil=rows.filter(function(r){return num(r,'callsPerLRM')<ACT.callsPerLRM;}).sort(function(a,b){return num(a,'callsPerLRM')-num(b,'callsPerLRM');}).map(function(r){return wrap(r,num(r,'callsPerLRM')+' calls/LRM');});
-  var talkOut=(tpcMed>0?rows.filter(function(r){return num(r,'connected')>0&&tpc(r)<ACT.cityTalkFactor*tpcMed;}):[]).sort(function(a,b){return tpc(a)-tpc(b);}).map(function(r){return wrap(r,r1(tpc(r))+' min/connect');});
-  return [
-    {key:'cityconn', title:'City connect % below target', sev:'sev-high', desc:'Whole cluster under '+ACT.connectCityTarget+'% connect.', action:'Review data source & calling windows for the city.', agents:lowConn},
-    {key:'underutil',title:'Under-utilised city',         sev:'sev-mid',  desc:'Calls per LRM under '+ACT.callsPerLRM+' — capacity unused.', action:'Rebalance leads / lift dialing targets.',           agents:underUtil},
-    {key:'citytalk', title:'Talk-time outlier city',      sev:'sev-info', desc:'Talk time per connect well below the median city.',       action:'Check call quality — short connects across the city.', agents:talkOut}
-  ];
-}
-/* ── Distribution view: counts of LRMs BELOW each bar, per manager ── */
+/* computeAgentActions / computeCityActions removed with the alert-card scopes.
+   Every one of their buckets that mattered scored off Connect %, which is no
+   longer a user-facing metric, and the rest (low volume, no meetings, negative
+   delta) restated what the below-the-bar distribution counts say directly. */
 function distKeyOf(level){
   return {ados:function(r){return r['ADOS Name'];},zsm:function(r){return r['ZSM Name'];},tl:function(r){return r['TL Name']||(r['TL']?agentName(r['TL']):'');},overall:function(){return 'All LRMs in view';}}[level];
 }
@@ -1667,22 +1584,19 @@ var actBuckets=[];
 function renderAction(){
   if(!D) return;
   var panel=document.getElementById('actionPanel');
-  var isCity=actScope==='city';
-  var unit=isCity?'cities':'LRMs';
-  var srcCount=isCity?filterCities().length:filterAgents().length;
-  actBuckets=(isCity?computeCityActions(filterCities()):computeAgentActions(filterAgents())).filter(function(b){return b.agents.length;});
-  var flagged={}; actBuckets.forEach(function(b){b.agents.forEach(function(a){flagged[a.id]=1;});});
-  if(activeTab==='action') setCount(Object.keys(flagged).length+' of '+srcCount+' '+unit+' flagged');
-  var isDist=actScope==='dist';
-  var head='<div class="act-head"><div class="act-seg"><button data-scope="agent" class="'+(actScope==='agent'?'on':'')+'">LRM-wise</button><button data-scope="city" class="'+(isCity?'on':'')+'">City-wise</button><button data-scope="dist" class="'+(isDist?'on':'')+'">Distribution</button></div><span class="act-note">'+(isDist?'Counts of LRMs below the bar — click any number for the names':Object.keys(flagged).length+' '+unit+' need attention · click a card for details')+'</span></div>';
-  if(isDist){
-    panel.innerHTML=head+renderDistribution(filterAgents());
-    if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
-    panel.querySelectorAll('.act-seg button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); actScope=btn.getAttribute('data-scope'); renderAction(); }); });
-    panel.querySelectorAll('.dist-lvl button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); distLevel=btn.getAttribute('data-lvl'); renderAction(); }); });
-    panel.querySelectorAll('table.dist td.clk').forEach(function(td){ td.addEventListener('click',function(){ openDistModal(td.getAttribute('data-grp'),td.getAttribute('data-met')); }); });
-    return;
-  }
+  // The Action Center is the distribution table and nothing else. The LRM-wise and
+  // City-wise alert-card scopes were dropped: most of their buckets scored off
+  // Connect %, which is no longer shown anywhere, and the ones that did not
+  // duplicated what the below-the-bar counts already say more directly.
+  // computeAgentActions / computeCityActions are now unreachable and can go on the
+  // next cleanup pass; leaving them costs nothing at runtime.
+  var head='<div class="act-head"><span class="act-note">Counts of LRMs below the bar — click any number for the names</span></div>';
+  panel.innerHTML=head+renderDistribution(filterAgents());
+  if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
+  panel.querySelectorAll('.dist-lvl button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); distLevel=btn.getAttribute('data-lvl'); renderAction(); }); });
+  panel.querySelectorAll('table.dist td.clk').forEach(function(td){ td.addEventListener('click',function(){ openDistModal(td.getAttribute('data-grp'),td.getAttribute('data-met')); }); });
+  return;
+  /* eslint-disable no-unreachable */
   var body;
   if(!actBuckets.length){ body='<div class="empty">✓ No action items — everything in view is on track.</div>'; }
   else {
@@ -1772,5 +1686,7 @@ function downloadPDF(){
   window.print();
 }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="distribution.js"></script>
 </body>
 </html>
