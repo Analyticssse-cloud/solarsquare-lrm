@@ -488,6 +488,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabZSM">🧭 ZSM View</div>
   <div class="tab"        id="tabTL">🧑‍🤝‍🧑 TL View</div>
   <div class="tab"        id="tabAction">⚡ Action Center</div>
+  <div class="tab"        id="tabSpeed">⏱ Speed to Lead</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
 </div>
@@ -523,6 +524,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="zsmPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="tlPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="actionPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="speedPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
 <div id="printRoot"></div>
@@ -636,6 +638,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabZSM').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('zsm'); });
   document.getElementById('tabTL').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('tl'); });
   document.getElementById('tabAction').addEventListener('click', function(){ switchTab('action'); });
+  document.getElementById('tabSpeed').addEventListener('click', function(){ switchTab('speed'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
     if (this.checked) startAutoRefresh(); else stopAutoRefresh();
@@ -756,8 +759,8 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', academy:'tabAcademy', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', academy:'academyPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', academy:'tabAcademy', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', speed:'tabSpeed' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', academy:'academyPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', speed:'speedPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -766,7 +769,7 @@ function switchTab(name) {
 
 function renderActive() {
   if(!D) return;
-  buildKPI(); renderHourlyBoard(); renderFloor(); renderCity(); renderAgent(); renderAcademy(); renderRollup('ados'); renderRollup('zsm'); renderRollup('tl'); renderAction();
+  buildKPI(); renderHourlyBoard(); renderFloor(); renderCity(); renderAgent(); renderAcademy(); renderRollup('ados'); renderRollup('zsm'); renderRollup('tl'); renderAction(); if(typeof renderSpeed==='function') renderSpeed();
 }
 
 /* ── Sign-in ─────────────────────────────────────────────────────────────────
@@ -1688,5 +1691,6 @@ function downloadPDF(){
 </script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <script src="distribution.js"></script>
+<script src="speed.js"></script>
 </body>
 </html>
