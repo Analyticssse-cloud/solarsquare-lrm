@@ -372,6 +372,7 @@ export default async function handler(req, res) {
     // One row per Date x Hour x Agent, written by Code.gs's autoUpdateHourly().
     // Absent tab is not an error: the Floor Board falls back to dials-by-city.
     let hourlyRows = [];
+    let hourlyHasMS = false;
     try {
       const hRaw = await readSheet('hourly');
       if (hRaw.length > 1) {
@@ -382,6 +383,10 @@ export default async function handler(req, res) {
         const hiCalls = findCol(hHdr, ['Call Count', 'Total Calls']);
         const hiConn  = findCol(hHdr, ['Connected Calls']);
         const hiTT    = findCol(hHdr, ['Total Talk Time']);
+        // MS Scheduled = meetings BOOKED in that hour (v2 hourly card). Optional:
+        // findCol returns -1 until the sheet column exists, and num(undefined) is 0,
+        // so this is safe to deploy BEFORE the SQL/Code.gs push lands.
+        const hiMS    = findCol(hHdr, ['MS Scheduled']);
         const known   = new Set(agentRows.map(r => norm(r['Agent Id'])));
         const acc = {};
         for (let i = 1; i < hRaw.length; i++) {
@@ -393,18 +398,25 @@ export default async function handler(req, res) {
           if (!email || !known.has(email)) continue;
           const hr = parseInt(String(r[hiHour]).slice(0, 2), 10);
           if (isNaN(hr)) continue;
-          // Keyed by agent + hour (not hour alone) so the frontend can re-aggregate
-          // under the filter bar - ADOS / ZSM / City / TL / LRM all narrow this.
-          const k = email + '|' + hr;
-          const a = acc[k] || (acc[k] = { agent: email, hour: hr, calls: 0, connected: 0, talkHr: 0 });
+          // Keyed by agent + day + hour so the frontend can re-aggregate under the
+          // filter bar (ADOS / ZSM / City / TL / LRM all narrow this) AND read a
+          // day x hour pattern over a multi-day range. Both existing consumers
+          // (the hourly curve and the league card) sum by hour, so the finer grain
+          // is safe: more rows, identical totals.
+          const k = email + '|' + day + '|' + hr;
+          const a = acc[k] || (acc[k] = { agent: email, date: day, hour: hr, calls: 0, connected: 0, talkHr: 0, ms: 0 });
           a.calls     += num(r[hiCalls]);
           a.connected += num(r[hiConn]);
           a.talkHr    += num(r[hiTT]);
+          a.ms        += hiMS < 0 ? 0 : num(r[hiMS]);
         }
         hourlyRows = Object.keys(acc).map(k => {
           const a = acc[k];
-          return { agent: a.agent, hour: a.hour, calls: a.calls, connected: a.connected, talkHr: Math.round(a.talkHr * 100) / 100 };
-        }).sort((x, y) => x.hour - y.hour || x.agent.localeCompare(y.agent));
+          return { agent: a.agent, date: a.date, hour: a.hour, calls: a.calls, connected: a.connected, talkHr: Math.round(a.talkHr * 100) / 100, ms: a.ms };
+        }).sort((x, y) => String(x.date).localeCompare(String(y.date)) || x.hour - y.hour || x.agent.localeCompare(y.agent));
+        // hasHourlyMS tells the frontend whether to render the MS heatmap at all, so a
+        // missing column shows "no hourly source" instead of a floor of honest zeroes.
+        hourlyHasMS = hiMS >= 0;
       }
     } catch (e) {
       console.warn('No hourly tab: ' + e.message);
@@ -436,7 +448,7 @@ export default async function handler(req, res) {
         scopeSize: scoped.length,
       },
       rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
-      totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows,
+      totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows, hourlyHasMS,
       agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
@@ -458,7 +470,7 @@ function emptyPayload(from, to, viewerEmail) {
     totals: { totalCalls:0, uniqueDials:0, connected:0, realConnects:0, connectPct:0,
               realConnectPct:0, totalTTHr:0, target:0, msToday:0, msT0:0, msT1:0,
               meetingDone:0, msNoCall:0, dsToday:0, avgTalkMin:0 },
-    cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [],
+    cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [], hourlyHasMS: false,
     agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
