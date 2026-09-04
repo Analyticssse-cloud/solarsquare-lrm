@@ -1828,7 +1828,10 @@ function renderDistribution(rows){
 }
 var DIST_MET={
   present:{title:'Present LRMs',   sev:'sev-info', desc:'LRMs who made at least one call today.', action:'Population used for every percentage below.', pass:function(n,r){return true;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
-  dial:   {title:'Below dial bar', sev:'sev-high', desc:'', action:'Hold accountable for the dial gap — not the team average.', pass:function(n,r){return n(r,'Call Count')<DIST.dial;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
+  /* distBar('dial'), NOT DIST.dial: the table counts against the ELAPSED bar (67 at
+     14:00), so passing the raw 150 here listed every present LRM — 38 names under a
+     count of 32. One target, every tab (§2). */
+  dial:   {title:'Below dial bar', sev:'sev-high', desc:'', action:'Hold accountable for the dial gap — not the team average.', pass:function(n,r){return n(r,'Call Count')<distBar('dial');}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
   tt:     {title:'Below talk-time bar', sev:'sev-mid', desc:'', action:'Check conversation depth, not just dial count.',        pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttMin');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
   tt90:   {title:'Under the 90-min talk floor', sev:'sev-high', desc:'', action:'Intervene today — this is time on the phone, not dial effort.', pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttLow');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
   ms:     {title:'Below meetings bar',  sev:'sev-high',desc:'', action:'Coach on pitch and conversion.',                         pass:function(n,r){return n(r,'MS Today')<distBar('ms');}, sortVal:function(n,r){return n(r,'MS Today');}, metric:function(n,r){return n(r,'MS Today')+' MS';}}

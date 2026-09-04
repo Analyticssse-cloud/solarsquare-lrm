@@ -60,8 +60,27 @@ var speedOpen = null;
 
 (function injectSpeedCss() {
   var css = '' +
-  '.sl-wrap{padding:2px 0 18px}' +
-  '.sl-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin:2px 0 14px}' +
+  /* The panel is a flex column (.panel) and .tbl-wrap is already flex:1 with a
+     sticky head — .sl-wrap being a plain block was the only thing stopping the table
+     from taking the rest of the screen. */
+  /* overflow:auto on the wrap is what makes the min-height guard degrade to a
+     SCROLL instead of a clip — same contract as .fb-wrap on the Floor Board. Without
+     it, a short window puts the table's last row past the body edge unreachably. */
+  '.sl-wrap{padding:2px 0 0;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:auto}' +
+  '.sl-wrap>.tbl-wrap{flex:1 1 auto;min-height:220px;margin-bottom:2px}' +
+  /* Short windows: the fixed chrome above the table is 277px, most of it the six KPI
+     cells and the standing-caveat paragraph. Condense both so the table keeps the room. */
+  '@media (max-height:820px){' +
+    '.sl-sub{display:none}' +
+    '.sl-kpi{padding:7px 11px}' +
+    '.sl-kpi-v{font-size:17px}' +
+    '.sl-kpi-n{display:none}' +
+    '.sl-kpis{margin-bottom:8px}' +
+    '.sl-head{margin:0 0 8px}' +
+    '.sl-tbl-note{display:none}' +
+  '}' +
+  '.sl-wrap>.sl-head,.sl-wrap>.sl-kpis,.sl-wrap>.sl-grain,.sl-wrap>.sl-tbl-note{flex:0 0 auto}' +
+  '.sl-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin:2px 0 11px}' +
   '.sl-title{font-size:15px;font-weight:800;color:var(--ink,#18233f);letter-spacing:-.2px}' +
   '.sl-sub{font-size:11.5px;color:var(--muted,#6a7494);max-width:640px;line-height:1.5;margin-top:3px}' +
   '.sl-sla{display:flex;align-items:center;gap:6px;margin-left:auto}' +
@@ -69,7 +88,7 @@ var speedOpen = null;
   '.sl-chip{border:1px solid var(--border,#e3e8f3);background:#fff;color:var(--ink,#18233f);font:700 11.5px/1 inherit;padding:6px 11px;border-radius:20px;cursor:pointer;white-space:nowrap}' +
   '.sl-chip:hover{border-color:#9fb0d8}' +
   '.sl-chip.on{background:#18233f;border-color:#18233f;color:#fff}' +
-  '.sl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:1px;background:var(--border,#e3e8f3);border:1px solid var(--border,#e3e8f3);margin-bottom:16px}' +
+  '.sl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:1px;background:var(--border,#e3e8f3);border:1px solid var(--border,#e3e8f3);margin-bottom:11px}' +
   '.sl-kpi:last-child{grid-column:auto/-1}' +
   '.sl-kpi{background:#fff;padding:11px 13px}' +
   '.sl-kpi-v{font-size:22px;font-weight:800;letter-spacing:-.7px;color:var(--ink,#18233f);line-height:1.1}' +
@@ -79,7 +98,9 @@ var speedOpen = null;
   /* .sl-hist / .sl-bar / .sl-xlab rules went with speedHistCard() (4 Sep 2026): a
      stylesheet for markup nothing emits is the same unreachable layer. */
   '.sl-tbl-note{font-size:11px;color:var(--muted,#6a7494);margin:0 0 7px;max-width:900px;line-height:1.5}' +
-  '.sl-grain{display:flex;align-items:center;gap:6px;margin:0 0 10px;flex-wrap:wrap}' +
+  '.sl-grain{display:flex;align-items:center;gap:6px;margin:0 0 8px;flex-wrap:wrap}' +
+  '.sl-chip[disabled]{opacity:.4;cursor:not-allowed;border-style:dashed}' +
+  '.sl-geo{font-size:11px;color:var(--muted,#6a7494);margin:0 0 8px;line-height:1.5}' +
   '.sl-grid th,.sl-grid td{white-space:nowrap}' +
   '.sl-grid .sl-hgrp th{font-size:9px;letter-spacing:.6px;color:var(--muted,#6a7494);border-bottom:0;padding-bottom:2px}' +
   '.sl-grid th.sl-sep,.sl-grid td.sl-sep{border-left:1px solid var(--border,#e3e8f3)}' +
@@ -174,6 +195,16 @@ function speedLrmCount(rows) {
   (rows || []).forEach(function (r) { var a = r.agent; if (a && !seen[a]) { seen[a] = 1; n++; } });
   return n;
 }
+/* Does the feed actually carry the lead's own geo? dashboard.js writes 'Unmapped'
+   when the speed sheet has no Cluster / City column, so a table grouped on it is one
+   row called Unmapped — a statement about the feed dressed as a rollup. The LRM's
+   roster city is NOT a substitute: this grain is the lead's geo by design. */
+function speedGeoHas(rows, field) {
+  return (rows || []).some(function (r) {
+    var v = String(r[field] || '').trim();
+    return v && v !== 'Unmapped';
+  });
+}
 function speedGrainDef(k) {
   for (var i = 0; i < SPEED_GRAINS.length; i++) if (SPEED_GRAINS[i].k === (k || speedGrain)) return SPEED_GRAINS[i];
   return SPEED_GRAINS[0];
@@ -244,11 +275,23 @@ function renderSpeed() {
   // Column blocks mirror the sheet the floor already reads: population, then the
   // five exclusive buckets as COUNTS (they sum to Worked), then the same five as a
   // % of Worked. Only "Touched %" is tinted — tinting all eleven made it unreadable.
+  var geoOk = { cluster: speedGeoHas(rows, 'cluster'), city: speedGeoHas(rows, 'leadCity') };
+  var geoOff = !geoOk.cluster || !geoOk.city;
+  if (geoOk[speedGrain] === false) speedGrain = 'tl';
   var G = speedGrainDef();
   html += '<div class="sl-grain"><span class="sl-sla-lbl">Rows</span>' +
     SPEED_GRAINS.map(function (g) {
-      return '<button class="sl-chip' + (g.k === speedGrain ? ' on' : '') + '" data-grain="' + g.k + '">' + g.lab + '</button>';
+      var off = geoOk[g.k] === false;
+      return '<button class="sl-chip' + (g.k === speedGrain ? ' on' : '') + '" data-grain="' + g.k + '"' +
+        (off ? ' disabled title="The speed sheet carries no ' + g.lab + ' for the lead"' : '') + '>' + g.lab + '</button>';
     }).join('') + '</div>';
+  if (geoOff) {
+    var missing = [!geoOk.cluster ? 'Cluster' : null, !geoOk.city ? 'City' : null].filter(Boolean).join(' and ');
+    html += '<div class="sl-geo"><b>' + missing + ' rows are off:</b> this feed carries no lead ' +
+      esc(missing.toLowerCase()) + ', so grouping on it produces one row called Unmapped rather than a rollup. ' +
+      'Add the column to the <code>speed</code> tab (SQL already selects it) and the grain switches back on. ' +
+      'The LRM\'s roster city is not used as a stand-in — this grain is the lead\'s own geo.</div>';
+  }
 
   var groups = speedGroupBy(rows).filter(function (b) { return b.s.assigned > 0; });
   groups.sort(function (a, b) {
