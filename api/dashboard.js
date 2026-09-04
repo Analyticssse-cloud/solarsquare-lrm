@@ -422,15 +422,20 @@ export default async function handler(req, res) {
       console.warn('No hourly tab: ' + e.message);
     }
 
-    // ── 6c. Speed to Lead (optional 'speed' + 'speed_leads' tabs) ─────────────
+    // ── 6c. First Response Time (optional 'speed' + 'speed_leads' tabs) ───────
     // 'speed'       one row per Agent x lead-ASSIGNMENT day, written by autoUpdateSpeed().
     // 'speed_leads' the actionable tail only (never called, or first call > 60 min).
     // A lead counts against the day it was ASSIGNED, so never-called leads are in the
-    // denominator and read as breaches. Buckets are cumulative-able counts, so summing
+    // denominator and read as breaches. The TAT clock is BUSINESS-HOURS adjusted in SQL
+    // (assigned >= 19:00 -> next day 10:30; before 10:30 -> same day 10:30), so the
+    // sheet's 'Clock Start' column, not 'Assigned At', is what TAT is measured from.
+    // 'Assign Lag (min)' is the system's created -> assigned latency and is NOT in TAT. Buckets are cumulative-able counts, so summing
     // them across days is valid — the medians in the sheet are NOT summable and are only
     // read through when a single day is in view.
     // Absent tabs are not an error: the frontend shows a "no source yet" note.
-    const SPEED_BUCKETS = ['TAT 0-5', 'TAT 5-15', 'TAT 15-30', 'TAT 30-60', 'TAT 60-240', 'TAT 240-1440', 'TAT >1440'];
+    // v6 edges (user, 3 Sep): five EXCLUSIVE buckets that sum to Leads Called. Order
+    // must match the SQL SELECT list and SPEED_EDGES/SPEED_LABELS in public/speed.js.
+    const SPEED_BUCKETS = ['TAT 0-5', 'TAT 5-10', 'TAT 10-30', 'TAT 30-60', 'TAT >60'];
     let speedRows = [], speedLeads = [], speedHas = false;
     try {
       const sRaw = await readSheet('speed');
@@ -440,7 +445,9 @@ export default async function handler(req, res) {
         const si = (names) => findCol(sHdr, names);
         const siDate = si(['Date']), siAgent = si(['Agent Id', 'LRM Email']);
         const siAsg = si(['Leads Assigned']), siCalled = si(['Leads Called']), siNever = si(['Never Called']);
+        const siCluster = si(['Cluster']), siLeadCity = si(['City']);
         const siMed = si(['Median TAT (min)']), siAvg = si(['Avg TAT (min)']);
+        const siLag = si(['Avg Assign Lag (min)']);
         const siB = SPEED_BUCKETS.map(b => sHdr.findIndex(h => h.toLowerCase() === b.toLowerCase()));
         const known = new Set(rosterAll.map(r => norm(r['Agent Id'])));
         const acc = {};
@@ -452,9 +459,16 @@ export default async function handler(req, res) {
           const email = norm(r[siAgent]);
           if (!email || !email.includes('@')) continue;
           if (known.size && !known.has(email)) continue;
-          const a = acc[email] || (acc[email] = {
-            agent: email, assigned: 0, called: 0, never: 0,
-            buckets: SPEED_BUCKETS.map(() => 0), tatSum: 0, days: 0, medianDay: null,
+          // Grain is LRM x CLUSTER (the lead's own geo, filled both ways in SQL), so a
+          // cluster or city rollup is the real thing and not the LRM's roster city.
+          // Each geo falls back to the other here too, in case a pre-v6 row has neither.
+          const cl = siCluster < 0 ? '' : String(r[siCluster] || '').trim();
+          const ct = siLeadCity < 0 ? '' : String(r[siLeadCity] || '').trim();
+          const cluster = cl || ct || 'Unmapped', leadCity = ct || cl || 'Unmapped';
+          const key = email + '||' + cluster;
+          const a = acc[key] || (acc[key] = {
+            agent: email, cluster, leadCity, assigned: 0, called: 0, never: 0,
+            buckets: SPEED_BUCKETS.map(() => 0), tatSum: 0, lagSum: 0, days: 0, medianDay: null,
           });
           const called = num(r[siCalled]);
           a.assigned += num(r[siAsg]);
@@ -463,21 +477,24 @@ export default async function handler(req, res) {
           siB.forEach((ci, k) => { a.buckets[k] += ci < 0 ? 0 : num(r[ci]); });
           // weighted so a multi-day average is by lead, not by day
           a.tatSum   += num(r[siAvg]) * called;
+          // assign lag is per ASSIGNED lead (it exists even when never called)
+          if (siLag >= 0) a.lagSum += num(r[siLag]) * num(r[siAsg]);
           a.days++;
           if (effFrom === effTo && siMed >= 0) a.medianDay = num(r[siMed]);
         }
         const meta = {};
         rosterAll.forEach(r => { meta[norm(r['Agent Id'])] = r; });
         speedRows = Object.keys(acc).map(k => {
-          const a = acc[k], m = meta[k] || {};
+          const a = acc[k], m = meta[a.agent] || {};
           return {
             ...a,
-            name: m['LRM Name'] || nameFromEmail(k),
+            name: m['LRM Name'] || nameFromEmail(a.agent),
             city: m['City'] || '', tl: m['TL'] || '', tlName: m['TL Name'] || '',
             zsm: m['ZSM'] || '', zsmName: m['ZSM Name'] || '',
             ados: m['ADOS'] || '', adosName: m['ADOS Name'] || '',
             avgTat: a.called > 0 ? Math.round((a.tatSum / a.called) * 10) / 10 : 0,
-            _inScope: inScope(k),
+            avgLag: a.assigned > 0 ? Math.round((a.lagSum / a.assigned) * 10) / 10 : 0,
+            _inScope: inScope(a.agent),
           };
         }).sort((x, y) => y.assigned - x.assigned);
       }
@@ -491,8 +508,10 @@ export default async function handler(req, res) {
         const li = (names) => findCol(lHdr, names);
         const c = {
           date: li(['Date']), agent: li(['Agent Id', 'LRM Email']), lead: li(['Lead Id']),
-          cluster: li(['Cluster']), stage: li(['Stage']), status: li(['Status']),
-          asg: li(['Assigned At']), call: li(['First Call At']), tat: li(['TAT (min)']), flag: li(['Flag']),
+          cluster: li(['Cluster']), city: li(['City']), stage: li(['Stage']), status: li(['Status']),
+          created: li(['Lead Created At']), asg: li(['Assigned At']), clock: li(['Clock Start']),
+          call: li(['First Call At']), lag: li(['Assign Lag (min)']),
+          tat: li(['TAT (min)']), flag: li(['Flag']),
         };
         for (let i = 1; i < lRaw.length; i++) {
           const r = lRaw[i];
@@ -505,10 +524,14 @@ export default async function handler(req, res) {
             date: day, agent: email,
             lead: String(r[c.lead] || '').trim(),
             cluster: c.cluster < 0 ? '' : String(r[c.cluster] || '').trim(),
+            city: c.city < 0 ? '' : String(r[c.city] || '').trim(),
             stage: c.stage < 0 ? '' : String(r[c.stage] || '').trim(),
             status: c.status < 0 ? '' : String(r[c.status] || '').trim(),
+            createdAt: c.created < 0 ? '' : String(r[c.created] || '').trim(),
             assignedAt: String(r[c.asg] || '').trim(),
+            clockStart: c.clock < 0 ? '' : String(r[c.clock] || '').trim(),
             firstCallAt: c.call < 0 ? '' : String(r[c.call] || '').trim(),
+            lag: c.lag < 0 || r[c.lag] === '' ? null : num(r[c.lag]),
             tat: c.tat < 0 || r[c.tat] === '' ? null : num(r[c.tat]),
             flag: c.flag < 0 ? '' : String(r[c.flag] || '').trim(),
           });
