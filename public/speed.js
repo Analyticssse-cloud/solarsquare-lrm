@@ -76,19 +76,8 @@ var speedOpen = null;
   '.sl-kpi-l{font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted,#6a7494);margin-top:3px}' +
   '.sl-kpi-n{font-size:10.5px;color:var(--muted,#6a7494);margin-top:2px}' +
   '.sl-kpi.bad .sl-kpi-v{color:#b0382c}' +
-  '.sl-hist{border:1px solid var(--border,#e3e8f3);padding:14px 16px 10px;margin-bottom:18px;background:#fff}' +
-  '.sl-hist-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap}' +
-  '.sl-hist-hd b{font-size:12px;letter-spacing:-.1px}' +
-  '.sl-hist-hd span{font-size:11px;color:var(--muted,#6a7494)}' +
-  '.sl-bars{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-items:end;height:150px}' +
-  '.sl-bar{display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative}' +
-  '.sl-bar i{display:block;background:#6ea866;min-height:2px;border-radius:2px 2px 0 0}' +
-  '.sl-bar.late i{background:#d2664f}' +
-  '.sl-bar.none i{background:#8b8f9c}' +
-  '.sl-bar em{font-style:normal;font-size:11px;font-weight:800;text-align:center;color:var(--ink,#18233f);margin-bottom:4px}' +
-  '.sl-xlab{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:7px;border-top:1px solid var(--border,#e3e8f3);padding-top:6px}' +
-  '.sl-xlab span{font-size:9.5px;color:var(--muted,#6a7494);text-align:center;line-height:1.3}' +
-  '.sl-xlab span b{display:block;font-size:10px;color:var(--ink,#18233f)}' +
+  /* .sl-hist / .sl-bar / .sl-xlab rules went with speedHistCard() (4 Sep 2026): a
+     stylesheet for markup nothing emits is the same unreachable layer. */
   '.sl-tbl-note{font-size:11px;color:var(--muted,#6a7494);margin:0 0 7px;max-width:900px;line-height:1.5}' +
   '.sl-grain{display:flex;align-items:center;gap:6px;margin:0 0 10px;flex-wrap:wrap}' +
   '.sl-grid th,.sl-grid td{white-space:nowrap}' +
@@ -353,32 +342,10 @@ function kpiCell(v, l, note, bad) {
     '<div class="sl-kpi-l">' + esc(l) + '</div>' + (note ? '<div class="sl-kpi-n">' + esc(note) + '</div>' : '') + '</div>';
 }
 
-/* The time-to-first-call histogram, as a self-contained card.
-   It used to sit at the top of this tab; the user moved it to the Distribution tab
-   (4 Sep 2026) so the FRT tab is the table and Distribution is where the shapes
-   live. Exported rather than duplicated: one set of numbers, one renderer, so the
-   two tabs can never disagree. Pass rows to scope it; defaults to filterSpeed(). */
-function speedHistCard(rows) {
-  rows = rows || (typeof filterSpeed === 'function' ? filterSpeed() : (D.speedRows || []));
-  var t = speedStats(rows);
-  if (!t.assigned) return '';
-  var k = SPEED_EDGES.indexOf(speedSLA);
-  var max = Math.max.apply(null, t.buckets.concat([t.never])) || 1;
-  var out = '<div class="sl-hist"><div class="sl-hist-hd"><b>Distribution of time to first call</b>' +
-    '<span>green = inside the ' + speedSLA + '-min SLA · ' + fmt(t.assigned) + ' leads assigned</span></div><div class="sl-bars">';
-  t.buckets.forEach(function (v, i) {
-    out += '<div class="sl-bar ' + (i <= k ? '' : 'late') + '"><em>' + fmt(v) + '</em>' +
-      '<i style="height:' + Math.max(2, Math.round((v / max) * 118)) + 'px"></i></div>';
-  });
-  out += '<div class="sl-bar none"><em>' + fmt(t.never) + '</em><i style="height:' +
-    Math.max(2, Math.round((t.never / max) * 118)) + 'px"></i></div>';
-  return out + '</div><div class="sl-xlab">' +
-    SPEED_LABELS.map(function (l, i) {
-      var pct = t.assigned > 0 ? Math.round((t.buckets[i] / t.assigned) * 1000) / 10 : 0;
-      return '<span><b>' + l + '</b>' + pct + '%</span>';
-    }).join('') +
-    '<span><b>Never called</b>' + t.neverPct + '%</span></div></div>';
-}
+/* speedHistCard() was deleted 4 Sep 2026. The user removed the histogram from the
+   Floor Board, and this tab has been the table since the shape moved off it, so the
+   renderer had no caller anywhere in the app. Bucket maths still lives in
+   speedStats() — restoring the shape is one card, not a re-derivation. */
 
 /* The LRMs behind a group row — same eleven columns, weakest touch-rate first, so
    the row that dragged the cluster down is the first thing you read. */

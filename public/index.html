@@ -184,20 +184,44 @@
 
     /* ── Floor Board hero + strip ── */
     .fhero-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
-    .fhero { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 15px; }
+    .fhero { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 13px 16px 14px; display: flex; flex-direction: column; }
+    .fhero-t { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
     .fhero-l { font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; color: var(--muted); }
-    .fhero-v { font-size: 30px; font-weight: 800; letter-spacing: -1px; color: var(--blue); line-height: 1.15; margin: 2px 0 8px; }
-    .fhero-v u { text-decoration: none; font-size: 14px; font-weight: 700; margin-left: 3px; }
-    .fhero-bar { position: relative; height: 6px; border-radius: 3px; background: #eef1f6; overflow: visible; }
-    .fhero-bar i { display: block; height: 100%; border-radius: 3px; background: var(--blue); }
+    /* The gap between fill and notch, said in words next to the label instead of
+       buried in the footnote — it is the sentence the card exists to make. */
+    .fhero-c { font-size: 10.5px; font-weight: 800; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
+    .fhero-c.ok { color: #0f7a45; background: rgba(26,158,92,.11); }
+    .fhero-c.no { color: var(--gold-dk); background: rgba(224,158,0,.12); }
+    .fhero-v { font-size: 44px; font-weight: 800; letter-spacing: -1.6px; color: var(--blue); line-height: 1.05; margin: 5px 0 10px; font-variant-numeric: tabular-nums; }
+    .fhero-v u { text-decoration: none; font-size: 15px; font-weight: 700; letter-spacing: 0; color: var(--muted); margin-left: 5px; }
+    .fhero-bar { position: relative; height: 8px; border-radius: 4px; background: #eef1f6; overflow: visible; }
+    .fhero-bar i { display: block; height: 100%; border-radius: 4px; background: var(--blue); }
     .fhero-bar i.no { background: var(--gold); }
     .fhero-bar i.ok { background: var(--green); }
-    .fhero-bar s { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--text); }
-    .fhero-f { font-size: 10.5px; color: var(--muted); margin-top: 7px; line-height: 1.45; }
+    .fhero-bar s { position: absolute; top: -4px; width: 2px; height: 16px; background: var(--text); }
+    .fhero-f { font-size: 11.5px; color: var(--muted); margin-top: auto; padding-top: 8px; line-height: 1.45; }
     .fhero-f b { color: var(--text); }
+    /* ── Pace verdict banner: the floor's answer to "are we on pace" in one line,
+       above the cards that evidence it. Gold/green rail doubles the colour. ── */
+    .fverdict { display: flex; align-items: stretch; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .fverdict > i { flex: 0 0 6px; background: var(--gold-dk); }
+    .fverdict.ok > i { background: var(--green); }
+    .fverdict-b { flex: 1 1 auto; padding: 13px 18px; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+    .fverdict-m { flex: 1 1 340px; }
+    .fverdict-h { font-size: 23px; font-weight: 800; letter-spacing: -.5px; margin-top: 3px; text-wrap: pretty; }
+    /* Emphasis stays ink: #e09e00 on white is 2.3:1, under the 3:1 large-text floor,
+       and this is the one word that must survive a projector. The rail and the
+       "% short" figure already double the signal (§5). */
+    .fverdict-h em { font-style: normal; color: var(--text); text-decoration: underline; text-decoration-color: var(--gold-dk); text-decoration-thickness: 3px; text-underline-offset: 4px; }
+    .fverdict.ok .fverdict-h em { text-decoration-color: var(--green); }
+    .fverdict-s { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+    .fverdict-s b { color: var(--text); font-weight: 700; }
+    .fverdict-k { display: flex; gap: 24px; padding-left: 22px; border-left: 1px solid var(--border); }
+    .fverdict-k b { display: block; font-size: 21px; font-weight: 800; letter-spacing: -.5px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    #distHero { display: flex; flex-direction: column; gap: 10px; }
     .fstrip { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
     .fstrip > div { background: var(--surface); padding: 10px 15px; display: flex; flex-direction: column; gap: 1px; }
-    .fstrip b { font-size: 19px; font-weight: 800; letter-spacing: -.5px; color: var(--text); }
+    .fstrip b { font-size: 22px; font-weight: 800; letter-spacing: -.5px; color: var(--text); font-variant-numeric: tabular-nums; }
     .fstrip span { font-size: 9.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
 
     /* ── Floor Board MTD table ── */
@@ -419,7 +443,21 @@ thead th.num.g-b{background:rgba(24,35,63,.045)}
 .dist-drillbar b{color:var(--text);font-weight:700}
 .dist-x{margin-left:auto;color:var(--blue-mid);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 /* ── Floor Board ── */
-.fb-wrap{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px}
+/* The Floor Board fits the viewport: the frame owns the height, the two lower
+   boxes share the remaining row, and only the MTD table body scrolls. */
+.fb-wrap{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:9px}
+/* min-height keeps the two boxes readable on a short window; below that the frame
+   scrolls rather than crushing the tables to nothing. */
+.fb-grow{flex:1 1 auto;min-height:300px;display:flex;flex-direction:column;overflow:hidden}
+.fb-grow>#distMtd{flex:1 1 auto;min-height:0;overflow:auto}
+.fb-grow>.fb-hrnote{flex:0 0 auto}
+@media (max-height:820px){
+  .fhero-v{font-size:36px;letter-spacing:-1.3px;margin:4px 0 8px}
+  .fverdict-h{font-size:20px}
+  .fstrip b{font-size:19px}
+  .fstrip>div{padding:8px 15px}
+  .fhero{padding:11px 14px 12px}
+}
 .fb-stamp{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--muted)}
 .fb-stamp b{color:var(--text);font-weight:700}
 .fb-stamp .fb-live{background:rgba(26,158,92,.12);border:1px solid rgba(26,158,92,.35);color:#0f7a45;border-radius:12px;padding:2px 9px;font-size:10.5px;font-weight:700}
@@ -1319,13 +1357,49 @@ function floorHeroHTML(rows){
   var card=function(val,unit,label,done,day,foot){
     var p=day?Math.min(100,Math.round(done/day*100)):0;
     var on=day?done>=day*pace:true;
-    return '<div class="fhero"><div class="fhero-l">'+label+'</div>'
+    /* The gap between fill and notch, promoted out of the footnote into a chip
+       beside the label. Same two numbers, no third source. */
+    var chip='';
+    if(day){ var d=Math.round((done/day-pace)*100);
+      chip='<div class="fhero-c '+(d>=0?'ok':'no')+'">'+(d>=0?'+'+d:'\u2212'+Math.abs(d))+'% vs pace</div>'; }
+    /* No day target means NO track: a zero-width fill on a full-width grey rail
+       states "0% of target" about a metric that has no target (§2, absence is not
+       zero). */
+    return '<div class="fhero"><div class="fhero-t"><div class="fhero-l">'+label+'</div>'+chip+'</div>'
       + '<div class="fhero-v">'+val+(unit?'<u>'+unit+'</u>':'')+'</div>'
-      + '<div class="fhero-bar"><i class="'+(on?'ok':'no')+'" style="width:'+p+'%"></i>'
-      +   (day?'<s style="left:'+Math.round(pace*100)+'%"></s>':'')+'</div>'
+      + (day ? '<div class="fhero-bar"><i class="'+(on?'ok':'no')+'" style="width:'+p+'%"></i>'
+      +   '<s style="left:'+Math.round(pace*100)+'%"></s></div>' : '')
       + '<div class="fhero-f">'+foot+'</div></div>';
   };
   var gap=Math.round((pace-prog)*100);
+  /* Verdict banner. Reads the SAME three ratios the cards draw — no metric is
+     computed here that a card does not already own. */
+  var ttPct=dayTT?ttMin/dayTT:1, msPct=dayMS?s.ms/dayMS:1;
+  var mets=[['dials',prog],['talk time',ttPct],['meetings',msPct]];
+  var behind=mets.filter(function(x){ return x[1]<pace; }).sort(function(a,b){ return a[1]-b[1]; });
+  var okList=mets.filter(function(x){ return x[1]>=pace; }).map(function(x){ return x[0]; });
+  var sayList=function(a){ return a.length<2?a[0]:a.slice(0,-1).join(', ')+' and '+a[a.length-1]; };
+  var head;
+  if(!behind.length){
+    head='Floor is <em>at or above pace</em> on every metric for this time of day.';
+  } else {
+    var worst=behind[0], wg=Math.max(1,Math.round((pace-worst[1])*100));
+    head = behind.length===1
+      ? 'Floor is <em>'+wg+'% behind</em> for this time of day on '+worst[0]+'.'
+      : 'Floor is behind on '+sayList(behind.map(function(x){ return x[0]; }))
+        + ' \u2014 worst is <em>'+worst[0]+', '+wg+'% short</em> for this time of day.';
+  }
+  var sub = okList.length
+    ? 'At or above the elapsed bar on '+sayList(okList)+'.'
+    : 'No metric is at the elapsed bar.';
+  var verdict='<div class="fverdict'+(behind.length?'':' ok')+'"><i></i><div class="fverdict-b">'
+    + '<div class="fverdict-m"><div class="fhero-l">Pace verdict &middot; '+Math.round(pace*100)+'% of shift elapsed</div>'
+    +   '<div class="fverdict-h">'+head+'</div>'
+    +   '<div class="fverdict-s">'+sub+' Every bar below is scored against <b>'+Math.round(pace*100)+'%</b> of the day target, not the whole day.</div></div>'
+    + '<div class="fverdict-k">'
+    +   '<div><div class="fhero-l">LRMs in view</div><b>'+fmt(n)+'</b></div>'
+    +   '<div><div class="fhero-l">Dials vs pace</div><b>'+(gap>0?'\u2212'+gap+'%':'+'+Math.abs(gap)+'%')+'</b></div>'
+    + '</div></div></div>';
   var hero='<div class="fhero-row">'
     + card(fmt(s.calls),'','Dials today',s.calls,dayDial,
         '<b>'+Math.round(prog*100)+'%</b> of '+fmt(dayDial)+' &middot; '+FLOOR_TARGET.dials+'/LRM &times; '+fmt(n)
@@ -1345,7 +1419,7 @@ function floorHeroHTML(rows){
     [Math.round(prog*100)+'%','Target progress'],
     [Math.round(pace*100)+'%','Shift elapsed']
   ].map(function(x){ return '<div><b>'+x[0]+'</b><span>'+x[1]+'</span></div>'; }).join('');
-  return hero+'<div class="fstrip">'+strip+'</div>';
+  return verdict+hero+'<div class="fstrip">'+strip+'</div>';
 }
 
 /* ── Top / Bottom Performers ───────────────────────────────────────────────────
@@ -1359,8 +1433,9 @@ function floorHeroHTML(rows){
    distPace() the Action Center uses. So a 09:40 board ranks people against the
    morning's worth of work, not against 150 dials nobody could have made yet, and
    the two tabs can never state different bars. On a finished day the factor is 1.
-   Bars are plain CSS, not ECharts: three static bar rows do not justify the chart
-   engine the Distribution heatmaps need, and this tab must open instantly.
+   Bars are plain CSS. There is no chart engine in this app any more (the ECharts
+   heatmap layer went with the Floor Board's MTD table, 4 Sep), and these tabs must
+   open instantly.
    Honours the filter bar and viewer scope, because it reads filterAgents(). */
 var FLOOR_TARGET = { dials:150, talkMin:120, ms:10 };
 /* One column set per metric: how the value is read off a row, how it prints, and
@@ -1884,7 +1959,8 @@ function downloadPDF(){
   window.print();
 }
 </script>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<!-- echarts removed 4 Sep 2026: the Floor Board heatmap it drew was replaced by the
+     MTD table, so this was a blocking third-party script for a chart nobody draws. -->
 <script src="distribution.js"></script>
 <script src="speed.js"></script>
 </body>
