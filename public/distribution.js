@@ -1,11 +1,16 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Distribution — hourly achievement heatmaps.  Replaces the Floor Board tab.
 
-   Four views, one shared colour scale (red = behind the hour's bar, green = at
-   or above it):
-     1. Floor pulse    metric x hour   — 3 rows, "where is the floor leaking"
-     2. Group grid     ADOS/ZSM/TL/City x hour + projected close
-     3. Drill          LRM x hour      — opens under a clicked group row
+   ONE grid, one shared colour scale (red = behind the hour's bar, green = at or
+   above it):
+     1. Group grid     ADOS/ZSM/TL/City x hour + projected close, FLOOR row on top
+     2. Drill          LRM x hour      — opens under a clicked group row
+
+   The separate "Floor pulse" heatmap (metric x hour) was removed 3 Sep 2026 — two
+   stacked heatmaps of the same cells read as clutter, and its top row WAS the
+   grid's FLOOR row for the other two metrics. Its two real jobs survive as the
+   metric pills: each pill carries that metric's floor-wide % on pace right now,
+   so the leak is still visible at a glance, and clicking one switches the grid.
 
    Reads only what the backend already returns:
      D.hourlyRows   [{agent, hour, calls, connected, talkHr, ms}]  ('hourly' tab)
@@ -40,6 +45,9 @@ var DIST_METRICS = {
 var DIST_RAMP = ['#b0382c','#d2664f','#e8a05c','#f2ce7e','#dfd98a','#a9c47e','#6ea866','#3f8a55','#1f6b45'];
 var DIST_PAGE = '#ffffff', DIST_INK = '#18233f', DIST_MUTED = '#6a7494', DIST_RULE = '#e3e8f3';
 
+/* The per-LRM DAY target the MTD table accrues. Mirrors FLOOR_TARGET in index.html;
+   read from it when that file is loaded so the two can never drift. */
+var FLOOR_TARGET_DAY = (typeof FLOOR_TARGET !== 'undefined') ? FLOOR_TARGET : { dials:150, talkMin:120, ms:10 };
 var distMetric = 'dials', distGroup = 'tl', distMode = 'pct', distOpen = null;
 var distCharts = {}, distObservers = {};
 
@@ -202,36 +210,25 @@ function distVmap(o) {
 }
 var DIST_HL = DIST_HOURS.map(function (h) { return ('0' + h).slice(-2) + ':00'; });
 
-/* ── 1. Floor pulse ─────────────────────────────────────────────────────── */
-function distDrawPulse() {
-  var c = distChart('distPulse'); if (!c) return;
-  var keys = ['dials', 'talk', 'ms'], el = distElapsed(), data = [];
-  var live = keys.filter(function (k) { return k !== 'ms' || D.hourlyHasMS !== false; });
-  var n = 0, S0 = null;
-  live.forEach(function (k, y) {
-    var S = distSeries(k); n = S.agents.length; S0 = S;
-    for (var x = 0; x < el; x++) data.push([x, y, Math.round(distShare(S, S.agents, x) * 100)]);
-  });
-  var o = distBase(DIST_HL);
-  o.grid = { left: 74, right: 18, top: 6, bottom: 26, containLabel: false };
-  o.yAxis = distYAxis(live.map(function (k) { return DIST_METRICS[k].lab; }));
-  o.visualMap = distVmap({ seriesIndex: 0 });
-  o.tooltip.formatter = function (p) {
-    var M = DIST_METRICS[live[p.data[1]]];
-    return '<b>' + p.data[2] + '% of ' + n + ' LRMs on pace</b><br>' + M.label +
-           ' · by ' + DIST_HL[p.data[0]] + ' · bar ≥ ' + distFtgt(M, p.data[0]);
-  };
-  o.series[0].data = data;
-  o.series[0].label = { show: true, color: DIST_INK, fontSize: 10, formatter: function (p) { return p.data[2] + '%'; } };
-  o.series.push(distFutureSeries(live.length, el));
-  c.setOption(o, { notMerge: true });
-  c.resize();
-  c.off('click'); c.on('click', function (p) { distMetric = live[p.data[1]]; distRender(); });
+/* ── 1. Metric pills (the old Floor pulse, collapsed to one line) ───────── */
+/* Each pill shows the metric's floor-wide share on pace at the LATEST elapsed
+   hour — the pulse's headline — and selects the grid. No second heatmap. */
+function distDrawPills() {
+  var box = document.getElementById('distChipMetric'); if (!box) return;
+  var el = distElapsed(), n = 0, days = 1;
+  var live = ['dials', 'talk', 'ms'].filter(function (k) { return k !== 'ms' || D.hourlyHasMS !== false; });
+  box.innerHTML = live.map(function (k) {
+    var S = distSeries(k); n = S.agents.length; days = S.days;
+    var pct = el > 0 ? Math.round(distShare(S, S.agents, el - 1) * 100) : 0;
+    return '<button data-m="' + k + '"' + (k === distMetric ? ' class="on"' : '') + '>' +
+      DIST_METRICS[k].label + ' <b style="color:' + (pct >= 50 ? '#3f8a55' : '#b0382c') + '">' +
+      (el > 0 ? pct + '%' : '—') + '</b></button>';
+  }).join('');
   var sub = document.getElementById('distPulseSub');
-  if (sub) sub.textContent = '% of the ' + n + ' LRMs in view at or above that hour’s cumulative bar' +
-    (S0 && S0.days > 1 ? ' · mean of ' + S0.days + ' days in range' : '') +
-    (D.hourlyHasMS === false ? ' · MS row hidden: the sheet has no ‘MS Scheduled’ column yet' : '') +
-    ' · click a row to drive the grid below';
+  if (sub) sub.textContent = 'Each figure is the share of the ' + n + ' LRMs in view at or above that ' +
+    'metric’s cumulative bar by ' + (el > 0 ? DIST_HL[el - 1] : 'the first hour') +
+    (days > 1 ? ' · mean of ' + days + ' days in range' : '') +
+    (D.hourlyHasMS === false ? ' · MS hidden: the sheet has no ‘MS Scheduled’ column yet' : '');
 }
 
 /* ── 2. Group grid ──────────────────────────────────────────────────────── */
@@ -334,49 +331,119 @@ function distDrawDrill() {
     'cell = ' + M.noun + ' cumulative, colour = % of that hour’s bar';
 }
 
+/* ── MTD totals table (replaces the hourly heatmap grid, 4 Sep 2026) ──────
+   Dials, talk time and meetings scheduled for the DATE RANGE IN VIEW — set the
+   date filter to 1st→today and it is month to date. The heatmap it replaced
+   showed the share of LRMs on cumulative pace hour by hour: the right instrument
+   at 14:00 on one day, the wrong one for a month, where the question is simply
+   how much work each group has put in against its accrued target.
+   Fully filterable: rows come from filterAgents(), so the filter bar, the viewer
+   scope and the group chips all apply, and every row opens to its LRMs.
+
+   Targets accrue by DAY, not by the clock: per-LRM day target x LRMs x days in
+   range. Days come from the row's own _dayCount (the backend counts the days an
+   LRM actually appears in), so an LRM who joined mid-month is not scored against
+   the whole month. */
+var MTD_COLS = [
+  { k:'dials', lab:'Dials',      per:FLOOR_TARGET_DAY.dials,   get:function(r){ return Number(r['Call Count'])||0; },
+    show:function(v){ return fmt(Math.round(v)); }, unit:'' },
+  { k:'talk',  lab:'Talk time',  per:FLOOR_TARGET_DAY.talkMin, get:function(r){ return (Number(r['Total Talk Time'])||0)*60; },
+    show:function(v){ return fmt(Math.round(v/60*10)/10)+' hr'; }, unit:' min' },
+  { k:'ms',    lab:'MS',         per:FLOOR_TARGET_DAY.ms,      get:function(r){ return Number(r['MS Today'])||0; },
+    show:function(v){ return fmt(Math.round(v)); }, unit:'' }
+];
+function mtdStats(rows) {
+  var s = { n:rows.length, days:0, vals:{}, tgt:{} };
+  MTD_COLS.forEach(function (c) { s.vals[c.k] = 0; s.tgt[c.k] = 0; });
+  rows.forEach(function (r) {
+    var days = Number(r._dayCount) || 1;
+    s.days = Math.max(s.days, days);
+    MTD_COLS.forEach(function (c) { s.vals[c.k] += c.get(r); s.tgt[c.k] += c.per * days; });
+  });
+  return s;
+}
+function mtdRowsBy(level) {
+  var col = DIST_LEVELS[level].col, g = {}, order = [];
+  filterAgents().forEach(function (r) {
+    var k = String(r[col] || '').trim() || '— Unmapped —';
+    if (!g[k]) { g[k] = []; order.push(k); }
+    g[k].push(r);
+  });
+  return order.map(function (k) { return { key:k, rows:g[k], s:mtdStats(g[k]) }; });
+}
+function mtdCells(s) {
+  return MTD_COLS.map(function (c) {
+    var v = s.vals[c.k], t = s.tgt[c.k], pct = t ? Math.round(v / t * 100) : 0;
+    return '<td class="num sep">' + c.show(v) + '</td>'
+      + '<td class="num">' + (s.n ? c.show(v / s.n) : '—') + '</td>'
+      + '<td class="num"><span class="mtd-pct ' + (pct >= 100 ? 'ok' : pct >= 70 ? 'mid' : 'no') + '">' + pct + '%</span></td>';
+  }).join('');
+}
+function distDrawMtd() {
+  var host = document.getElementById('distMtd'); if (!host) return;
+  var all = filterAgents(), tot = mtdStats(all);
+  var groups = mtdRowsBy(distGroup).sort(function (a, b) { return b.s.vals.dials - a.s.vals.dials; });
+  var head = '<tr class="mtd-hgrp"><th></th><th></th>'
+    + MTD_COLS.map(function (c) { return '<th class="num sep" colspan="3">' + c.lab + '</th>'; }).join('') + '</tr>'
+    + '<tr><th>' + DIST_LEVELS[distGroup].label + '</th><th class="num">LRMs</th>'
+    + MTD_COLS.map(function () { return '<th class="num sep">Total</th><th class="num">/ LRM</th><th class="num">vs target</th>'; }).join('')
+    + '</tr>';
+  var body = '<tr class="mtd-tot"><td>FLOOR</td><td class="num">' + fmt(tot.n) + '</td>' + mtdCells(tot) + '</tr>';
+  groups.forEach(function (b) {
+    var open = distOpen === b.key;
+    body += '<tr class="mtd-row' + (open ? ' open' : '') + '" data-k="' + esc(b.key) + '"><td>' + esc(b.key) + '</td>'
+      + '<td class="num">' + fmt(b.s.n) + '</td>' + mtdCells(b.s) + '</tr>';
+    if (open) {
+      b.rows.slice().sort(function (x, y) { return (Number(y['Call Count'])||0) - (Number(x['Call Count'])||0); })
+        .forEach(function (r) {
+          var s1 = mtdStats([r]);
+          body += '<tr class="mtd-sub"><td>' + esc(r['LRM Name'] || agentName(r['Agent Id'])) + '</td>'
+            + '<td class="num">' + s1.days + 'd</td>' + mtdCells(s1) + '</tr>';
+        });
+    }
+  });
+  if (!groups.length) body = '<tr><td colspan="11" class="fb-sub" style="text-align:center;padding:18px">No LRMs in this range.</td></tr>';
+  host.innerHTML = '<div class="tbl-wrap"><table class="dist mtd">' + head + body + '</table></div>';
+  host.querySelectorAll('tr.mtd-row').forEach(function (tr) {
+    tr.addEventListener('click', function () {
+      var k = tr.getAttribute('data-k');
+      distOpen = (distOpen === k) ? null : k;
+      distDrawMtd();
+    });
+  });
+  var sub = document.getElementById('distMtdSub');
+  if (sub) sub.textContent = fmt(tot.n) + ' LRMs in view · ' + (D.dateLabel || '') +
+    ' · target accrues per day worked (' + FLOOR_TARGET_DAY.dials + ' dials / ' +
+    FLOOR_TARGET_DAY.talkMin + ' talk-min / ' + FLOOR_TARGET_DAY.ms + ' MS per LRM per day)' +
+    (tot.days ? ' · up to ' + tot.days + ' day' + (tot.days === 1 ? '' : 's') + ' per LRM' : '');
+}
+
 /* ── Panel shell ────────────────────────────────────────────────────────── */
 function renderHourlyBoard() {
   var el = document.getElementById('distPanel');
   if (!el || !D) return;
-  if (!window.echarts) {
-    el.innerHTML = '<div class="fb-box"><div class="fb-sub">Chart library did not load — check the network tab.</div></div>';
-    return;
-  }
-  var hrs = D.hourlyRows || [];
-  var perAgent = hrs.length && hrs[0] && (hrs[0].agent !== undefined || hrs[0]['Agent Id'] !== undefined);
-  if (!perAgent) {
-    el.innerHTML = '<div class="fb-box"><h4>Hourly achievement</h4>'
-      + '<div class="fb-sub">Needs the per-LRM <b>‘hourly’</b> sheet tab. Once Code.gs writes it '
-      + '(<code>autoUpdateHourly</code> on the 15-min trigger), every chart here fills in automatically — '
-      + 'no further deploy.</div></div>';
-    return;
-  }
-  if (!document.getElementById('distGrid')) {
-    var pace = distElapsed();
+  // No ECharts and no hourly feed needed any more — the MTD table and the hero
+  // both read the daily agent rows.
+  if (!document.getElementById('distMtd')) {
     el.innerHTML =
       '<div class="fb-wrap">'
+    +   '<div id="distHero"></div>'
     +   '<div class="fb-stamp"><span class="fb-live" id="distStamp"></span>'
-    +     '<span>Shift ' + DIST_TARGET.shiftStart + ':00–' + DIST_TARGET.shiftEnd + ':00 · '
-    +     'cumulative bar ' + DIST_TARGET.dialsPerHour + ' dials / ' + DIST_TARGET.talkMinPerHour
-    +     ' talk-min / ' + DIST_TARGET.msPerHour + ' MS per hour over '
-    +     DIST_TARGET.productiveHours + ' productive hours</span></div>'
-    +   '<div class="fb-box"><div class="hl-hd"><h4>Floor pulse — metric × hour</h4></div>'
-    +     '<div class="fb-sub" id="distPulseSub"></div><div class="dist-chart" id="distPulse"></div></div>'
-    +   '<div class="fb-box"><div class="hl-hd"><h4 id="distGridTitle">Hourly achievement</h4>'
-    +     '<span class="dist-lg"><em>behind</em><i></i><em>on pace</em></span>'
+    +     '<span id="distStampSub"></span></div>'
+    +   '<div class="fb-box"><div class="hl-hd"><h4>Dials, talk time and meetings &mdash; total for the range</h4>'
     +     '<div class="hl-chips" id="distChipGroup">'
     +       '<button data-g="ados">ADOS</button><button data-g="zsm">ZSM</button>'
     +       '<button data-g="tl" class="on">TL</button><button data-g="city">City</button></div>'
-    +     '<div class="hl-chips" id="distChipMode">'
-    +       '<button data-c="pct" class="on">% on pace</button><button data-c="count">LRMs on pace</button></div>'
     +     '</div>'
-    +     '<div class="dist-chart" id="distGrid"></div>'
-    +     '<div class="dist-drillbar" id="distDrillBar" style="display:none"><span id="distDrillLbl"></span>'
-    +       '<span class="dist-x" id="distDrillX">close ✕</span></div>'
-    +     '<div class="dist-chart" id="distDrillWrap" style="display:none"><div id="distDrill" style="width:100%;height:100%"></div></div>'
-    +     '<div class="fb-hrnote">Grey = hour not yet elapsed. <b>PROJ</b> = run rate over elapsed hours '
-    +     'carried across the ' + DIST_TARGET.productiveHours + ' productive hours. Click a row to open its LRMs.</div>'
+    +     '<div class="fb-sub" id="distMtdSub"></div>'
+    +     '<div id="distMtd"></div>'
+    +     '<div class="fb-hrnote">Set the date filter to the 1st &rarr; today for month to date. '
+    +     '<b>vs target</b> is against the target accrued over the days each LRM actually worked, so a '
+    +     'mid-month joiner is not scored against the whole month. Click a row to open its LRMs.</div>'
     +   '</div>'
+    +   '<div class="fb-box" id="distFrtBox"><div class="hl-hd"><h4>First response time — time to first call</h4>'
+    +     '<span class="fb-sub" style="margin:0">Moved here from the First Response Time tab, which is now the table. '
+    +     'Same numbers, same filter scope.</span></div><div id="distFrt"></div></div>'
     +   '<div class="fb-hrnote"><b>MS booked ≠ MS Today.</b> The hourly feed counts meetings '
     +     'booked in that hour; MS Today counts meetings scheduled for that day — two different '
     +     'populations, so they will not reconcile. 18% of bookings fall outside the shift and are '
@@ -388,13 +455,6 @@ function renderHourlyBoard() {
       Array.prototype.forEach.call(this.children, function (b) { b.classList.remove('on'); });
       e.target.classList.add('on'); distRender();
     });
-    document.getElementById('distChipMode').addEventListener('click', function (e) {
-      if (e.target.tagName !== 'BUTTON') return;
-      distMode = e.target.getAttribute('data-c');
-      Array.prototype.forEach.call(this.children, function (b) { b.classList.remove('on'); });
-      e.target.classList.add('on'); distDrawGrid();
-    });
-    document.getElementById('distDrillX').addEventListener('click', function () { distOpen = null; distDrawDrill(); });
   }
   var stamp = document.getElementById('distStamp');
   if (stamp) {
@@ -402,9 +462,27 @@ function renderHourlyBoard() {
     stamp.textContent = el2 >= DIST_HOURS.length ? 'FULL DAY'
       : 'AS OF ' + ('0' + (DIST_TARGET.shiftStart + el2)).slice(-2) + ':00 · ' + el2 + ' OF ' + DIST_HOURS.length + ' HRS';
   }
+  var ss = document.getElementById('distStampSub');
+  if (ss) ss.innerHTML = esc(D.dateLabel || '') + ' · totals for the range in view';
   distRender();
 }
-function distRender() { distDrawPulse(); distDrawGrid(); distDrawDrill(); }
+/* The FRT histogram is owned by speed.js — drawn, never re-implemented. Absent
+   feed or absent script both mean "hide the box", not an error. */
+function distDrawFrt() {
+  var box = document.getElementById('distFrtBox'), host = document.getElementById('distFrt');
+  if (!box || !host) return;
+  var html = (typeof speedHistCard === 'function' && D.speedHas !== false) ? speedHistCard() : '';
+  box.style.display = html ? '' : 'none';
+  host.innerHTML = html;
+}
+/* The hero + strip are owned by index.html (they read the daily agent rows, not the
+   hourly feed) — drawn here, never re-implemented. */
+function distDrawHero() {
+  var host = document.getElementById('distHero');
+  if (!host) return;
+  host.innerHTML = (typeof floorHeroHTML === 'function') ? floorHeroHTML(filterAgents()) : '';
+}
+function distRender() { distDrawHero(); distDrawMtd(); distDrawFrt(); }
 window.addEventListener('resize', function () {
   Object.keys(distCharts).forEach(function (k) { try { distCharts[k].resize(); } catch (e) {} });
 });

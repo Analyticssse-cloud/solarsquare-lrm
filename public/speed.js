@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Speed to Lead — how long an LRM takes to make the FIRST call after a lead is
-   assigned to them.
+   First Response Time — how long an LRM takes to make the FIRST call after a
+   lead is assigned to them. (Named "Speed to Lead" until 3 Sep 2026; the rename
+   is labels only, every identifier and sheet tab below still says speed.)
 
    Why it looks like this:
      * The SLA is NOT decided yet (user, 3 Sep). So the view is a DISTRIBUTION
@@ -10,29 +11,51 @@
        is baked into the data.
      * A lead counts against the day it was ASSIGNED, and a lead never called
        counts as a BREACH (user's decision). It is in every denominator.
+     * The clock is BUSINESS-HOURS adjusted in SQL: a lead landing at or after
+       19:00 starts its clock at 10:30 the next day, and one landing before
+       10:30 starts at 10:30 the same day. So TAT is measured from `Clock Start`,
+       not from the assignment instant — the drill shows both.
+     * `Assign Lag` (lead created -> assigned) is SYSTEM allocation latency, not
+       the LRM's. Reported beside TAT, never folded into it.
      * Medians are not summable, so across a multi-day range the table shows a
        median BAND read off the histogram, not a fake averaged median. On a
        single day it shows the exact median the SQL computed.
 
    Reads only what the backend returns:
      D.speedRows    [{agent,name,city,tl,tlName,zsm,zsmName,ados,adosName,
-                      assigned,called,never,buckets[7],avgTat,medianDay,_inScope}]
-     D.speedLeads   [{date,agent,lead,cluster,stage,status,assignedAt,
-                      firstCallAt,tat,flag}]   — the actionable tail only
+                      assigned,called,never,buckets[7],avgTat,avgLag,medianDay,_inScope}]
+     D.speedLeads   [{date,agent,lead,city,cluster,stage,status,createdAt,
+                      assignedAt,clockStart,firstCallAt,lag,tat,flag}]
+                    — the actionable tail only
      D.speedHas     false when the 'speed' sheet tab does not exist yet
    Depends on globals from index.html: D, F, esc, fmt, agentName, setCount,
    activeTab, switchTab.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Bucket edges MUST match sql/speed-to-lead-daily.sql column order. */
-var SPEED_EDGES = [5, 15, 30, 60, 240, 1440, Infinity];
-var SPEED_LABELS = ['0–5 min', '5–15 min', '15–30 min', '30–60 min', '1–4 hr', '4–24 hr', '> 1 day'];
-var SPEED_BANDS = ['0–5 min', '5–15 min', '15–30 min', '30–60 min', '1–4 hr', '4–24 hr', '> 1 day'];
+/* Bucket edges MUST match sql/speed-to-lead-daily.sql column order. v6 edges
+   (user, 3 Sep): five EXCLUSIVE buckets that sum to leads WORKED. */
+var SPEED_EDGES = [5, 10, 30, 60, Infinity];
+var SPEED_LABELS = ['0–5 min', '5–10 min', '10–30 min', '30–60 min', '> 60 min'];
+var SPEED_BANDS = SPEED_LABELS;
+/* Short forms for the wide cluster table's two column blocks. */
+var SPEED_SHORT = ['<5 min', '<10 min', '<30 min', '<60 min', '>60 min'];
 /* Only edges the feed can answer exactly. Anything else would need lead-level rows. */
-var SPEED_SLA_CHOICES = [5, 15, 30, 60];
+var SPEED_SLA_CHOICES = [5, 10, 30, 60];
+/* Row grain of the main table. The feed's grain is LRM x cluster, so every one of
+   these is a real rollup of the same cells — no grain is derived from another. */
+var SPEED_GRAINS = [
+  { k: 'cluster', lab: 'Cluster', head: 'Cluster', of: function (r) { return r.cluster || 'Unmapped'; } },
+  { k: 'city',    lab: 'City',    head: 'City',    of: function (r) { return r.leadCity || 'Unmapped'; } },
+  { k: 'ados',    lab: 'ADOS',    head: 'ADOS',    of: function (r) { return r.adosName || '—'; } },
+  { k: 'zsm',     lab: 'ZSM',     head: 'ZSM',     of: function (r) { return r.zsmName || '—'; } },
+  { k: 'tl',      lab: 'TL',      head: 'Team Lead', of: function (r) { return r.tlName || '—'; } },
+  { k: 'lrm',     lab: 'LRM',     head: 'LRM',     of: function (r) { return r.agent; } }
+];
+var speedGrain = 'cluster';
+try { var _g = localStorage.getItem('lrmSpeedGrain'); if (SPEED_GRAINS.some(function (g) { return g.k === _g; })) speedGrain = _g; } catch (e) {}
 var speedSLA = 30;
 try { var _s = parseInt(localStorage.getItem('lrmSpeedSLA'), 10); if (SPEED_SLA_CHOICES.indexOf(_s) >= 0) speedSLA = _s; } catch (e) {}
-var speedSort = { col: 'onTimePct', dir: 1 };   // worst first
+var speedSort = { col: 'assigned', dir: -1 };   // biggest population first
 var speedOpen = null;
 
 (function injectSpeedCss() {
@@ -46,7 +69,8 @@ var speedOpen = null;
   '.sl-chip{border:1px solid var(--border,#e3e8f3);background:#fff;color:var(--ink,#18233f);font:700 11.5px/1 inherit;padding:6px 11px;border-radius:20px;cursor:pointer;white-space:nowrap}' +
   '.sl-chip:hover{border-color:#9fb0d8}' +
   '.sl-chip.on{background:#18233f;border-color:#18233f;color:#fff}' +
-  '.sl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--border,#e3e8f3);border:1px solid var(--border,#e3e8f3);margin-bottom:16px}' +
+  '.sl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:1px;background:var(--border,#e3e8f3);border:1px solid var(--border,#e3e8f3);margin-bottom:16px}' +
+  '.sl-kpi:last-child{grid-column:auto/-1}' +
   '.sl-kpi{background:#fff;padding:11px 13px}' +
   '.sl-kpi-v{font-size:22px;font-weight:800;letter-spacing:-.7px;color:var(--ink,#18233f);line-height:1.1}' +
   '.sl-kpi-l{font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted,#6a7494);margin-top:3px}' +
@@ -56,27 +80,37 @@ var speedOpen = null;
   '.sl-hist-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap}' +
   '.sl-hist-hd b{font-size:12px;letter-spacing:-.1px}' +
   '.sl-hist-hd span{font-size:11px;color:var(--muted,#6a7494)}' +
-  '.sl-bars{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;align-items:end;height:150px}' +
+  '.sl-bars{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-items:end;height:150px}' +
   '.sl-bar{display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative}' +
   '.sl-bar i{display:block;background:#6ea866;min-height:2px;border-radius:2px 2px 0 0}' +
   '.sl-bar.late i{background:#d2664f}' +
   '.sl-bar.none i{background:#8b8f9c}' +
   '.sl-bar em{font-style:normal;font-size:11px;font-weight:800;text-align:center;color:var(--ink,#18233f);margin-bottom:4px}' +
-  '.sl-xlab{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;margin-top:7px;border-top:1px solid var(--border,#e3e8f3);padding-top:6px}' +
+  '.sl-xlab{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:7px;border-top:1px solid var(--border,#e3e8f3);padding-top:6px}' +
   '.sl-xlab span{font-size:9.5px;color:var(--muted,#6a7494);text-align:center;line-height:1.3}' +
   '.sl-xlab span b{display:block;font-size:10px;color:var(--ink,#18233f)}' +
-  '.sl-tbl-note{font-size:11px;color:var(--muted,#6a7494);margin:0 0 7px}' +
+  '.sl-tbl-note{font-size:11px;color:var(--muted,#6a7494);margin:0 0 7px;max-width:900px;line-height:1.5}' +
+  '.sl-grain{display:flex;align-items:center;gap:6px;margin:0 0 10px;flex-wrap:wrap}' +
+  '.sl-grid th,.sl-grid td{white-space:nowrap}' +
+  '.sl-grid .sl-hgrp th{font-size:9px;letter-spacing:.6px;color:var(--muted,#6a7494);border-bottom:0;padding-bottom:2px}' +
+  '.sl-grid th.sl-sep,.sl-grid td.sl-sep{border-left:1px solid var(--border,#e3e8f3)}' +
+  '.sl-grid td.sl-warn{color:#b0382c;font-weight:700}' +
+  '.sl-grid tr.sl-tot td{font-weight:800;background:#f4f6fb;border-bottom:1px solid #cfd7ea}' +
+  '.sl-grid em.sl-n{font-style:normal;font-size:9.5px;color:var(--muted,#6a7494);margin-left:4px}' +
+  '.sl-mini-grid td,.sl-mini-grid th{white-space:nowrap}' +
+  '.sl-subnote{font-size:10.5px;color:var(--muted,#6a7494);margin-top:6px}' +
   '.sl-meter{position:relative;height:7px;background:#eef1f8;border-radius:4px;overflow:hidden;min-width:56px}' +
   '.sl-meter i{position:absolute;left:0;top:0;bottom:0;background:#6ea866;border-radius:4px}' +
   '.sl-meter.warn i{background:#e8a05c}.sl-meter.bad i{background:#b0382c}' +
   'tr.sl-row{cursor:pointer}tr.sl-row:hover{background:rgba(24,35,63,.035)}' +
   'tr.sl-row.open{background:rgba(24,35,63,.055)}' +
   'td.sl-drill{padding:0!important;background:#fbfcfe}' +
-  '.sl-drill-in{padding:10px 14px 14px}' +
+  '.sl-drill-in{padding:10px 14px 14px;overflow-x:auto}' +
   '.sl-drill-in h4{margin:0 0 7px;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted,#6a7494)}' +
   '.sl-mini{width:100%;border-collapse:collapse;font-size:11.5px}' +
-  '.sl-mini th{text-align:left;font-size:9.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted,#6a7494);padding:4px 8px;border-bottom:1px solid var(--border,#e3e8f3)}' +
-  '.sl-mini td{padding:4px 8px;border-bottom:1px solid #eef1f8}' +
+  '.sl-mini th{text-align:left;font-size:9.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted,#6a7494);padding:4px 8px;border-bottom:1px solid var(--border,#e3e8f3);white-space:nowrap}' +
+  '.sl-mini th.num,.sl-mini td.num{text-align:right}' +
+  '.sl-mini td{padding:4px 8px;border-bottom:1px solid #eef1f8;white-space:nowrap}' +
   '.sl-flag{font-size:9.5px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;padding:2px 6px;border-radius:3px}' +
   '.sl-flag.never{background:#f6e2df;color:#8f2c22}' +
   '.sl-flag.slow{background:#faeed9;color:#8a5a17}' +
@@ -109,19 +143,22 @@ function filterSpeed() {
    denominator is leads ASSIGNED, never leads called. */
 function speedStats(rows) {
   var k = speedSlaIndex(), n = SPEED_LABELS.length;
-  var t = { assigned: 0, called: 0, never: 0, onTime: 0, buckets: [], tatSum: 0 };
+  var t = { assigned: 0, called: 0, never: 0, onTime: 0, buckets: [], tatSum: 0, lagSum: 0 };
   for (var i = 0; i < n; i++) t.buckets.push(0);
   rows.forEach(function (r) {
     t.assigned += r.assigned || 0;
     t.called += r.called || 0;
     t.never += r.never || 0;
     t.tatSum += (r.avgTat || 0) * (r.called || 0);
+    t.lagSum += (r.avgLag || 0) * (r.assigned || 0);
     (r.buckets || []).forEach(function (v, i) { t.buckets[i] += v || 0; });
   });
   for (var j = 0; j <= k; j++) t.onTime += t.buckets[j];
   t.onTimePct = t.assigned > 0 ? Math.round((t.onTime / t.assigned) * 1000) / 10 : 0;
   t.neverPct = t.assigned > 0 ? Math.round((t.never / t.assigned) * 1000) / 10 : 0;
+  t.workedPct = t.assigned > 0 ? Math.round((t.called / t.assigned) * 100) : 0;
   t.avgTat = t.called > 0 ? Math.round((t.tatSum / t.called) * 10) / 10 : 0;
+  t.avgLag = t.assigned > 0 ? Math.round((t.lagSum / t.assigned) * 10) / 10 : 0;
   t.band = speedBand(t.buckets, t.never);
   return t;
 }
@@ -140,12 +177,46 @@ function speedBand(buckets, never) {
   return 'not called';
 }
 function speedMeterCls(pct) { return pct >= 70 ? '' : pct >= 40 ? 'warn' : 'bad'; }
+/* Distinct LRMs in a set of rows. The feed's grain is LRM x CLUSTER, so a row is
+   a CELL, not a person — anyone working two clusters appears twice. Every
+   "N LRMs" label must go through this. */
+function speedLrmCount(rows) {
+  var seen = {}, n = 0;
+  (rows || []).forEach(function (r) { var a = r.agent; if (a && !seen[a]) { seen[a] = 1; n++; } });
+  return n;
+}
+function speedGrainDef(k) {
+  for (var i = 0; i < SPEED_GRAINS.length; i++) if (SPEED_GRAINS[i].k === (k || speedGrain)) return SPEED_GRAINS[i];
+  return SPEED_GRAINS[0];
+}
+/* Roll the LRM x cluster cells up to the chosen grain. One pass, order-stable. */
+function speedGroupBy(rows, grainKey) {
+  var g = speedGrainDef(grainKey), out = [], idx = {};
+  rows.forEach(function (r) {
+    var k = String(g.of(r) || '—');
+    var b = idx[k];
+    if (!b) { b = idx[k] = { key: k, rows: [] }; out.push(b); }
+    b.rows.push(r);
+  });
+  out.forEach(function (b) { b.s = speedStats(b.rows); });
+  return out;
+}
+/* Green tint for a share, matching the reference sheet: strong green at 90%+,
+   pale through the middle, red under 50%. Returns a background colour. */
+function speedTint(pct) {
+  if (pct >= 85) return '#bfe3c6';
+  if (pct >= 75) return '#d6ecd9';
+  if (pct >= 65) return '#eaf4ea';
+  if (pct >= 50) return '#fdf3e3';
+  if (pct >= 30) return '#f9ded8';
+  return '#f2c4bb';
+}
 
 function renderSpeed() {
   var panel = document.getElementById('speedPanel');
   if (!panel || !D) return;
   if (!D.speedHas) {
-    panel.innerHTML = '<div class="sl-empty"><b>No speed-to-lead source yet.</b><br>' +
+    panel.innerHTML = '<div class="sl-empty"><b>No first-response-time source yet.</b><br>' +
       'This view reads a <code>speed</code> tab (one row per LRM per lead-assignment day) ' +
       'and an optional <code>speed_leads</code> drill tab. Paste <code>sql/speed-to-lead-daily.sql</code> ' +
       'and <code>sql/speed-to-lead-leads.sql</code> into two Metabase cards, set ' +
@@ -161,81 +232,87 @@ function renderSpeed() {
   var k = speedSlaIndex();
   var html = '<div class="sl-wrap">';
 
-  html += '<div class="sl-head"><div><div class="sl-title">Speed to lead — first call after assignment</div>' +
+  html += '<div class="sl-head"><div><div class="sl-title">First response time — first call after assignment</div>' +
     '<div class="sl-sub">A lead counts against the day it was assigned. Leads never called are counted as breaches, ' +
-    'so the denominator is leads <b>assigned</b>. First calls before the assignment instant are ignored ' +
-    '(they belong to the previous owner).</div></div>' +
+    'so the denominator is leads <b>assigned</b>. The clock runs on floor hours: a lead landing at or after ' +
+    '19:00 starts at <b>10:30 the next day</b>, one landing before 10:30 starts at 10:30 the same day. ' +
+    'First calls before the assignment instant are ignored (they belong to the previous owner).</div></div>' +
     '<div class="sl-sla"><span class="sl-sla-lbl">SLA</span>' +
     SPEED_SLA_CHOICES.map(function (m) {
       return '<button class="sl-chip' + (m === speedSLA ? ' on' : '') + '" data-sla="' + m + '">' + m + ' min</button>';
     }).join('') + '</div></div>';
 
   html += '<div class="sl-kpis">' +
-    kpiCell(fmt(t.assigned), 'Leads assigned', rows.length + ' LRMs in view') +
+    kpiCell(fmt(t.assigned), 'Leads assigned', speedLrmCount(rows) + ' LRMs in view') +
     kpiCell(t.onTimePct + '%', 'First call within ' + speedSLA + ' min', fmt(t.onTime) + ' of ' + fmt(t.assigned), t.onTimePct < 40) +
     kpiCell(t.band, 'Median time to first call', t.called ? 'avg ' + fmt(Math.round(t.avgTat)) + ' min (called only)' : '') +
     kpiCell(fmt(t.never), 'Never called', t.neverPct + '% of assigned', t.never > 0) +
     kpiCell(fmt(t.called - t.onTime), 'Called, but late', 'after ' + speedSLA + ' min') +
+    kpiCell(t.avgLag ? fmt(Math.round(t.avgLag)) + ' min' : '—', 'Created → assigned', 'system allocation lag, not in TAT') +
     '</div>';
 
-  // histogram — the primary object while the SLA is still open
-  var max = Math.max.apply(null, t.buckets.concat([t.never])) || 1;
-  html += '<div class="sl-hist"><div class="sl-hist-hd"><b>Distribution of time to first call</b>' +
-    '<span>green = inside the ' + speedSLA + '-min SLA · click an SLA above to move the line</span></div><div class="sl-bars">';
-  t.buckets.forEach(function (v, i) {
-    html += '<div class="sl-bar ' + (i <= k ? '' : 'late') + '"><em>' + fmt(v) + '</em>' +
-      '<i style="height:' + Math.max(2, Math.round((v / max) * 118)) + 'px"></i></div>';
-  });
-  html += '<div class="sl-bar none"><em>' + fmt(t.never) + '</em><i style="height:' +
-    Math.max(2, Math.round((t.never / max) * 118)) + 'px"></i></div>';
-  html += '</div><div class="sl-xlab">' +
-    SPEED_LABELS.map(function (l, i) {
-      var pct = t.assigned > 0 ? Math.round((t.buckets[i] / t.assigned) * 1000) / 10 : 0;
-      return '<span><b>' + l + '</b>' + pct + '%</span>';
-    }).join('') +
-    '<span><b>Never called</b>' + t.neverPct + '%</span></div></div>';
+  // ── the main table: one row per chosen grain, counts then shares ──────────
+  // Column blocks mirror the sheet the floor already reads: population, then the
+  // five exclusive buckets as COUNTS (they sum to Worked), then the same five as a
+  // % of Worked. Only "Touched %" is tinted — tinting all eleven made it unreadable.
+  var G = speedGrainDef();
+  html += '<div class="sl-grain"><span class="sl-sla-lbl">Rows</span>' +
+    SPEED_GRAINS.map(function (g) {
+      return '<button class="sl-chip' + (g.k === speedGrain ? ' on' : '') + '" data-grain="' + g.k + '">' + g.lab + '</button>';
+    }).join('') + '</div>';
 
-  // per-LRM table, worst first
-  var body = rows.map(function (r) {
-    var s = speedStats([r]);
-    return { r: r, onTimePct: s.onTimePct, band: s.band, never: r.never || 0, assigned: r.assigned || 0, avgTat: r.avgTat || 0,
-             med: (r.medianDay !== null && r.medianDay !== undefined) ? r.medianDay : null };
-  }).filter(function (x) { return x.assigned > 0; });
-  body.sort(function (a, b) {
-    var av = a[speedSort.col], bv = b[speedSort.col];
-    if (speedSort.col === 'name') return String(a.r.agent).localeCompare(String(b.r.agent)) * speedSort.dir;
-    return ((Number(av) || 0) - (Number(bv) || 0)) * speedSort.dir;
+  var groups = speedGroupBy(rows).filter(function (b) { return b.s.assigned > 0; });
+  groups.sort(function (a, b) {
+    if (speedSort.col === 'key') return String(a.key).localeCompare(String(b.key)) * speedSort.dir;
+    return ((Number(a.s[speedSort.col]) || 0) - (Number(b.s[speedSort.col]) || 0)) * speedSort.dir;
   });
 
-  html += '<div class="sl-tbl-note">Sorted worst-first on <b>% within ' + speedSLA + ' min</b>. ' +
-    'Click a row for the leads behind it — never-called first, then slowest. ' +
-    (D.speedLeads && D.speedLeads.length ? '' : 'No drill rows in this range.') + '</div>';
-  html += '<div class="tbl-wrap"><table><thead><tr>' +
-    '<th data-sc="name">LRM</th><th>City</th><th>Team Lead</th>' +
+  html += '<div class="sl-tbl-note">Counts are exclusive and sum to <b>Worked</b>; the right block is the same ' +
+    'five buckets as a share of Worked. <b>Worked</b> = at least one dial after assignment, so ' +
+    'Assigned − Worked is the never-called tail. Click a row to open ' +
+    (speedGrain === 'lrm' ? 'its slow and never-called leads.' : 'its LRMs.') + '</div>';
+
+  html += '<div class="tbl-wrap"><table class="sl-grid"><thead>' +
+    '<tr class="sl-hgrp"><th></th><th class="num" colspan="3">Leads</th>' +
+      '<th class="num sl-sep" colspan="5">Time to first call — leads</th>' +
+      '<th class="num sl-sep" colspan="5">Share of worked</th></tr>' +
+    '<tr><th data-sc="key">' + esc(G.head) + '</th>' +
     '<th class="num" data-sc="assigned">Assigned</th>' +
-    '<th class="num">Called</th>' +
-    '<th class="num" data-sc="onTimePct">% within ' + speedSLA + ' min</th>' +
-    '<th>Median</th>' +
-    '<th class="num" data-sc="avgTat">Avg TAT (min)</th>' +
-    '<th class="num" data-sc="never">Never called</th></tr></thead><tbody>';
-  body.forEach(function (x) {
-    var r = x.r, open = speedOpen === r.agent;
-    html += '<tr class="sl-row' + (open ? ' open' : '') + '" data-agent="' + esc(r.agent) + '">' +
-      '<td>' + esc(r.name || agentName(r.agent)) + '</td>' +
-      '<td>' + esc(r.city || '') + '</td>' +
-      '<td>' + esc(r.tlName || '') + '</td>' +
-      '<td class="num">' + fmt(x.assigned) + '</td>' +
-      '<td class="num">' + fmt(r.called || 0) + '</td>' +
-      '<td class="num"><div style="display:flex;align-items:center;gap:7px;justify-content:flex-end">' +
-        '<span>' + x.onTimePct + '%</span><div class="sl-meter ' + speedMeterCls(x.onTimePct) + '" style="width:62px">' +
-        '<i style="width:' + Math.min(100, x.onTimePct) + '%"></i></div></div></td>' +
-      '<td>' + esc(x.med !== null ? x.med + ' min' : x.band) + '</td>' +
-      '<td class="num">' + (r.called ? fmt(Math.round(r.avgTat)) : '—') + '</td>' +
-      '<td class="num">' + (x.never ? fmt(x.never) : '—') + '</td></tr>';
-    if (open) html += '<tr><td class="sl-drill" colspan="9">' + speedDrill(r.agent) + '</td></tr>';
+    '<th class="num" data-sc="called">Worked</th>' +
+    '<th class="num" data-sc="workedPct">Touched %</th>' +
+    SPEED_SHORT.map(function (l, i) { return '<th class="num' + (i === 0 ? ' sl-sep' : '') + '">' + l + '</th>'; }).join('') +
+    SPEED_SHORT.map(function (l, i) { return '<th class="num' + (i === 0 ? ' sl-sep' : '') + '">' + l + '</th>'; }).join('') +
+    '</tr></thead><tbody>';
+
+  function speedCells(s, isTot) {
+    var wp = s.workedPct;
+    var out = '<td class="num">' + fmt(s.assigned) + '</td><td class="num">' + fmt(s.called) + '</td>' +
+      '<td class="num"' + (isTot ? '' : ' style="background:' + speedTint(wp) + '"') + '>' + wp + '%</td>';
+    s.buckets.forEach(function (v, i) {
+      out += '<td class="num' + (i === 0 ? ' sl-sep' : '') + '">' + (v ? fmt(v) : '') + '</td>';
+    });
+    s.buckets.forEach(function (v, i) {
+      var p = s.called > 0 ? Math.round(v / s.called * 100) : 0;
+      out += '<td class="num' + (i === 0 ? ' sl-sep' : '') + (i === SPEED_SHORT.length - 1 && p >= 40 ? ' sl-warn' : '') +
+        '">' + (s.called ? p + '%' : '') + '</td>';
+    });
+    return out;
+  }
+
+  html += '<tr class="sl-tot"><td>ALL (' + groups.length + ' ' + G.lab.toLowerCase() + (groups.length === 1 ? '' : 's') + ')</td>' +
+    speedCells(t, true) + '</tr>';
+
+  groups.forEach(function (b) {
+    var id = speedGrain + '::' + b.key, open = speedOpen === id;
+    var label = speedGrain === 'lrm' ? (b.rows[0].name || agentName(b.key)) : b.key;
+    html += '<tr class="sl-row' + (open ? ' open' : '') + '" data-open="' + esc(id) + '">' +
+      '<td>' + esc(label) + (speedGrain === 'lrm' ? '' : ' <em class="sl-n">' + speedLrmCount(b.rows) + '</em>') + '</td>' +
+      speedCells(b.s) + '</tr>';
+    if (open) html += '<tr><td class="sl-drill" colspan="14">' +
+      (speedGrain === 'lrm' ? speedDrill(b.key) : speedSubRows(b)) + '</td></tr>';
   });
   html += '</tbody></table></div>';
-  if (!body.length) html += '<div class="sl-empty">No leads were assigned to anyone in this filter and date range.</div>';
+  if (!groups.length) html += '<div class="sl-empty">No leads were assigned to anyone in this filter and date range.</div>';
   html += '</div>';
   panel.innerHTML = html;
 
@@ -246,17 +323,25 @@ function renderSpeed() {
       renderSpeed();
     });
   });
+  panel.querySelectorAll('.sl-grain .sl-chip').forEach(function (b) {
+    b.addEventListener('click', function () {
+      speedGrain = b.getAttribute('data-grain') || 'cluster';
+      speedOpen = null;
+      try { localStorage.setItem('lrmSpeedGrain', speedGrain); } catch (e) {}
+      renderSpeed();
+    });
+  });
   panel.querySelectorAll('th[data-sc]').forEach(function (th) {
     th.style.cursor = 'pointer';
     th.addEventListener('click', function () {
       var c = th.getAttribute('data-sc');
-      if (speedSort.col === c) speedSort.dir *= -1; else { speedSort.col = c; speedSort.dir = c === 'onTimePct' ? 1 : -1; }
+      if (speedSort.col === c) speedSort.dir *= -1; else { speedSort.col = c; speedSort.dir = (c === 'key' || c === 'workedPct') ? 1 : -1; }
       renderSpeed();
     });
   });
   panel.querySelectorAll('tr.sl-row').forEach(function (tr) {
     tr.addEventListener('click', function () {
-      var a = tr.getAttribute('data-agent');
+      var a = tr.getAttribute('data-open');
       speedOpen = (speedOpen === a) ? null : a;
       renderSpeed();
     });
@@ -266,6 +351,62 @@ function renderSpeed() {
 function kpiCell(v, l, note, bad) {
   return '<div class="sl-kpi' + (bad ? ' bad' : '') + '"><div class="sl-kpi-v">' + esc(String(v)) + '</div>' +
     '<div class="sl-kpi-l">' + esc(l) + '</div>' + (note ? '<div class="sl-kpi-n">' + esc(note) + '</div>' : '') + '</div>';
+}
+
+/* The time-to-first-call histogram, as a self-contained card.
+   It used to sit at the top of this tab; the user moved it to the Distribution tab
+   (4 Sep 2026) so the FRT tab is the table and Distribution is where the shapes
+   live. Exported rather than duplicated: one set of numbers, one renderer, so the
+   two tabs can never disagree. Pass rows to scope it; defaults to filterSpeed(). */
+function speedHistCard(rows) {
+  rows = rows || (typeof filterSpeed === 'function' ? filterSpeed() : (D.speedRows || []));
+  var t = speedStats(rows);
+  if (!t.assigned) return '';
+  var k = SPEED_EDGES.indexOf(speedSLA);
+  var max = Math.max.apply(null, t.buckets.concat([t.never])) || 1;
+  var out = '<div class="sl-hist"><div class="sl-hist-hd"><b>Distribution of time to first call</b>' +
+    '<span>green = inside the ' + speedSLA + '-min SLA · ' + fmt(t.assigned) + ' leads assigned</span></div><div class="sl-bars">';
+  t.buckets.forEach(function (v, i) {
+    out += '<div class="sl-bar ' + (i <= k ? '' : 'late') + '"><em>' + fmt(v) + '</em>' +
+      '<i style="height:' + Math.max(2, Math.round((v / max) * 118)) + 'px"></i></div>';
+  });
+  out += '<div class="sl-bar none"><em>' + fmt(t.never) + '</em><i style="height:' +
+    Math.max(2, Math.round((t.never / max) * 118)) + 'px"></i></div>';
+  return out + '</div><div class="sl-xlab">' +
+    SPEED_LABELS.map(function (l, i) {
+      var pct = t.assigned > 0 ? Math.round((t.buckets[i] / t.assigned) * 1000) / 10 : 0;
+      return '<span><b>' + l + '</b>' + pct + '%</span>';
+    }).join('') +
+    '<span><b>Never called</b>' + t.neverPct + '%</span></div></div>';
+}
+
+/* The LRMs behind a group row — same eleven columns, weakest touch-rate first, so
+   the row that dragged the cluster down is the first thing you read. */
+function speedSubRows(b) {
+  var per = speedGroupBy(b.rows, 'lrm').filter(function (x) { return x.s.assigned > 0; });
+  per.sort(function (x, y) { return x.s.workedPct - y.s.workedPct; });
+  var out = '<div class="sl-drill-in"><h4>' + esc(b.key) + ' — ' + per.length + ' LRM' + (per.length === 1 ? '' : 's') +
+    ', weakest touch rate first</h4><table class="sl-mini sl-mini-grid"><thead><tr><th>LRM</th>' +
+    '<th class="num">Assigned</th><th class="num">Worked</th><th class="num">Touched %</th>' +
+    SPEED_SHORT.map(function (l) { return '<th class="num">' + l + '</th>'; }).join('') + '</tr></thead><tbody>';
+  per.forEach(function (x) {
+    out += '<tr><td>' + esc(x.rows[0].name || agentName(x.key)) + '</td>' +
+      '<td class="num">' + fmt(x.s.assigned) + '</td><td class="num">' + fmt(x.s.called) + '</td>' +
+      '<td class="num" style="background:' + speedTint(x.s.workedPct) + '">' + x.s.workedPct + '%</td>' +
+      x.s.buckets.map(function (v) { return '<td class="num">' + (v ? fmt(v) : '') + '</td>'; }).join('') + '</tr>';
+  });
+  return out + '</tbody></table><div class="sl-subnote">Switch <b>Rows</b> to <b>LRM</b> to open the ' +
+    'slow and never-called leads under a person.</div></div>';
+}
+
+/* 'YYYY-MM-DD HH:MM' -> '03 Sep 14:22'. The feed formats these in SQL so JS never
+   re-parses them as dates; this only shortens the string. */
+function slWhen(s) {
+  s = String(s || '');
+  var m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2})/);
+  if (!m) return s || '—';
+  var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m[2], 10) - 1] || m[2];
+  return m[3] + ' ' + mon + ' ' + m[4];
 }
 
 function speedDrill(agent) {
@@ -278,12 +419,21 @@ function speedDrill(agent) {
   var shown = rows.slice(0, 40);
   var out = '<div class="sl-drill-in"><h4>Leads behind this row — ' + rows.length +
     ' never-called or slower than 60 min' + (rows.length > shown.length ? ' (first 40)' : '') + '</h4>' +
-    '<table class="sl-mini"><thead><tr><th>Lead</th><th>Cluster</th><th>Stage</th><th>Assigned</th><th>First call</th><th>TAT</th><th></th></tr></thead><tbody>';
+    '<table class="sl-mini"><thead><tr><th>Lead</th><th>City / cluster</th><th>Stage</th>' +
+    '<th>Lead created</th><th>Assigned</th><th>Clock start</th><th>First call</th>' +
+    '<th class="num">Assign lag</th><th class="num">TAT</th><th></th></tr></thead><tbody>';
   shown.forEach(function (r) {
     var never = r.tat === null || r.tat === undefined;
-    out += '<tr><td><b>' + esc(r.lead) + '</b></td><td>' + esc(r.cluster) + '</td><td>' + esc(r.stage) + '</td>' +
-      '<td>' + esc(r.assignedAt) + '</td><td>' + esc(r.firstCallAt || '—') + '</td>' +
-      '<td>' + (never ? '—' : fmt(Math.round(r.tat)) + ' min') + '</td>' +
+    var geo = r.cluster || r.city || '';
+    var shifted = r.clockStart && r.assignedAt && r.clockStart !== r.assignedAt;
+    out += '<tr><td><b>' + esc(r.lead) + '</b></td><td>' + esc(geo) + '</td><td>' + esc(r.stage) + '</td>' +
+      '<td>' + esc(slWhen(r.createdAt)) + '</td>' +
+      '<td>' + esc(slWhen(r.assignedAt)) + '</td>' +
+      '<td' + (shifted ? ' style="color:#8a5a17" title="Off-hours arrival — clock moved to floor open"' : '') + '>' +
+        esc(slWhen(r.clockStart || r.assignedAt)) + '</td>' +
+      '<td>' + esc(r.firstCallAt ? slWhen(r.firstCallAt) : '—') + '</td>' +
+      '<td class="num">' + (r.lag === null || r.lag === undefined ? '—' : fmt(Math.round(r.lag)) + ' min') + '</td>' +
+      '<td class="num">' + (never ? '—' : fmt(Math.round(r.tat)) + ' min') + '</td>' +
       '<td><span class="sl-flag ' + (never ? 'never' : 'slow') + '">' + (never ? 'Never called' : 'Slow') + '</span></td></tr>';
   });
   return out + '</tbody></table></div>';

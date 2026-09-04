@@ -168,6 +168,54 @@
     .error-box { background: #fdecea; border: 1px solid #f5c2be; color: #9c1f18; padding: 12px 16px; border-radius: 6px; margin: 8px 0; font-size: 12px; }
     .empty { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
 
+    /* ── Floor Board hourly charts ── */
+    .fh-hd { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+    .fh-hd h4 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+    .fh-note { font-size: 10.5px; color: var(--muted); margin-left: auto; }
+    .fh-chart { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; align-items: end; height: 150px; padding-top: 8px; border-bottom: 1px solid var(--border); }
+    .fh-col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; }
+    .fh-col i { display: block; width: 100%; border-radius: 2px 2px 0 0; background: #2f4d9b; }
+    .fh-col.no i { background: #e0a32b; }
+    .fh-col.fut i { background: #eef1f6; }
+    .fh-col em { font-style: normal; font-size: 10.5px; font-weight: 800; color: var(--text); margin-bottom: 3px; min-height: 13px; }
+    .fh-col span { font-size: 9.5px; color: var(--muted); padding-top: 4px; }
+    .fh-line { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed #c0392b; }
+    .fh-foot { font-size: 10.5px; color: var(--muted); margin-top: 7px; font-style: italic; }
+
+    /* ── Floor Board hero + strip ── */
+    .fhero-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+    .fhero { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 15px; }
+    .fhero-l { font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; color: var(--muted); }
+    .fhero-v { font-size: 30px; font-weight: 800; letter-spacing: -1px; color: var(--blue); line-height: 1.15; margin: 2px 0 8px; }
+    .fhero-v u { text-decoration: none; font-size: 14px; font-weight: 700; margin-left: 3px; }
+    .fhero-bar { position: relative; height: 6px; border-radius: 3px; background: #eef1f6; overflow: visible; }
+    .fhero-bar i { display: block; height: 100%; border-radius: 3px; background: var(--blue); }
+    .fhero-bar i.no { background: var(--gold); }
+    .fhero-bar i.ok { background: var(--green); }
+    .fhero-bar s { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--text); }
+    .fhero-f { font-size: 10.5px; color: var(--muted); margin-top: 7px; line-height: 1.45; }
+    .fhero-f b { color: var(--text); }
+    .fstrip { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .fstrip > div { background: var(--surface); padding: 10px 15px; display: flex; flex-direction: column; gap: 1px; }
+    .fstrip b { font-size: 19px; font-weight: 800; letter-spacing: -.5px; color: var(--text); }
+    .fstrip span { font-size: 9.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+
+    /* ── Floor Board MTD table ── */
+    table.mtd th, table.mtd td { white-space: nowrap; }
+    table.mtd th.num, table.mtd td.num { text-align: right; }
+    table.mtd th.sep, table.mtd td.sep { border-left: 1px solid var(--border); }
+    table.mtd .mtd-hgrp th { font-size: 9px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); border-bottom: 0; padding-bottom: 2px; }
+    table.mtd tr.mtd-tot td { font-weight: 800; background: #f4f6fb; border-bottom: 1px solid #cfd7ea; }
+    table.mtd tr.mtd-row { cursor: pointer; }
+    table.mtd tr.mtd-row:hover td { background: #f7f9fd; }
+    table.mtd tr.mtd-row.open td { background: #eef3fc; font-weight: 700; }
+    table.mtd tr.mtd-sub td { background: #fbfcfe; color: var(--muted); font-size: 11.5px; }
+    table.mtd tr.mtd-sub td:first-child { padding-left: 22px; }
+    .mtd-pct { font-weight: 700; }
+    .mtd-pct.ok { color: var(--green); }
+    .mtd-pct.mid { color: var(--gold-dk); }
+    .mtd-pct.no { color: var(--red); }
+
     /* ── Action Center ── */
     .act-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex: 0 0 auto; }
     .act-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
@@ -357,7 +405,11 @@
 thead th.num.g-b{background:rgba(24,35,63,.045)}
 /* ── Distribution (hourly achievement heatmaps) ── */
 .dist-chart{width:100%;height:300px;border-top:1px solid var(--border);margin-top:8px}
-#distPulse{height:150px}
+/* The metric pills carry the old Floor pulse's headline % — separated from the
+   grouping chips so the two chip rows are not read as one control. */
+.hl-chips.dist-metric{margin-right:auto;padding-right:10px;border-right:1px solid var(--border)}
+.hl-chips.dist-metric button b{font-weight:800;margin-left:3px}
+.hl-chips.dist-metric button.on b{color:#fff!important}
 #distGrid{height:340px}
 #distPat{height:280px}
 .dist-lg{display:inline-flex;align-items:center;gap:6px}
@@ -479,8 +531,8 @@ table.hl td.pc .no{color:#c0392b}
 </div>
 
 <div class="tabs">
-  <div class="tab active" id="tabDist">📶 Distribution</div>
-  <div class="tab" id="tabFloor">📊 Floor Board</div>
+  <div class="tab active" id="tabDist">📊 Floor Board</div>
+  <div class="tab" id="tabFloor">📊 Top / Bottom Performers</div>
   <div class="tab tab-review" id="tabCity">🏙 City Summary</div>
   <div class="tab tab-review" id="tabAgent">👤 LRM View</div>
   <div class="tab"        id="tabAcademy">🎓 Training Academy</div>
@@ -488,7 +540,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabZSM">🧭 ZSM View</div>
   <div class="tab"        id="tabTL">🧑‍🤝‍🧑 TL View</div>
   <div class="tab"        id="tabAction">⚡ Action Center</div>
-  <div class="tab"        id="tabSpeed">⏱ Speed to Lead</div>
+  <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
 </div>
@@ -552,7 +604,15 @@ var MS = {};  // multi-select instances by key
 var actScope = 'dist';
 var distLevel = 'ados';
 /* Distribution ("who is below the bar"), not averages. Present = made more than PRESENT_MIN calls. */
-var DIST = { presentMin:1, dial:150, ttMin:120, ms:10 };
+/* Day-end bars per LRM. ttLow is a SECOND, harder talk-time floor the user asked
+   for (4 Sep): 120 min is the target, under 90 min is the intervention line. */
+var DIST = { presentMin:1, dial:150, ttMin:120, ttLow:90, ms:10 };
+/* Every bar is scored against the share of the shift ELAPSED, not the whole day
+   (user, 4 Sep): at 14:00 an LRM on 94 dials is on pace, and flagging them against
+   150 would put most of the floor "below the bar" every morning. On a finished day
+   the factor is 1, so day-end numbers are unchanged. */
+function distPace(){ var h=floorHours().length||1; return Math.max(0.01, Math.min(1, floorElapsed()/h)); }
+function distBar(k){ return Math.round(DIST[k]*distPace()); }
 var ACT = { bottomN:10 };   // connect-rate and volume thresholds went with the alert cards
 
 var CITY_COLS = [
@@ -1232,12 +1292,75 @@ MultiSelect.prototype.syncBtn = function() {
 // The rollup tabs (ZSM / TL View) do not honour the F filter state, so showing the
 // controls there would be a lie. Single place that decides the bar's visibility.
 
-/* ── Floor Board — top 10 / bottom 10 only ─────────────────────────────────────
-   Deliberately just six leaderboards: best and worst 10 LRMs by dials, by talk
-   time and by meetings scheduled. No hero numbers, no strip, no city bars, no
-   hourly curve — the hourly read lives on the Distribution tab, and the KPI strip
-   above already carries the floor totals. Repeating either here only invited the
-   two to disagree.
+/* ── Floor Board hero + strip ─────────────────────────────────────────────────
+   The four headline numbers and the five-item strip the floor reads first, on
+   the Floor Board tab (the old "Distribution" tab, renamed 4 Sep 2026 — the
+   hourly grid and the FRT shape stay below them).
+   Targets are PACE-RELATIVE (distPace()), the same bar as the Top / Bottom
+   Performers tab and the Action Center, so no two tabs can state a different
+   target. The bar's own notch marks where the day should be right now. */
+function floorHeroHTML(rows){
+  var n=rows.length, pace=distPace();
+  var s={calls:0,conn:0,tt:0,ms:0,gt2:0,md:0,real:0};
+  rows.forEach(function(r){
+    s.calls+=Number(r['Call Count'])||0;
+    s.conn +=Number(r['Connected Calls'])||0;
+    s.tt   +=Number(r['Total Talk Time'])||0;
+    s.ms   +=Number(r['MS Today'])||0;
+    s.gt2  +=Number(r['Calls >2min'])||0;
+    s.md   +=Number(r['Meeting Done'])||0;
+    s.real +=Number(r['Real Connects (15s+)'])||0;
+  });
+  var dayDial=n*FLOOR_TARGET.dials, dayTT=n*FLOOR_TARGET.talkMin, dayMS=n*FLOOR_TARGET.ms;
+  var ttMin=Math.round(s.tt*60), avgTalk=s.real>0?Math.round(s.tt*60/s.real*10)/10:0;
+  var prog=dayDial?s.calls/dayDial:0;
+  /* One card. pct is against the DAY target (so the bar fills over the day) and the
+     notch is where pace sits, which is how "behind for this time of day" is read. */
+  var card=function(val,unit,label,done,day,foot){
+    var p=day?Math.min(100,Math.round(done/day*100)):0;
+    var on=day?done>=day*pace:true;
+    return '<div class="fhero"><div class="fhero-l">'+label+'</div>'
+      + '<div class="fhero-v">'+val+(unit?'<u>'+unit+'</u>':'')+'</div>'
+      + '<div class="fhero-bar"><i class="'+(on?'ok':'no')+'" style="width:'+p+'%"></i>'
+      +   (day?'<s style="left:'+Math.round(pace*100)+'%"></s>':'')+'</div>'
+      + '<div class="fhero-f">'+foot+'</div></div>';
+  };
+  var gap=Math.round((pace-prog)*100);
+  var hero='<div class="fhero-row">'
+    + card(fmt(s.calls),'','Dials today',s.calls,dayDial,
+        '<b>'+Math.round(prog*100)+'%</b> of '+fmt(dayDial)+' &middot; '+FLOOR_TARGET.dials+'/LRM &times; '+fmt(n)
+        + ' &middot; <b>'+(gap>0?gap+'% behind':Math.abs(gap)+'% ahead of')+'</b> pace for this time of day')
+    + card(fmt(s.conn),'','Connected calls',s.conn,0,
+        s.calls?fmt(Math.round(s.conn/s.calls*100))+'% of dials connected':'&mdash;')
+    + card(Math.round(s.tt*10)/10,'hr','Talk time',ttMin,dayTT,
+        '<b>'+(dayTT?Math.round(ttMin/dayTT*100):0)+'%</b> of '+fmt(dayTT)+' min &middot; avg <b>'+avgTalk+' min</b> per connect')
+    + card(fmt(s.ms),'','Meetings scheduled',s.ms,dayMS,
+        fmt(s.md)+' closures logged today (MD)')
+    + '</div>';
+  var strip=[
+    [fmt(n)+' / '+fmt((D.rosterRows||[]).length||n),'LRMs on floor'],
+    [avgTalk,'Avg talk (min)'],
+    [fmt(s.gt2),'Calls over 2 min'],
+    [fmt(s.md),'MD (closures today)'],
+    [Math.round(prog*100)+'%','Target progress'],
+    [Math.round(pace*100)+'%','Shift elapsed']
+  ].map(function(x){ return '<div><b>'+x[0]+'</b><span>'+x[1]+'</span></div>'; }).join('');
+  return hero+'<div class="fstrip">'+strip+'</div>';
+}
+
+/* ── Top / Bottom Performers ───────────────────────────────────────────────────
+   Six leaderboards: best and worst 10 LRMs by dials, by talk time and by meetings
+   scheduled. This tab answers "who" only — the hourly charts that briefly sat above
+   them were removed (user, 4 Sep): the Floor Board tab already carries the hourly
+   read, and two tabs drawing the same curve is the clutter we just took out of
+   Distribution. floorHourly/floorHourSeries are kept below for the Floor Board.
+   Every target on this tab is scored BY HOURS ELAPSED (user, 4 Sep): the bar is
+   the per-LRM day target times the elapsed share of the shift, the same
+   distPace() the Action Center uses. So a 09:40 board ranks people against the
+   morning's worth of work, not against 150 dials nobody could have made yet, and
+   the two tabs can never state different bars. On a finished day the factor is 1.
+   Bars are plain CSS, not ECharts: three static bar rows do not justify the chart
+   engine the Distribution heatmaps need, and this tab must open instantly.
    Honours the filter bar and viewer scope, because it reads filterAgents(). */
 var FLOOR_TARGET = { dials:150, talkMin:120, ms:10 };
 /* One column set per metric: how the value is read off a row, how it prints, and
@@ -1254,8 +1377,72 @@ var FLOOR_BOARDS = [
     get:function(r){ return Number(r['MS Today'])||0; },
     show:function(v){ return fmt(v); } }
 ];
+/* Per-hour floor-wide bar = the per-LRM day target spread over the productive
+   hours, times the LRMs in view. Same 10:00-19:00 / 8-productive-hour model the
+   Distribution tab uses, so the two tabs cannot state different targets. */
+var FLOOR_SHIFT = { start:10, end:19, productive:8 };
+function floorHours(){ var o=[]; for(var x=FLOOR_SHIFT.start;x<FLOOR_SHIFT.end;x++) o.push(x); return o; }
+/* Hours elapsed. A past day is fully elapsed — otherwise a historical view reads
+   as all-future and renders empty. Driven by the data's latest day, like the
+   Distribution board. */
+function floorElapsed(){
+  var hrs=floorHours();
+  var today=(typeof todayIST==='function')?todayIST():null, maxDay='';
+  (D.hourlyRows||[]).forEach(function(r){ var x=String(r.date||'').slice(0,10); if(x>maxDay) maxDay=x; });
+  if(today && maxDay && maxDay<today) return hrs.length;
+  var n=istNow().getUTCHours()+1-FLOOR_SHIFT.start;
+  return Math.max(0,Math.min(hrs.length,n));
+}
+/* One metric's per-hour floor totals, scoped to the filter bar. Averaged over the
+   DAYS in range: summing a 5-day range would clear a one-day bar trivially. */
+function floorHourSeries(board, rows){
+  var hrs=floorHours(), keep={}, days={};
+  rows.forEach(function(r){ var e=String(r['Agent Id']||'').trim().toLowerCase(); if(e) keep[e]=1; });
+  var per={};
+  (D.hourlyRows||[]).forEach(function(r){
+    var e=String(r.agent||r['Agent Id']||'').trim().toLowerCase();
+    if(!keep[e]) return;
+    var i=hrs.indexOf(Number(r.hour!==undefined?r.hour:r['Hour']));
+    if(i<0) return;
+    var day=String(r.date||'').slice(0,10)||'_'; days[day]=1;
+    var v=board.key==='dials'? Number(r.calls||r['Call Count']||0)
+        : board.key==='talk' ? Number(r.talkHr||r['Total Talk Time']||0)*60
+        :                      Number(r.ms!==undefined?r.ms:(r['MS Scheduled']||0));
+    var a=per[day]||(per[day]=hrs.map(function(){return 0;}));
+    a[i]+=(Number(v)||0);
+  });
+  var dayKeys=Object.keys(per), out=hrs.map(function(){return 0;});
+  dayKeys.forEach(function(d){ per[d].forEach(function(v,i){ out[i]+=v; }); });
+  if(dayKeys.length>1) out=out.map(function(v){ return v/dayKeys.length; });
+  return { hours:hrs, vals:out, days:dayKeys.length };
+}
+/* The hourly chart. Bars past the elapsed hour are drawn as empty slots, not
+   zeroes — an absent hour and a zero hour are different statements. */
+function floorHourly(rows, board){
+  var S=floorHourSeries(board,rows), el=floorElapsed();
+  var bar=rows.length*(board.target/FLOOR_SHIFT.productive);
+  var max=Math.max(bar, S.vals.reduce(function(m,v){return Math.max(m,v);},0))||1;
+  var hit=0, live=0;
+  var bars=S.hours.map(function(hr,i){
+    var fut=i>=el, v=fut?0:S.vals[i], ok=v>=bar;
+    if(!fut){ live++; if(ok) hit++; }
+    return '<div class="fh-col'+(fut?' fut':(ok?' ok':' no'))+'">'
+      + '<em>'+(fut?'':board.show(Math.round(v)))+'</em>'
+      + '<i style="height:'+(fut?2:Math.max(2,Math.round(v/max*104)))+'px"></i>'
+      + '<span>'+('0'+hr).slice(-2)+'</span></div>';
+  }).join('');
+  var linePct=Math.min(100,Math.round(bar/max*100));
+  return '<div class="fb-box"><div class="fh-hd"><h4>'+board.label+' by hour</h4>'
+    + '<span class="fh-note">bar = <b>'+board.show(Math.round(bar))+'</b>/hr &middot; '
+    + Math.round(board.target/FLOOR_SHIFT.productive*10)/10+board.unit+' &times; '+fmt(rows.length)+' LRMs'
+    + (S.days>1?' &middot; mean of '+S.days+' days':'')+'</span></div>'
+    + '<div class="fh-chart"><s class="fh-line" style="bottom:'+(17+linePct*1.04)+'px"></s>'+bars+'</div>'
+    + '<div class="fh-foot"><b>'+hit+' of '+live+'</b> elapsed hour'+(live===1?'':'s')+' at or above the bar</div></div>';
+}
 function floorTable(rows, board, dir){
   // dir 1 = top (highest first), -1 = bottom (lowest first).
+  // Scored against the elapsed-hours bar, not the day target — see the note above.
+  var bar = Math.max(1, Math.round(board.target * distPace()));
   var sorted = rows.slice().sort(function(a,b){
     var d = (board.get(b) - board.get(a)) * dir;
     // Tie-break by name so the order is stable between 15-min refreshes instead of
@@ -1263,18 +1450,21 @@ function floorTable(rows, board, dir){
     if(d) return d;
     return String(a['LRM Name']||a['Agent Id']||'').localeCompare(String(b['LRM Name']||b['Agent Id']||''));
   }).slice(0,10);
+  var pace = Math.round(distPace()*100);
   var max = rows.reduce(function(m,r){ return Math.max(m, board.get(r)); }, 0) || 1;
   var body = sorted.map(function(r,i){
-    var v = board.get(r), pct = board.target ? Math.round(v/board.target*100) : 0;
+    var v = board.get(r), pct = Math.round(v/bar*100);
     return '<tr class="'+(dir===1?'fb-top':'fb-bot')+'"><td class="fb-rk">'+(i+1)+'</td>'
          + '<td class="fb-nm" title="'+esc(r['Agent Id']||'')+'">'+esc(r['LRM Name'] || agentName(r['Agent Id']))+'</td>'
          + '<td'+(v===0?' class="fb-zero"':'')+'>'+board.show(v)+'</td>'
          + '<td><b class="'+(pct>=100?'ok':'no')+'">'+pct+'%</b></td>'
          + '<td class="fb-mini"><s><i style="width:'+Math.max(2,(v/max*100)).toFixed(1)+'%"></i></s></td></tr>';
   }).join('') || '<tr><td colspan="5" class="fb-sub">No LRMs in this range.</td></tr>';
-  return '<div class="fb-box"><h4>'+(dir===1?'Top 10':'Bottom 10')+' &mdash; '+board.label+'</h4>'
+  return '<div class="fb-box"><div class="fh-hd"><h4>'+(dir===1?'Top 10':'Bottom 10')+' &mdash; '+board.label+'</h4>'
+       + '<span class="fh-note">bar '+board.show(bar)+' &middot; '+pace+'% of the '
+       + board.show(board.target)+' day target</span></div>'
        + '<table class="fb-lb"><tr><th></th><th>LRM</th><th>'+board.label+'</th>'
-       + '<th>vs '+board.target+board.unit+'</th><th></th></tr>'+body+'</table></div>';
+       + '<th>vs '+board.show(bar)+'</th><th></th></tr>'+body+'</table></div>';
 }
 function renderFloor(){
   var el = document.getElementById('floorPanel');
@@ -1287,13 +1477,14 @@ function renderFloor(){
     + '<div class="fb-stamp"><span class="fb-live">AS OF '+asOf+' IST</span>'
     +   '<span>'+esc(D.dateLabel||'')+' &middot; <b>'+fmt(rows.length)+'</b> LRMs in view'
     +   (filtersActive()?' (filtered)':'')
-    +   ' &middot; scored against '+FLOOR_TARGET.dials+' dials / '+FLOOR_TARGET.talkMin
-    +   ' talk-min / '+FLOOR_TARGET.ms+' MS per LRM per day</span></div>'
+    +   ' &middot; scored by hours elapsed: '+Math.round(distPace()*100)+'% of '+FLOOR_TARGET.dials
+    +   ' dials / '+FLOOR_TARGET.talkMin+' talk-min / '+FLOOR_TARGET.ms+' MS per LRM per day</span></div>'
     + FLOOR_BOARDS.map(function(b){
         return '<div class="fb-pair">'+floorTable(rows,b,1)+floorTable(rows,b,-1)+'</div>';
       }).join('')
     + '<div class="fb-foot"><span class="fb-link" id="fbToTable">Details &mdash; full LRM table &rsaquo;</span>'
-    +   '<span class="fb-note">Hourly pace and the on-pace distribution live on the Distribution tab.</span></div>'
+    +   '<span class="fb-note">Ranks and the % column are scored against the elapsed share of the shift, '
+    +   'so they read the same bar as the Action Center.</span></div>'
     + '</div>';
   var lnk = document.getElementById('fbToTable');
   if(lnk) lnk.onclick = function(){ switchTab('agent'); };
@@ -1513,7 +1704,7 @@ function computeDistribution(rows, level){
   var num=function(r,k){return Number(r[k])||0;};
   var keyOf=distKeyOf(level);
   var g={},order=[];
-  var touch=function(k){ if(!g[k]){ g[k]={name:k,onroll:0,present:0,lowDial:0,lowTT:0,lowMS:0}; order.push(k); } return g[k]; };
+  var touch=function(k){ if(!g[k]){ g[k]={name:k,onroll:0,present:0,lowDial:0,lowTT:0,lowTT90:0,lowMS:0}; order.push(k); } return g[k]; };
   // Onroll = every LRM on the mapping sheet (whether or not they dialled today).
   var roster=filterRoster();
   if(roster.length) roster.forEach(function(r){ touch(String(keyOf(r)||'').trim()||'— Unmapped —').onroll++; });
@@ -1523,9 +1714,10 @@ function computeDistribution(rows, level){
     if(!roster.length) b.onroll++;
     if(num(r,'Call Count')>=DIST.presentMin){
       b.present++;
-      if(num(r,'Call Count')<DIST.dial) b.lowDial++;
-      if(num(r,'Total Talk Time')*60<DIST.ttMin) b.lowTT++;
-      if(num(r,'MS Today')<DIST.ms) b.lowMS++;
+      if(num(r,'Call Count')<distBar('dial')) b.lowDial++;
+      if(num(r,'Total Talk Time')*60<distBar('ttMin')) b.lowTT++;
+      if(num(r,'Total Talk Time')*60<distBar('ttLow')) b.lowTT90++;
+      if(num(r,'MS Today')<distBar('ms')) b.lowMS++;
     }
   });
   var out=order.map(function(k){return g[k];});
@@ -1536,10 +1728,10 @@ function distPctCell(n,d){ if(!d) return '<td>—</td>'; var p=Math.round(n/d*10
 function renderDistribution(rows){
   var levels=[['overall','Our level'],['ados','AD'],['zsm','ZSM'],['tl','TL']];
   var seg='<div class="dist-lvl">'+levels.map(function(l){return '<button data-lvl="'+l[0]+'" class="'+(distLevel===l[0]?'on':'')+'">'+l[1]+'</button>';}).join('')+'</div>';
-  var lead='<div class="dist-lead">Measure the <b>distribution</b>, not the average. A team averaging 200 dials can still hide an LRM at 100 — this counts the LRMs <b>below the bar</b> so they can be held accountable. <b>Onroll</b> = every LRM on the LRM_TL mapping sheet. <b>Present</b> = the LRMs who actually made calls today, and every %age is out of Present. Bars: <b>'+DIST.dial+' dials</b>, <b>'+DIST.ttMin+' min talk time</b>, <b>'+DIST.ms+' meetings scheduled</b>.</div>';
+  var lead='<div class="dist-lead">Measure the <b>distribution</b>, not the average. A team averaging 200 dials can still hide an LRM at 100 — this counts the LRMs <b>below the bar</b> so they can be held accountable. <b>Onroll</b> = every LRM on the LRM_TL mapping sheet. <b>Present</b> = the LRMs who actually made calls today, and every %age is out of Present. Bars are scored <b>against the elapsed share of the shift</b>, not the whole day — right now <b>'+distBar('dial')+' dials</b>, <b>'+distBar('ttMin')+' / '+distBar('ttLow')+' min talk time</b>, <b>'+distBar('ms')+' meetings scheduled</b> ('+Math.round(distPace()*100)+'% of the day target: '+DIST.dial+' / '+DIST.ttMin+' / '+DIST.ms+').</div>';
   var g=computeDistribution(rows,distLevel);
-  var tot={name:'Total',onroll:0,present:0,lowDial:0,lowTT:0,lowMS:0};
-  g.forEach(function(b){ tot.onroll+=b.onroll; tot.present+=b.present; tot.lowDial+=b.lowDial; tot.lowTT+=b.lowTT; tot.lowMS+=b.lowMS; });
+  var tot={name:'Total',onroll:0,present:0,lowDial:0,lowTT:0,lowTT90:0,lowMS:0};
+  g.forEach(function(b){ tot.onroll+=b.onroll; tot.present+=b.present; tot.lowDial+=b.lowDial; tot.lowTT+=b.lowTT; tot.lowTT90+=b.lowTT90; tot.lowMS+=b.lowMS; });
   var hdName={overall:'Scope',ados:'AD',zsm:'ZSM',tl:'Team Lead'}[distLevel];
   var row=function(b,cls){
     var g=cls?'__ALL__':b.name;
@@ -1548,20 +1740,23 @@ function renderDistribution(rows){
       + cell(b.present,'present')
       + cell(b.lowDial,'dial',1)+distPctCell(b.lowDial,b.present)
       + cell(b.lowTT,'tt',1)+distPctCell(b.lowTT,b.present)
+      + cell(b.lowTT90,'tt90',1)+distPctCell(b.lowTT90,b.present)
       + cell(b.lowMS,'ms',1)+distPctCell(b.lowMS,b.present)+'</tr>';
   };
   var head='<tr><th>'+hdName+'</th><th>Onroll LRM</th><th>Present LRM</th>'
-    + '<th class="g1 sep">#LRM &lt;'+DIST.dial+' Dial</th><th class="g1">%age</th>'
-    + '<th class="g2 sep">#LRM &lt;'+DIST.ttMin+' min TT</th><th class="g2">%age</th>'
-    + '<th class="g3 sep">#LRM &lt;'+DIST.ms+' MS</th><th class="g3">%age</th></tr>';
-  var body=g.length?g.map(function(b){return row(b);}).join('')+(g.length>1?row(tot,'dist-total'):''):'<tr><td colspan="9" class="fb-sub" style="text-align:center;padding:20px">No LRMs in this range.</td></tr>';
+    + '<th class="g1 sep">#LRM &lt;'+distBar('dial')+' Dial</th><th class="g1">%age</th>'
+    + '<th class="g2 sep">#LRM &lt;'+distBar('ttMin')+' min TT</th><th class="g2">%age</th>'
+    + '<th class="g2 sep">#LRM &lt;'+distBar('ttLow')+' min TT</th><th class="g2">%age</th>'
+    + '<th class="g3 sep">#LRM &lt;'+distBar('ms')+' MS</th><th class="g3">%age</th></tr>';
+  var body=g.length?g.map(function(b){return row(b);}).join('')+(g.length>1?row(tot,'dist-total'):''):'<tr><td colspan="11" class="fb-sub" style="text-align:center;padding:20px">No LRMs in this range.</td></tr>';
   return lead+seg+'<div class="dist-wrap"><table class="dist">'+head+body+'</table></div>';
 }
 var DIST_MET={
   present:{title:'Present LRMs',   sev:'sev-info', desc:'LRMs who made at least one call today.', action:'Population used for every percentage below.', pass:function(n,r){return true;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
   dial:   {title:'Below dial bar', sev:'sev-high', desc:'', action:'Hold accountable for the dial gap — not the team average.', pass:function(n,r){return n(r,'Call Count')<DIST.dial;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
-  tt:     {title:'Below talk-time bar', sev:'sev-mid', desc:'', action:'Check conversation depth, not just dial count.',        pass:function(n,r){return n(r,'Total Talk Time')*60<DIST.ttMin;}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
-  ms:     {title:'Below meetings bar',  sev:'sev-high',desc:'', action:'Coach on pitch and conversion.',                         pass:function(n,r){return n(r,'MS Today')<DIST.ms;}, sortVal:function(n,r){return n(r,'MS Today');}, metric:function(n,r){return n(r,'MS Today')+' MS';}}
+  tt:     {title:'Below talk-time bar', sev:'sev-mid', desc:'', action:'Check conversation depth, not just dial count.',        pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttMin');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
+  tt90:   {title:'Under the 90-min talk floor', sev:'sev-high', desc:'', action:'Intervene today — this is time on the phone, not dial effort.', pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttLow');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
+  ms:     {title:'Below meetings bar',  sev:'sev-high',desc:'', action:'Coach on pitch and conversion.',                         pass:function(n,r){return n(r,'MS Today')<distBar('ms');}, sortVal:function(n,r){return n(r,'MS Today');}, metric:function(n,r){return n(r,'MS Today')+' MS';}}
 };
 function openDistModal(grp,met){
   var cfg=DIST_MET[met]; if(!cfg) return;
@@ -1574,7 +1769,7 @@ function openDistModal(grp,met){
   }).sort(function(a,b){ return cfg.sortVal(num,a)-cfg.sortVal(num,b); }).map(function(r){
     return {name:agentName(r['Agent Id']),city:(String(keyOf(r)||'').trim()||'—')+' · '+(r['City']||'—'),metric:cfg.metric(num,r)};
   });
-  var bars={present:'who made calls today',dial:'under '+DIST.dial+' dials',tt:'under '+DIST.ttMin+' min talk time',ms:'under '+DIST.ms+' meetings scheduled'};
+  var bars={present:'who made calls today',dial:'under '+distBar('dial')+' dials',tt:'under '+distBar('ttMin')+' min talk time',tt90:'under '+distBar('ttLow')+' min talk time',ms:'under '+distBar('ms')+' meetings scheduled'};
   var bk=document.getElementById('actModalBk');
   bk.querySelector('.am-sev').className='acard-sev am-sev '+cfg.sev;
   bk.querySelector('.am-title').textContent=cfg.title+(grp==='__ALL__'?' — all':' — '+grp);
@@ -1648,8 +1843,8 @@ function downloadPDF(){
       var dhd={overall:'Scope',ados:'AD',zsm:'ZSM',tl:'Team Lead'}[distLevel];
       viewName='Action Center · Distribution ('+dhd+')';
       var pct=function(n,d){return d?Math.round(n/d*100)+'%':'—';};
-      tblHTML='<table><thead><tr><th>'+dhd+'</th><th>Onroll LRM</th><th>Present LRM</th><th>#LRM &lt;'+DIST.dial+' Dial</th><th>%age</th><th>#LRM &lt;'+DIST.ttMin+' min TT</th><th>%age</th><th>#LRM &lt;'+DIST.ms+' MS</th><th>%age</th></tr></thead><tbody>'
-        + dg.map(function(b){return '<tr><td>'+esc(b.name)+'</td><td>'+b.onroll+'</td><td>'+b.present+'</td><td>'+b.lowDial+'</td><td>'+pct(b.lowDial,b.present)+'</td><td>'+b.lowTT+'</td><td>'+pct(b.lowTT,b.present)+'</td><td>'+b.lowMS+'</td><td>'+pct(b.lowMS,b.present)+'</td></tr>';}).join('')
+      tblHTML='<table><thead><tr><th>'+dhd+'</th><th>Onroll LRM</th><th>Present LRM</th><th>#LRM &lt;'+distBar('dial')+' Dial</th><th>%age</th><th>#LRM &lt;'+distBar('ttMin')+' min TT</th><th>%age</th><th>#LRM &lt;'+distBar('ttLow')+' min TT</th><th>%age</th><th>#LRM &lt;'+distBar('ms')+' MS</th><th>%age</th></tr></thead><tbody>'
+        + dg.map(function(b){return '<tr><td>'+esc(b.name)+'</td><td>'+b.onroll+'</td><td>'+b.present+'</td><td>'+b.lowDial+'</td><td>'+pct(b.lowDial,b.present)+'</td><td>'+b.lowTT+'</td><td>'+pct(b.lowTT,b.present)+'</td><td>'+b.lowTT90+'</td><td>'+pct(b.lowTT90,b.present)+'</td><td>'+b.lowMS+'</td><td>'+pct(b.lowMS,b.present)+'</td></tr>';}).join('')
         + '</tbody></table>';
     } else {
     var abk=(isCity?computeCityActions(filterCities()):computeAgentActions(filterAgents())).filter(function(b){return b.agents.length;});
