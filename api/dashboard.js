@@ -29,6 +29,26 @@ import { requireUser, deny } from './_auth.js';
 const norm = (v) => String(v || '').trim().toLowerCase().replace('@homes.solarsquare.in', '@solarsquare.in');
 const num  = (v) => Number(v) || 0;
 
+/* LRMs suppressed from the ENTIRE dashboard (user, 5 Sep 2026).
+   Applied at the two data entry points — the LRM_TL_MAP roster and the Ozontel daily
+   rows — so they vanish from every view, every rollup, every total and every export
+   at once. Hourly and First Response Time rows are keyed against those two sets, so
+   they drop out with no further filter; speed_leads is guarded explicitly because it
+   is read straight off its own tab.
+   Emails are compared through norm(), so the @homes alias is covered too.
+   To restore someone, delete their line. */
+const EXCLUDED_LRMS = new Set([
+  'ananya.bhattacharjee@solarsquare.in',
+  'balappa.patil@solarsquare.in',
+  'nanda.reddy@solarsquare.in',
+  'bhoomika.kalra@solarsquare.in',
+  'nikita.sen@solarsquare.in',
+  'nitin.thakur@solarsquare.in',
+  'kushal.sahu@solarsquare.in',
+  'saili.banerjee@solarsquare.in',
+].map(e => norm(e)));
+const isExcluded = (email) => EXCLUDED_LRMS.has(norm(email));
+
 function rowDate(cell) {
   if (cell === null || cell === undefined) return '';
   return String(cell).trim().slice(0, 10);
@@ -121,23 +141,42 @@ export default async function handler(req, res) {
     const iTLEmail = findCol(mHdr, ['LRM TL Email ID', 'TL Email']);
     const iZSM     = findCol(mHdr, ['LRM DZSM Email ID', 'DZSM Email', 'ZSM Email', 'DZSM', 'ZSM']);
     const iADOS    = findCol(mHdr, ['ADOS Email ID', 'LRM ADOS Email ID', 'ADOS Email', 'ADOS']);
+    const iName    = findCol(mHdr, ['LRM Name', 'LRM  Name', 'Name', 'Employee Name']);
+    const iRole    = findCol(mHdr, ['Role', 'Designation', 'LRM Role']);
+    const hasRoleCol = iRole >= 0;
+    /* Only true LRMs count (user, 5 Sep 2026): col E Role must read LRM or LRM-pilot.
+       Anything else on the mapping sheet (TL, ZSM, ADOS, support roles) is hierarchy
+       context, not headcount, and must never enter the roster or the LRM count.
+       If the Role column is missing the sheet is pre-role — everyone is kept. */
+    const roleIsLRM = (v) => {
+      const s = String(v || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+      return s === 'lrm' || s === 'lrm-pilot';
+    };
 
-    const cityMap = {}, tlMap = {};
-    const adosSet = new Set(), zsmSet = new Set(), tlSet = new Set(), lrmSet2 = new Set();
+    const cityMap = {}, tlMap = {}, nameMap = {};
+    const adosSet = new Set(), zsmSet = new Set(), tlSet = new Set(), lrmSet2 = new Set(), mapEmails = new Set();
 
     for (let i = 1; i < mapRaw.length; i++) {
       const r = mapRaw[i];
       if (!r) continue;
       const email = norm(r[iEmail]);
       if (!email || !email.includes('@')) continue;
+      if (isExcluded(email)) continue;   // suppressed LRM — never enters the roster
+      const roleCell = iRole >= 0 ? r[iRole] : '';
+      const isLRMRow = iRole < 0 || roleIsLRM(roleCell);
+      const sheetName = iName >= 0 ? String(r[iName] || '').trim() : '';
       const city   = iCluster >= 0 ? String(r[iCluster] || '').trim() : '';
       const tlName = iTLName  >= 0 ? String(r[iTLName]  || '').trim() : '';
       const tlMail = iTLEmail >= 0 ? norm(r[iTLEmail]) : '';
       const zsm    = iZSM     >= 0 ? norm(r[iZSM])     : '';
       const ados   = iADOS    >= 0 ? norm(r[iADOS])    : '';
+      // Hierarchy links are harvested from EVERY row (a TL row still tells us who
+      // their ZSM is); only the roster/count is gated on the role.
       if (city) cityMap[email] = city;
       tlMap[email] = { tlName, tlMail, zsm, ados };
-      lrmSet2.add(email);
+      if (sheetName) nameMap[email] = sheetName;
+      if (isLRMRow) lrmSet2.add(email);
+      mapEmails.add(email);
       if (tlMail) tlSet.add(tlMail);
       if (zsm)    zsmSet.add(zsm);
       if (ados)   adosSet.add(ados);
@@ -148,7 +187,7 @@ export default async function handler(req, res) {
       const m = tlMap[email] || {};
       return {
         'Agent Id': email,
-        'LRM Name': nameFromEmail(email),
+        'LRM Name': nameMap[email] || nameFromEmail(email),
         'City': cityMap[email] || '',
         'TL': m.tlMail || '',
         'TL Name': m.tlName || (m.tlMail ? nameFromEmail(m.tlMail) : ''),
@@ -165,6 +204,9 @@ export default async function handler(req, res) {
     else if (zsmSet.has(viewerEmail))  role = 'ZSM';
     else if (tlSet.has(viewerEmail))   role = 'TL';
     else if (lrmSet2.has(viewerEmail)) role = 'LRM';
+    // On the sheet but not an LRM/TL/ZSM/ADOS row (a support role): scope to self
+    // rather than falling through to the open VIEWER role.
+    else if (mapEmails.has(viewerEmail))  role = 'LRM';
 
     // Which agents this viewer may see in the ROLLUPS (the flat Agent View stays open).
     const inScope = (agentEmail) => {
@@ -186,7 +228,12 @@ export default async function handler(req, res) {
 
       let agt = String(obj['Agent Id'] || '').trim();
       if (!agt || !agt.includes('@') || agt.includes('->')) return;
+      if (isExcluded(agt)) return;   // suppressed LRM — no calls, no totals, no rollup
       const key = norm(agt);
+      /* Only Role = LRM / LRM-pilot counts. A TL or ZSM who dials has call rows in
+         Ozontel; letting them through inflates the LRM count and every per-LRM
+         target that multiplies by it. Gated only when the roster carries roles. */
+      if (hasRoleCol && !lrmSet2.has(key)) return;
 
       // Accept the pre-v11 header too, so an un-backfilled sheet still renders.
       const callCount = num(pick(obj, ['Call Count', 'Total Calls']));
@@ -422,6 +469,172 @@ export default async function handler(req, res) {
       console.warn('No hourly tab: ' + e.message);
     }
 
+    // ── 6c. First Response Time (optional 'speed' + 'speed_leads' tabs) ───────
+    // 'speed'       one row per Agent x lead-ASSIGNMENT day, written by autoUpdateSpeed().
+    // 'speed_leads' the actionable tail only (never called, or first call > 60 min).
+    // A lead counts against the day it was ASSIGNED, so never-called leads are in the
+    // denominator and read as breaches. The TAT clock is BUSINESS-HOURS adjusted in SQL
+    // (assigned >= 19:00 -> next day 10:30; before 10:30 -> same day 10:30), so the
+    // sheet's 'Clock Start' column, not 'Assigned At', is what TAT is measured from.
+    // 'Assign Lag (min)' is the system's created -> assigned latency and is NOT in TAT. Buckets are cumulative-able counts, so summing
+    // them across days is valid — the medians in the sheet are NOT summable and are only
+    // read through when a single day is in view.
+    // Absent tabs are not an error: the frontend shows a "no source yet" note.
+    // v6 edges (user, 3 Sep): five EXCLUSIVE buckets that sum to Leads Called. Order
+    // must match the SQL SELECT list and SPEED_EDGES/SPEED_LABELS in public/speed.js.
+    const SPEED_BUCKETS = ['TAT 0-5', 'TAT 5-10', 'TAT 10-30', 'TAT 30-60', 'TAT >60'];
+    let speedRows = [], speedLeads = [], speedHas = false;
+    try {
+      const sRaw = await readSheet('speed');
+      if (sRaw.length > 1) {
+        speedHas = true;
+        const sHdr = sRaw[0].map(h => String(h).trim());
+        const si = (names) => findCol(sHdr, names);
+        const siDate = si(['Date']), siAgent = si(['Agent Id', 'LRM Email']);
+        const siAsg = si(['Leads Assigned']), siCalled = si(['Leads Called']), siNever = si(['Never Called']);
+        const siCluster = si(['Cluster']), siLeadCity = si(['City']);
+        const siMed = si(['Median TAT (min)']), siAvg = si(['Avg TAT (min)']);
+        const siLag = si(['Avg Assign Lag (min)']);
+        const siB = SPEED_BUCKETS.map(b => sHdr.findIndex(h => h.toLowerCase() === b.toLowerCase()));
+        const known = new Set(rosterAll.map(r => norm(r['Agent Id'])));
+        const acc = {};
+        for (let i = 1; i < sRaw.length; i++) {
+          const r = sRaw[i];
+          if (!r) continue;
+          const day = rowDate(r[siDate]);
+          if (day < effFrom || day > effTo) continue;
+          const email = norm(r[siAgent]);
+          if (!email || !email.includes('@')) continue;
+          if (known.size && !known.has(email)) continue;
+          // Grain is LRM x CLUSTER (the lead's own geo, filled both ways in SQL), so a
+          // cluster or city rollup is the real thing and not the LRM's roster city.
+          // Each geo falls back to the other here too, in case a pre-v6 row has neither.
+          const cl = siCluster < 0 ? '' : String(r[siCluster] || '').trim();
+          const ct = siLeadCity < 0 ? '' : String(r[siLeadCity] || '').trim();
+          const cluster = cl || ct || 'Unmapped', leadCity = ct || cl || 'Unmapped';
+          const key = email + '||' + cluster;
+          const a = acc[key] || (acc[key] = {
+            agent: email, cluster, leadCity, assigned: 0, called: 0, never: 0,
+            buckets: SPEED_BUCKETS.map(() => 0), tatSum: 0, lagSum: 0, days: 0, medianDay: null,
+          });
+          const called = num(r[siCalled]);
+          a.assigned += num(r[siAsg]);
+          a.called   += called;
+          a.never    += num(r[siNever]);
+          siB.forEach((ci, k) => { a.buckets[k] += ci < 0 ? 0 : num(r[ci]); });
+          // weighted so a multi-day average is by lead, not by day
+          a.tatSum   += num(r[siAvg]) * called;
+          // assign lag is per ASSIGNED lead (it exists even when never called)
+          if (siLag >= 0) a.lagSum += num(r[siLag]) * num(r[siAsg]);
+          a.days++;
+          if (effFrom === effTo && siMed >= 0) a.medianDay = num(r[siMed]);
+        }
+        const meta = {};
+        rosterAll.forEach(r => { meta[norm(r['Agent Id'])] = r; });
+        speedRows = Object.keys(acc).map(k => {
+          const a = acc[k], m = meta[a.agent] || {};
+          return {
+            ...a,
+            name: m['LRM Name'] || nameFromEmail(a.agent),
+            city: m['City'] || '', tl: m['TL'] || '', tlName: m['TL Name'] || '',
+            zsm: m['ZSM'] || '', zsmName: m['ZSM Name'] || '',
+            ados: m['ADOS'] || '', adosName: m['ADOS Name'] || '',
+            avgTat: a.called > 0 ? Math.round((a.tatSum / a.called) * 10) / 10 : 0,
+            avgLag: a.assigned > 0 ? Math.round((a.lagSum / a.assigned) * 10) / 10 : 0,
+            _inScope: inScope(a.agent),
+          };
+        }).sort((x, y) => y.assigned - x.assigned);
+      }
+    } catch (e) {
+      console.warn('No speed tab: ' + e.message);
+    }
+    try {
+      const lRaw = await readSheet('speed_leads');
+      if (lRaw.length > 1) {
+        const lHdr = lRaw[0].map(h => String(h).trim());
+        const li = (names) => findCol(lHdr, names);
+        const c = {
+          date: li(['Date']), agent: li(['Agent Id', 'LRM Email']), lead: li(['Lead Id']),
+          cluster: li(['Cluster']), city: li(['City']), stage: li(['Stage']), status: li(['Status']),
+          created: li(['Lead Created At']), asg: li(['Assigned At']), clock: li(['Clock Start']),
+          call: li(['First Call At']), lag: li(['Assign Lag (min)']),
+          tat: li(['TAT (min)']), flag: li(['Flag']),
+        };
+        for (let i = 1; i < lRaw.length; i++) {
+          const r = lRaw[i];
+          if (!r) continue;
+          const day = rowDate(r[c.date]);
+          if (day < effFrom || day > effTo) continue;
+          const email = norm(r[c.agent]);
+          if (!email || !email.includes('@')) continue;
+          if (isExcluded(email)) continue;   // suppressed LRM
+          speedLeads.push({
+            date: day, agent: email,
+            lead: String(r[c.lead] || '').trim(),
+            cluster: c.cluster < 0 ? '' : String(r[c.cluster] || '').trim(),
+            city: c.city < 0 ? '' : String(r[c.city] || '').trim(),
+            stage: c.stage < 0 ? '' : String(r[c.stage] || '').trim(),
+            status: c.status < 0 ? '' : String(r[c.status] || '').trim(),
+            createdAt: c.created < 0 ? '' : String(r[c.created] || '').trim(),
+            assignedAt: String(r[c.asg] || '').trim(),
+            clockStart: c.clock < 0 ? '' : String(r[c.clock] || '').trim(),
+            firstCallAt: c.call < 0 ? '' : String(r[c.call] || '').trim(),
+            lag: c.lag < 0 || r[c.lag] === '' ? null : num(r[c.lag]),
+            tat: c.tat < 0 || r[c.tat] === '' ? null : num(r[c.tat]),
+            flag: c.flag < 0 ? '' : String(r[c.flag] || '').trim(),
+          });
+        }
+        // never-called first, then slowest — the drill reads top-down as a worklist
+        speedLeads.sort((a, b) => (a.tat === null ? -1 : b.tat === null ? 1 : b.tat - a.tat));
+        if (speedLeads.length > 4000) speedLeads = speedLeads.slice(0, 4000);
+      }
+    } catch (e) {
+      console.warn('No speed_leads tab: ' + e.message);
+    }
+
+    /* MS Schedule Inventory — the burn-down feed for the Action Center MS Plan
+       (sql/ms-inventory-lead-snapshot.sql). One row per Cluster x City x
+       Assigned LRM for one schedule date (tomorrow, typically). Optional tab —
+       degrades to an empty array (Plan falls back to full-target math) if the
+       sheet hasn't been wired yet. */
+    let msScheduleRows = [];
+    try {
+      const iRaw = await readSheet('MS Schedule Inventory');
+      if (iRaw.length > 1) {
+        const iHdr = iRaw[0].map(h => String(h).trim());
+        const ii = (names) => findCol(iHdr, names);
+        const c = {
+          cluster: ii(['Cluster']), city: ii(['City']), agent: ii(['Assigned LRM', 'LRM Email']),
+          sched: ii(['Schedule Date']), daysOut: ii(['Days Out']), cohort: ii(['Cohort']),
+          ms: ii(['MS Scheduled']), ct: ii(['Confirmed Today']), ce: ii(['Confirmed Earlier']),
+          ncs: ii(['No Confirm Stamp']), leads: ii(['Distinct Leads']),
+        };
+        for (let i = 1; i < iRaw.length; i++) {
+          const r = iRaw[i];
+          if (!r) continue;
+          const email = c.agent < 0 ? '' : norm(r[c.agent]);
+          if (email && isExcluded(email)) continue;   // suppressed LRM
+          const ms = c.ms < 0 ? 0 : num(r[c.ms]);
+          if (!ms) continue;
+          msScheduleRows.push({
+            'Schedule Date': c.sched < 0 ? '' : String(r[c.sched] || '').trim(),
+            'Days Out': c.daysOut < 0 ? null : num(r[c.daysOut]),
+            'Cohort': c.cohort < 0 ? '' : String(r[c.cohort] || '').trim(),
+            'Cluster': c.cluster < 0 ? '' : String(r[c.cluster] || '').trim(),
+            'City': c.city < 0 ? '' : String(r[c.city] || '').trim(),
+            'Assigned LRM': email,
+            'MS Scheduled': ms,
+            'Confirmed Today': c.ct < 0 ? 0 : num(r[c.ct]),
+            'Confirmed Earlier': c.ce < 0 ? 0 : num(r[c.ce]),
+            'No Confirm Stamp': c.ncs < 0 ? 0 : num(r[c.ncs]),
+            'Distinct Leads': c.leads < 0 ? ms : num(r[c.leads]),
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('No MS Schedule Inventory tab: ' + e.message);
+    }
+
     // ── 7. Dropdown lists ─────────────────────────────────────────────────────
     const citySet = {}, tlNameSet = {}, lrmSet = {};
     agentRows.forEach(r => {
@@ -449,6 +662,7 @@ export default async function handler(req, res) {
       },
       rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
       totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows, hourlyHasMS,
+      speedRows, speedLeads, speedHas, speedBuckets: SPEED_BUCKETS, msScheduleRows,
       agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
@@ -471,6 +685,7 @@ function emptyPayload(from, to, viewerEmail) {
               realConnectPct:0, totalTTHr:0, target:0, msToday:0, msT0:0, msT1:0,
               meetingDone:0, msNoCall:0, dsToday:0, avgTalkMin:0 },
     cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [], hourlyHasMS: false,
+    speedRows: [], speedLeads: [], speedHas: false, speedBuckets: [], msScheduleRows: [],
     agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
