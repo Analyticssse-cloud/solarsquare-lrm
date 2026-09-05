@@ -172,21 +172,37 @@ function planNum(v,dec,cls){
 }
 /* Signed variant for MS Left — negative (overbooked) reads as a green surplus
    rather than a clamped zero or a scary red negative. */
-function planLeft(v){
-  if(v===null||v===undefined) return '<td><span style="color:#c0c4d6">—</span></td>';
+function planLeft(v,cls){
+  var k=cls?(' class="'+cls+'"'):'';
+  if(v===null||v===undefined) return '<td'+k+'><span style="color:#c0c4d6">—</span></td>';
   var r=Math.round(v);
-  if(r<0) return '<td class="ok">+'+Math.abs(r).toLocaleString('en-IN')+' <span class="fb-sub" style="font-size:10px">over</span></td>';
-  return '<td class="'+(r>0?'bad':'')+'">'+r.toLocaleString('en-IN')+'</td>';
+  if(r<0) return '<td class="ok'+(cls?' '+cls:'')+'">+'+Math.abs(r).toLocaleString('en-IN')+' <span class="fb-sub" style="font-size:10px">over</span></td>';
+  return '<td class="'+(r>0?'bad':'')+(cls?' '+cls:'')+'">'+r.toLocaleString('en-IN')+'</td>';
 }
-/* Column spec — three cells per metric: done → per MS → needed. `g` starts a group. */
-var PLAN_COLS=[
-  ['name','City','nm'],['present','LRM',''],
-  ['ms','MS today','g'],['msT1','for tmrw',''],['target','MS target',''],
-  ['msLeftSite','Left (site)','g'],['msLeftLRM','Left (LRM)',''],
-  ['dials','Dials done','g'],['dialsPerMs','Dials / MS',''],['reqDials','Dials needed',''],['dialGap','Dial gap',''],
-  ['conn','Conn done','g'],['connPerMs','Conn / MS',''],['reqConn','Conn needed',''],
-  ['ttMin','TT done (min)','g'],['ttPerMs','TT / MS (min)',''],['reqTT','TT needed (min)','']
+/* Column spec — grouped so the header reads as plain language instead of 17
+   cryptic flat labels. PLAN_GROUPS drives the two-row table header (group row +
+   short sub-labels); PLAN_COLS is the flat list, with QUALIFIED labels, kept for
+   the PDF/CSV export where there is no group row to give context. */
+var PLAN_GROUPS=[
+  { label:'', cols:[['name','City','nm'],['present','LRM','']] },
+  { label:'Meetings', cols:[['ms','Today'],['msT1','Tomorrow'],['target','Target']] },
+  { label:'Left to book', cols:[['msLeftSite','by city'],['msLeftLRM','by LRM']] },
+  { label:'Dials', cols:[['dials','Done'],['dialsPerMs','per MS'],['reqDials','Needed'],['dialGap','Gap']] },
+  { label:'Connects', cols:[['conn','Done'],['connPerMs','per MS'],['reqConn','Needed']] },
+  { label:'Talk time (min)', cols:[['ttMin','Done'],['ttPerMs','per MS'],['reqTT','Needed']] }
 ];
+var PLAN_COLS=(function(){
+  var out=[];
+  PLAN_GROUPS.forEach(function(g){
+    g.cols.forEach(function(c,i){
+      out.push([c[0], g.label ? g.label+' — '+c[1] : c[1], (i===0&&g.label)?'g':(c[2]||'')]);
+    });
+  });
+  return out;
+})();
+var PLAN_CSS='<style>table.dist.plan th,table.dist.plan td{padding:3px 8px;font-size:11px;line-height:1.35}'
+  +'table.dist.plan th.grp{text-align:center;font-size:10px;letter-spacing:.06em;text-transform:uppercase;opacity:.65;padding-bottom:1px;border-bottom:1px solid rgba(0,0,0,.08)}'
+  +'table.dist.plan th.sub{font-weight:600;font-size:10px;padding-top:2px}</style>';
 /* 3-day cohort strip (T+0/T+1/T+2), a plain sum per day — the "cohort view"
    alongside the LRM-cut "effort view" above. Read-only context row; the plan's
    own math stays anchored on T+1 regardless of what this shows. */
@@ -210,19 +226,24 @@ function renderMSPlan(rows, schedRows, roster){
         +(i===1?' (today\u2019s plan)':'')+': <b>'+Math.round(c.ms).toLocaleString('en-IN')+'</b> MS scheduled'
         +'</span>'; }).join('')
     + '</div>' : '';
-  var lead='<div class="dist-lead">Each metric reads <b>done today &rarr; per MS &rarr; needed for the target</b>: '
-    + '<b>needed</b> = today\'s cost of one meeting &times; MS still to book. '
+  var lead='<div class="dist-lead">Each block reads <b>Done &rarr; per MS &rarr; Needed</b>: '
+    + '<b>Needed</b> = today\'s cost of one meeting &times; meetings still to book. '
     + (hasSched
-        ? '<b>Left (site)</b> / <b>Left (LRM)</b> = target minus what\'s already confirmed for tomorrow (site = customer\'s cluster, LRM = the booking LRM\'s own city) — a negative value means the day is already OVER target. '
-        : '<span style="color:#b45309">MS Schedule Inventory feed not loaded — Left columns show the full target.</span> ')
-    + 'Ratios are the city\'s own over the range; <b>&dagger;</b> = sample too thin ('
-    + 'under '+fmt(MSPLAN.minConn)+' connects or '+MSPLAN.minMs+' meetings), floor-wide ratio used. '
+        ? '<b>Left to book</b> = target minus what\'s already confirmed for tomorrow (<b>by city</b> = customer\'s cluster, <b>by LRM</b> = the booking LRM\'s own city) — a green <b>+N over</b> means the day is already past target. '
+        : '<span style="color:#b45309">Schedule-inventory feed not loaded yet, so <b>Left to book</b> still shows the full target.</span> ')
+    + '<b>&dagger;</b> = sample too thin (under '+fmt(MSPLAN.minConn)+' connects or '+MSPLAN.minMs+' meetings), so the floor-wide ratio is used. '
     + (P.days>1?'Actuals are the mean of '+P.days+' days in range. ':'')
-    + 'Present LRMs only ('+DIST.presentMin+'+ dials); not pace-scored.</div>';
-  var head='<tr>'+PLAN_COLS.map(function(c){
-    var ar=planSort.col===c[0]?(planSort.dir===1?' ▲':' ▼'):'';
-    return '<th class="'+(c[2]==='g'?'g2 sep':'')+'" data-plan="'+c[0]+'" style="cursor:pointer">'+c[1]+ar+'</th>';
+    + 'Present LRMs only ('+DIST.presentMin+'+ dials).</div>';
+  var grpRow='<tr>'+PLAN_GROUPS.map(function(g){
+    return '<th class="grp'+(g.label?' sep':'')+'" colspan="'+g.cols.length+'">'+esc(g.label)+'</th>';
   }).join('')+'</tr>';
+  var subRow='<tr>'+PLAN_GROUPS.map(function(g){
+    return g.cols.map(function(c,i){
+      var ar=planSort.col===c[0]?(planSort.dir===1?' ▲':' ▼'):'';
+      return '<th class="sub'+(i===0&&g.label?' sep':'')+'" data-plan="'+c[0]+'" style="cursor:pointer">'+c[1]+ar+'</th>';
+    }).join('');
+  }).join('')+'</tr>';
+  var head=grpRow+subRow;
   var row=function(b,cls){
     var gapCls=b.dialGap===null?'':(b.dialGap>0?'bad':'ok');
     var nameCell='<td class="nm">'+esc(b.name)+(b.thin&&b.present?' <span title="Thin sample — floor-wide ratio used">&dagger;</span>':'')
@@ -231,12 +252,12 @@ function renderMSPlan(rows, schedRows, roster){
     return '<tr class="'+(cls||'')+'">'+nameCell
       + '<td>'+(b.present||'—')+'</td>'
       + planNum(b.ms,0,'g2 sep')+planNum(b.msT1,0)+planNum(b.target,0)
-      + planLeft(b.msLeftSite)+planLeft(b.msLeftLRM)
+      + planLeft(b.msLeftSite,'sep')+planLeft(b.msLeftLRM)
       + planNum(b.dials,0,'g2 sep')+planNum(b.dialsPerMs,1)+planNum(b.reqDials,0)+planNum(b.dialGap,0,cls?'':gapCls)
       + planNum(b.conn,0,'g2 sep')+planNum(b.connPerMs,1)+planNum(b.reqConn,0)
       + planNum(b.ttMin,0,'g2 sep')+planNum(b.ttPerMs,1)+planNum(b.reqTT,0)+'</tr>';
   };
   var body=P.rows.length?row(fl,'dist-total')+P.rows.map(function(b){return row(b);}).join('')
     :'<tr><td colspan="'+PLAN_COLS.length+'" class="fb-sub" style="text-align:center;padding:20px">No LRMs in this range.</td></tr>';
-  return stripHTML+lead+'<div class="dist-wrap"><table class="dist">'+head+body+'</table></div>';
+  return PLAN_CSS+stripHTML+lead+'<div class="dist-wrap"><table class="dist plan">'+head+body+'</table></div>';
 }
