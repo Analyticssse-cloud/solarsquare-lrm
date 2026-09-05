@@ -1853,12 +1853,14 @@ function renderAction(){
   // duplicated what the below-the-bar counts already say more directly.
   // computeAgentActions / computeCityActions are now unreachable and can go on the
   // next cleanup pass; leaving them costs nothing at runtime.
-  var isPer=actView==='perms';
-  var head='<div class="act-head"><span class="act-note">'+(isPer?'Effort spent per meeting scheduled, by city — lower is better':'Counts of LRMs below the bar — click any number for the names')+'</span></div>';
-  var views=[['dist','Below the bar'],['perms','Effort per MS']];
+  var isPer=actView==='perms', isPlan=actView==='plan';
+  var notes={dist:'Counts of LRMs below the bar — click any number for the names',perms:'Effort spent per meeting scheduled, by city — lower is better',plan:'Dials and connects each city needs to hit its MS target'};
+  var head='<div class="act-head"><span class="act-note">'+notes[actView]+'</span></div>';
+  var views=[['dist','Below the bar'],['perms','Effort per MS'],['plan','MS Plan']];
   var vseg='<div class="dist-lvl dist-view">'+views.map(function(v){return '<button data-view="'+v[0]+'" class="'+(actView===v[0]?'on':'')+'">'+v[1]+'</button>';}).join('')+'</div>';
-  panel.innerHTML=head+vseg+(isPer?renderPerMS(filterAgents()):renderDistribution(filterAgents()));
+  panel.innerHTML=head+vseg+(isPlan?renderMSPlan(filterAgents(),D.msScheduleRows,D.rosterRows):isPer?renderPerMS(filterAgents()):renderDistribution(filterAgents()));
   if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
+  panel.querySelectorAll('table.dist th[data-plan]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-plan'); planSort.dir=(planSort.col===k)?planSort.dir*-1:-1; planSort.col=k; renderAction(); }); });
   panel.querySelectorAll('.dist-view button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); actView=btn.getAttribute('data-view'); try{localStorage.setItem('lrmActView',actView);}catch(err){} renderAction(); }); });
   panel.querySelectorAll('table.dist th[data-per]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-per'); perSort.dir=(perSort.col===k)?perSort.dir*-1:-1; perSort.col=k; renderAction(); }); });
   panel.querySelectorAll('.dist-lvl:not(.dist-view) button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); distLevel=btn.getAttribute('data-lvl'); renderAction(); }); });
@@ -1908,7 +1910,18 @@ function downloadPDF(){
   var viewName, tblHTML;
   if(activeTab==='action'){
     var isCity=actScope==='city';
-    if(actView==='perms'){
+    if(actView==='plan'){
+      var P=computeMSPlan(filterAgents(),D.msScheduleRows,D.rosterRows), i0=function(v){return v===null?'—':Math.round(v).toLocaleString('en-IN');}, i1=function(v){return v===null?'—':(Math.round(v*10)/10).toFixed(1);};
+      viewName='Action Center · MS Plan (effort needed to close tomorrow\'s MS gap)';
+      tblHTML='<table><thead><tr>'+PLAN_COLS.map(function(c){return '<th>'+c[1]+'</th>';}).join('')+'</tr></thead><tbody>'
+        + [P.floor].concat(P.rows).map(function(b){return '<tr><td>'+esc(b.name)+(b.thin&&b.present?' †':'')+'</td><td>'+(b.present||'—')+'</td>'
+            + '<td>'+i0(b.ms)+'</td><td>'+i0(b.msT1)+'</td><td>'+i0(b.target)+'</td>'
+            + '<td>'+i0(b.msLeftSite)+'</td><td>'+i0(b.msLeftLRM)+'</td>'
+            + '<td>'+i0(b.dials)+'</td><td>'+i1(b.dialsPerMs)+'</td><td>'+i0(b.reqDials)+'</td><td>'+i0(b.dialGap)+'</td>'
+            + '<td>'+i0(b.conn)+'</td><td>'+i1(b.connPerMs)+'</td><td>'+i0(b.reqConn)+'</td>'
+            + '<td>'+i0(b.ttMin)+'</td><td>'+i1(b.ttPerMs)+'</td><td>'+i0(b.reqTT)+'</td></tr>';}).join('')
+        + '</tbody></table>';
+    } else if(actView==='perms'){
       var pg=computePerMS(filterAgents());
       var r1d=function(v){return v===null?'—':(Math.round(v*10)/10).toFixed(1);};
       viewName='Action Center · Effort per meeting scheduled (City)';
@@ -1964,5 +1977,6 @@ function downloadPDF(){
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <script src="distribution.js"></script>
 <script src="speed.js"></script>
+<script src="msplan.js"></script>
 </body>
 </html>
