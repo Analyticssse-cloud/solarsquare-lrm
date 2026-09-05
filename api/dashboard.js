@@ -29,6 +29,26 @@ import { requireUser, deny } from './_auth.js';
 const norm = (v) => String(v || '').trim().toLowerCase().replace('@homes.solarsquare.in', '@solarsquare.in');
 const num  = (v) => Number(v) || 0;
 
+/* LRMs suppressed from the ENTIRE dashboard (user, 5 Sep 2026).
+   Applied at the two data entry points — the LRM_TL_MAP roster and the Ozontel daily
+   rows — so they vanish from every view, every rollup, every total and every export
+   at once. Hourly and First Response Time rows are keyed against those two sets, so
+   they drop out with no further filter; speed_leads is guarded explicitly because it
+   is read straight off its own tab.
+   Emails are compared through norm(), so the @homes alias is covered too.
+   To restore someone, delete their line. */
+const EXCLUDED_LRMS = new Set([
+  'ananya.bhattacharjee@solarsquare.in',
+  'balappa.patil@solarsquare.in',
+  'nanda.reddy@solarsquare.in',
+  'bhoomika.kalra@solarsquare.in',
+  'nikita.sen@solarsquare.in',
+  'nitin.thakur@solarsquare.in',
+  'kushal.sahu@solarsquare.in',
+  'saili.banerjee@solarsquare.in',
+].map(e => norm(e)));
+const isExcluded = (email) => EXCLUDED_LRMS.has(norm(email));
+
 function rowDate(cell) {
   if (cell === null || cell === undefined) return '';
   return String(cell).trim().slice(0, 10);
@@ -130,6 +150,7 @@ export default async function handler(req, res) {
       if (!r) continue;
       const email = norm(r[iEmail]);
       if (!email || !email.includes('@')) continue;
+      if (isExcluded(email)) continue;   // suppressed LRM — never enters the roster
       const city   = iCluster >= 0 ? String(r[iCluster] || '').trim() : '';
       const tlName = iTLName  >= 0 ? String(r[iTLName]  || '').trim() : '';
       const tlMail = iTLEmail >= 0 ? norm(r[iTLEmail]) : '';
@@ -186,6 +207,7 @@ export default async function handler(req, res) {
 
       let agt = String(obj['Agent Id'] || '').trim();
       if (!agt || !agt.includes('@') || agt.includes('->')) return;
+      if (isExcluded(agt)) return;   // suppressed LRM — no calls, no totals, no rollup
       const key = norm(agt);
 
       // Accept the pre-v11 header too, so an un-backfilled sheet still renders.
@@ -520,6 +542,7 @@ export default async function handler(req, res) {
           if (day < effFrom || day > effTo) continue;
           const email = norm(r[c.agent]);
           if (!email || !email.includes('@')) continue;
+          if (isExcluded(email)) continue;   // suppressed LRM
           speedLeads.push({
             date: day, agent: email,
             lead: String(r[c.lead] || '').trim(),
