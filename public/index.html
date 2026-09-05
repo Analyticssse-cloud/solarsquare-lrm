@@ -184,44 +184,20 @@
 
     /* ── Floor Board hero + strip ── */
     .fhero-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
-    .fhero { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 13px 16px 14px; display: flex; flex-direction: column; }
-    .fhero-t { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .fhero { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 15px; }
     .fhero-l { font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; color: var(--muted); }
-    /* The gap between fill and notch, said in words next to the label instead of
-       buried in the footnote — it is the sentence the card exists to make. */
-    .fhero-c { font-size: 10.5px; font-weight: 800; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
-    .fhero-c.ok { color: #0f7a45; background: rgba(26,158,92,.11); }
-    .fhero-c.no { color: var(--gold-dk); background: rgba(224,158,0,.12); }
-    .fhero-v { font-size: 44px; font-weight: 800; letter-spacing: -1.6px; color: var(--blue); line-height: 1.05; margin: 5px 0 10px; font-variant-numeric: tabular-nums; }
-    .fhero-v u { text-decoration: none; font-size: 15px; font-weight: 700; letter-spacing: 0; color: var(--muted); margin-left: 5px; }
-    .fhero-bar { position: relative; height: 8px; border-radius: 4px; background: #eef1f6; overflow: visible; }
-    .fhero-bar i { display: block; height: 100%; border-radius: 4px; background: var(--blue); }
+    .fhero-v { font-size: 30px; font-weight: 800; letter-spacing: -1px; color: var(--blue); line-height: 1.15; margin: 2px 0 8px; }
+    .fhero-v u { text-decoration: none; font-size: 14px; font-weight: 700; margin-left: 3px; }
+    .fhero-bar { position: relative; height: 6px; border-radius: 3px; background: #eef1f6; overflow: visible; }
+    .fhero-bar i { display: block; height: 100%; border-radius: 3px; background: var(--blue); }
     .fhero-bar i.no { background: var(--gold); }
     .fhero-bar i.ok { background: var(--green); }
-    .fhero-bar s { position: absolute; top: -4px; width: 2px; height: 16px; background: var(--text); }
-    .fhero-f { font-size: 11.5px; color: var(--muted); margin-top: auto; padding-top: 8px; line-height: 1.45; }
+    .fhero-bar s { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--text); }
+    .fhero-f { font-size: 10.5px; color: var(--muted); margin-top: 7px; line-height: 1.45; }
     .fhero-f b { color: var(--text); }
-    /* ── Pace verdict banner: the floor's answer to "are we on pace" in one line,
-       above the cards that evidence it. Gold/green rail doubles the colour. ── */
-    .fverdict { display: flex; align-items: stretch; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-    .fverdict > i { flex: 0 0 6px; background: var(--gold-dk); }
-    .fverdict.ok > i { background: var(--green); }
-    .fverdict-b { flex: 1 1 auto; padding: 13px 18px; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
-    .fverdict-m { flex: 1 1 340px; }
-    .fverdict-h { font-size: 23px; font-weight: 800; letter-spacing: -.5px; margin-top: 3px; text-wrap: pretty; }
-    /* Emphasis stays ink: #e09e00 on white is 2.3:1, under the 3:1 large-text floor,
-       and this is the one word that must survive a projector. The rail and the
-       "% short" figure already double the signal (§5). */
-    .fverdict-h em { font-style: normal; color: var(--text); text-decoration: underline; text-decoration-color: var(--gold-dk); text-decoration-thickness: 3px; text-underline-offset: 4px; }
-    .fverdict.ok .fverdict-h em { text-decoration-color: var(--green); }
-    .fverdict-s { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
-    .fverdict-s b { color: var(--text); font-weight: 700; }
-    .fverdict-k { display: flex; gap: 24px; padding-left: 22px; border-left: 1px solid var(--border); }
-    .fverdict-k b { display: block; font-size: 21px; font-weight: 800; letter-spacing: -.5px; font-variant-numeric: tabular-nums; margin-top: 2px; }
-    #distHero { display: flex; flex-direction: column; gap: 10px; }
     .fstrip { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
     .fstrip > div { background: var(--surface); padding: 10px 15px; display: flex; flex-direction: column; gap: 1px; }
-    .fstrip b { font-size: 22px; font-weight: 800; letter-spacing: -.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+    .fstrip b { font-size: 19px; font-weight: 800; letter-spacing: -.5px; color: var(--text); }
     .fstrip span { font-size: 9.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
 
     /* ── Floor Board MTD table ── */
@@ -443,21 +419,7 @@ thead th.num.g-b{background:rgba(24,35,63,.045)}
 .dist-drillbar b{color:var(--text);font-weight:700}
 .dist-x{margin-left:auto;color:var(--blue-mid);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 /* ── Floor Board ── */
-/* The Floor Board fits the viewport: the frame owns the height, the two lower
-   boxes share the remaining row, and only the MTD table body scrolls. */
-.fb-wrap{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:9px}
-/* min-height keeps the two boxes readable on a short window; below that the frame
-   scrolls rather than crushing the tables to nothing. */
-.fb-grow{flex:1 1 auto;min-height:300px;display:flex;flex-direction:column;overflow:hidden}
-.fb-grow>#distMtd{flex:1 1 auto;min-height:0;overflow:auto}
-.fb-grow>.fb-hrnote{flex:0 0 auto}
-@media (max-height:820px){
-  .fhero-v{font-size:36px;letter-spacing:-1.3px;margin:4px 0 8px}
-  .fverdict-h{font-size:20px}
-  .fstrip b{font-size:19px}
-  .fstrip>div{padding:8px 15px}
-  .fhero{padding:11px 14px 12px}
-}
+.fb-wrap{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px}
 .fb-stamp{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--muted)}
 .fb-stamp b{color:var(--text);font-weight:700}
 .fb-stamp .fb-live{background:rgba(26,158,92,.12);border:1px solid rgba(26,158,92,.35);color:#0f7a45;border-radius:12px;padding:2px 9px;font-size:10.5px;font-weight:700}
@@ -641,6 +603,10 @@ var countdownTimer = null, countdownSecs = 0;
 var MS = {};  // multi-select instances by key
 var actScope = 'dist';
 var distLevel = 'ados';
+/* Which table the Action Center is showing: the below-the-bar distribution, or the
+   per-meeting effort table (city x TT/dials/connects per MS). Remembered per user. */
+var actView = (function(){ try { return localStorage.getItem('lrmActView') || 'dist'; } catch(e) { return 'dist'; } })();
+var perSort = { col:'dialsPerMs', dir:-1 };
 /* Distribution ("who is below the bar"), not averages. Present = made more than PRESENT_MIN calls. */
 /* Day-end bars per LRM. ttLow is a SECOND, harder talk-time floor the user asked
    for (4 Sep): 120 min is the target, under 90 min is the intervention line. */
@@ -1357,49 +1323,13 @@ function floorHeroHTML(rows){
   var card=function(val,unit,label,done,day,foot){
     var p=day?Math.min(100,Math.round(done/day*100)):0;
     var on=day?done>=day*pace:true;
-    /* The gap between fill and notch, promoted out of the footnote into a chip
-       beside the label. Same two numbers, no third source. */
-    var chip='';
-    if(day){ var d=Math.round((done/day-pace)*100);
-      chip='<div class="fhero-c '+(d>=0?'ok':'no')+'">'+(d>=0?'+'+d:'\u2212'+Math.abs(d))+'% vs pace</div>'; }
-    /* No day target means NO track: a zero-width fill on a full-width grey rail
-       states "0% of target" about a metric that has no target (§2, absence is not
-       zero). */
-    return '<div class="fhero"><div class="fhero-t"><div class="fhero-l">'+label+'</div>'+chip+'</div>'
+    return '<div class="fhero"><div class="fhero-l">'+label+'</div>'
       + '<div class="fhero-v">'+val+(unit?'<u>'+unit+'</u>':'')+'</div>'
-      + (day ? '<div class="fhero-bar"><i class="'+(on?'ok':'no')+'" style="width:'+p+'%"></i>'
-      +   '<s style="left:'+Math.round(pace*100)+'%"></s></div>' : '')
+      + '<div class="fhero-bar"><i class="'+(on?'ok':'no')+'" style="width:'+p+'%"></i>'
+      +   (day?'<s style="left:'+Math.round(pace*100)+'%"></s>':'')+'</div>'
       + '<div class="fhero-f">'+foot+'</div></div>';
   };
   var gap=Math.round((pace-prog)*100);
-  /* Verdict banner. Reads the SAME three ratios the cards draw — no metric is
-     computed here that a card does not already own. */
-  var ttPct=dayTT?ttMin/dayTT:1, msPct=dayMS?s.ms/dayMS:1;
-  var mets=[['dials',prog],['talk time',ttPct],['meetings',msPct]];
-  var behind=mets.filter(function(x){ return x[1]<pace; }).sort(function(a,b){ return a[1]-b[1]; });
-  var okList=mets.filter(function(x){ return x[1]>=pace; }).map(function(x){ return x[0]; });
-  var sayList=function(a){ return a.length<2?a[0]:a.slice(0,-1).join(', ')+' and '+a[a.length-1]; };
-  var head;
-  if(!behind.length){
-    head='Floor is <em>at or above pace</em> on every metric for this time of day.';
-  } else {
-    var worst=behind[0], wg=Math.max(1,Math.round((pace-worst[1])*100));
-    head = behind.length===1
-      ? 'Floor is <em>'+wg+'% behind</em> for this time of day on '+worst[0]+'.'
-      : 'Floor is behind on '+sayList(behind.map(function(x){ return x[0]; }))
-        + ' \u2014 worst is <em>'+worst[0]+', '+wg+'% short</em> for this time of day.';
-  }
-  var sub = okList.length
-    ? 'At or above the elapsed bar on '+sayList(okList)+'.'
-    : 'No metric is at the elapsed bar.';
-  var verdict='<div class="fverdict'+(behind.length?'':' ok')+'"><i></i><div class="fverdict-b">'
-    + '<div class="fverdict-m"><div class="fhero-l">Pace verdict &middot; '+Math.round(pace*100)+'% of shift elapsed</div>'
-    +   '<div class="fverdict-h">'+head+'</div>'
-    +   '<div class="fverdict-s">'+sub+' Every bar below is scored against <b>'+Math.round(pace*100)+'%</b> of the day target, not the whole day.</div></div>'
-    + '<div class="fverdict-k">'
-    +   '<div><div class="fhero-l">LRMs in view</div><b>'+fmt(n)+'</b></div>'
-    +   '<div><div class="fhero-l">Dials vs pace</div><b>'+(gap>0?'\u2212'+gap+'%':'+'+Math.abs(gap)+'%')+'</b></div>'
-    + '</div></div></div>';
   var hero='<div class="fhero-row">'
     + card(fmt(s.calls),'','Dials today',s.calls,dayDial,
         '<b>'+Math.round(prog*100)+'%</b> of '+fmt(dayDial)+' &middot; '+FLOOR_TARGET.dials+'/LRM &times; '+fmt(n)
@@ -1419,7 +1349,7 @@ function floorHeroHTML(rows){
     [Math.round(prog*100)+'%','Target progress'],
     [Math.round(pace*100)+'%','Shift elapsed']
   ].map(function(x){ return '<div><b>'+x[0]+'</b><span>'+x[1]+'</span></div>'; }).join('');
-  return verdict+hero+'<div class="fstrip">'+strip+'</div>';
+  return hero+'<div class="fstrip">'+strip+'</div>';
 }
 
 /* ── Top / Bottom Performers ───────────────────────────────────────────────────
@@ -1433,9 +1363,8 @@ function floorHeroHTML(rows){
    distPace() the Action Center uses. So a 09:40 board ranks people against the
    morning's worth of work, not against 150 dials nobody could have made yet, and
    the two tabs can never state different bars. On a finished day the factor is 1.
-   Bars are plain CSS. There is no chart engine in this app any more (the ECharts
-   heatmap layer went with the Floor Board's MTD table, 4 Sep), and these tabs must
-   open instantly.
+   Bars are plain CSS, not ECharts: three static bar rows do not justify the chart
+   engine the Distribution heatmaps need, and this tab must open instantly.
    Honours the filter bar and viewer scope, because it reads filterAgents(). */
 var FLOOR_TARGET = { dials:150, talkMin:120, ms:10 };
 /* One column set per metric: how the value is read off a row, how it prints, and
@@ -1826,12 +1755,70 @@ function renderDistribution(rows){
   var body=g.length?g.map(function(b){return row(b);}).join('')+(g.length>1?row(tot,'dist-total'):''):'<tr><td colspan="11" class="fb-sub" style="text-align:center;padding:20px">No LRMs in this range.</td></tr>';
   return lead+seg+'<div class="dist-wrap"><table class="dist">'+head+body+'</table></div>';
 }
+/* ── Action Center · effort per meeting scheduled ──
+   Not a pace metric: it divides the day's effort by the day's meetings, so it answers
+   "what did a meeting cost this city" rather than "are we on target". Ratios are
+   undefined with zero meetings — those rows keep a dash and never sort as good. */
+function perRatios(b){
+  b.ttPerMs   = b.ms ? b.ttMin/b.ms : null;
+  b.dialsPerMs= b.ms ? b.dials/b.ms : null;
+  b.connPerMs = b.ms ? b.conn /b.ms : null;
+  return b;
+}
+function computePerMS(rows){
+  var num=function(r,k){return Number(r[k])||0;};
+  var g={},order=[];
+  rows.forEach(function(r){
+    if(num(r,'Call Count')<DIST.presentMin) return;
+    var k=String(r['City']||'').trim()||'— Unmapped —';
+    if(!g[k]){ g[k]={name:k,present:0,dials:0,conn:0,ttMin:0,ms:0}; order.push(k); }
+    var b=g[k];
+    b.present++; b.dials+=num(r,'Call Count'); b.conn+=num(r,'Connected Calls');
+    b.ttMin+=num(r,'Total Talk Time')*60; b.ms+=num(r,'MS Today');
+  });
+  var out=order.map(function(k){ return perRatios(g[k]); });
+  var c=perSort.col, d=perSort.dir;
+  out.sort(function(a,b){
+    if(c==='name') return String(a.name).localeCompare(String(b.name))*d;
+    var av=a[c], bv=b[c];
+    if(av===null && bv===null) return b.dials-a.dials;
+    if(av===null) return 1; if(bv===null) return -1;   // undefined ratios sink
+    return (av-bv)*d;
+  });
+  return out;
+}
+function perCell(v,base,dec){
+  if(v===null||v===undefined) return '<td><span style="color:#c0c4d6" title="No meetings scheduled yet — the ratio is undefined">—</span></td>';
+  var cls=base?(v>base*1.25?'bad':(v<=base*0.8?'ok':'')):'';
+  return '<td class="'+cls+'">'+(dec?(Math.round(v*10)/10).toFixed(1):Math.round(v).toLocaleString('en-IN'))+'</td>';
+}
+function renderPerMS(rows){
+  var g=computePerMS(rows);
+  var tot={name:'Floor total',present:0,dials:0,conn:0,ttMin:0,ms:0};
+  g.forEach(function(b){ tot.present+=b.present; tot.dials+=b.dials; tot.conn+=b.conn; tot.ttMin+=b.ttMin; tot.ms+=b.ms; });
+  perRatios(tot);
+  var lead='<div class="dist-lead">What a meeting <b>cost</b> in each city — the day\'s effort divided by the day\'s meetings scheduled, so <b>lower is better</b>. '
+    + '<b>TT / MS</b> = talk minutes per meeting, <b>Dials / MS</b> and <b>Conn / MS</b> the same for dial and connect volume. '
+    + 'Cells read against the floor total'+(tot.ms?' ('+Math.round(tot.ttPerMs)+' min · '+Math.round(tot.dialsPerMs)+' dials · '+Math.round(tot.connPerMs)+' connects)':'')+': '
+    + 'red is more than 25% above it, green at least 20% below. A dash means no meetings yet — undefined, not good. Present LRMs only ('+DIST.presentMin+'+ dials).</div>';
+  var cols=[['name','City','nm'],['present','Present LRM',''],['ms','MS',''],['ttPerMs','TT / MS (min)','sep'],['dialsPerMs','Dials / MS','sep'],['connPerMs','Conn / MS','sep']];
+  var head='<tr>'+cols.map(function(c){
+    var ar=perSort.col===c[0]?(perSort.dir===1?' ▲':' ▼'):'';
+    return '<th class="'+(c[2]==='sep'?'g2 sep':'')+'" data-per="'+c[0]+'" style="cursor:pointer">'+c[1]+ar+'</th>';
+  }).join('')+'</tr>';
+  var row=function(b,cls){
+    return '<tr class="'+(cls||'')+'"><td class="nm">'+esc(b.name)+'</td><td>'+b.present+'</td><td>'+fmt(Math.round(b.ms))+'</td>'
+      + perCell(b.ttPerMs,   cls?0:tot.ttPerMs,   1)
+      + perCell(b.dialsPerMs,cls?0:tot.dialsPerMs,1)
+      + perCell(b.connPerMs, cls?0:tot.connPerMs, 1)+'</tr>';
+  };
+  var body=g.length?g.map(function(b){return row(b);}).join('')+(g.length>1?row(tot,'dist-total'):'')
+    :'<tr><td colspan="6" class="fb-sub" style="text-align:center;padding:20px">No LRMs in this range.</td></tr>';
+  return lead+'<div class="dist-wrap"><table class="dist">'+head+body+'</table></div>';
+}
 var DIST_MET={
   present:{title:'Present LRMs',   sev:'sev-info', desc:'LRMs who made at least one call today.', action:'Population used for every percentage below.', pass:function(n,r){return true;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
-  /* distBar('dial'), NOT DIST.dial: the table counts against the ELAPSED bar (67 at
-     14:00), so passing the raw 150 here listed every present LRM — 38 names under a
-     count of 32. One target, every tab (§2). */
-  dial:   {title:'Below dial bar', sev:'sev-high', desc:'', action:'Hold accountable for the dial gap — not the team average.', pass:function(n,r){return n(r,'Call Count')<distBar('dial');}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
+  dial:   {title:'Below dial bar', sev:'sev-high', desc:'', action:'Hold accountable for the dial gap — not the team average.', pass:function(n,r){return n(r,'Call Count')<DIST.dial;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
   tt:     {title:'Below talk-time bar', sev:'sev-mid', desc:'', action:'Check conversation depth, not just dial count.',        pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttMin');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
   tt90:   {title:'Under the 90-min talk floor', sev:'sev-high', desc:'', action:'Intervene today — this is time on the phone, not dial effort.', pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttLow');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
   ms:     {title:'Below meetings bar',  sev:'sev-high',desc:'', action:'Coach on pitch and conversion.',                         pass:function(n,r){return n(r,'MS Today')<distBar('ms');}, sortVal:function(n,r){return n(r,'MS Today');}, metric:function(n,r){return n(r,'MS Today')+' MS';}}
@@ -1866,10 +1853,15 @@ function renderAction(){
   // duplicated what the below-the-bar counts already say more directly.
   // computeAgentActions / computeCityActions are now unreachable and can go on the
   // next cleanup pass; leaving them costs nothing at runtime.
-  var head='<div class="act-head"><span class="act-note">Counts of LRMs below the bar — click any number for the names</span></div>';
-  panel.innerHTML=head+renderDistribution(filterAgents());
+  var isPer=actView==='perms';
+  var head='<div class="act-head"><span class="act-note">'+(isPer?'Effort spent per meeting scheduled, by city — lower is better':'Counts of LRMs below the bar — click any number for the names')+'</span></div>';
+  var views=[['dist','Below the bar'],['perms','Effort per MS']];
+  var vseg='<div class="dist-lvl dist-view">'+views.map(function(v){return '<button data-view="'+v[0]+'" class="'+(actView===v[0]?'on':'')+'">'+v[1]+'</button>';}).join('')+'</div>';
+  panel.innerHTML=head+vseg+(isPer?renderPerMS(filterAgents()):renderDistribution(filterAgents()));
   if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
-  panel.querySelectorAll('.dist-lvl button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); distLevel=btn.getAttribute('data-lvl'); renderAction(); }); });
+  panel.querySelectorAll('.dist-view button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); actView=btn.getAttribute('data-view'); try{localStorage.setItem('lrmActView',actView);}catch(err){} renderAction(); }); });
+  panel.querySelectorAll('table.dist th[data-per]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-per'); perSort.dir=(perSort.col===k)?perSort.dir*-1:-1; perSort.col=k; renderAction(); }); });
+  panel.querySelectorAll('.dist-lvl:not(.dist-view) button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); distLevel=btn.getAttribute('data-lvl'); renderAction(); }); });
   panel.querySelectorAll('table.dist td.clk').forEach(function(td){ td.addEventListener('click',function(){ openDistModal(td.getAttribute('data-grp'),td.getAttribute('data-met')); }); });
   return;
   /* eslint-disable no-unreachable */
@@ -1916,7 +1908,14 @@ function downloadPDF(){
   var viewName, tblHTML;
   if(activeTab==='action'){
     var isCity=actScope==='city';
-    if(actScope==='dist'){
+    if(actView==='perms'){
+      var pg=computePerMS(filterAgents());
+      var r1d=function(v){return v===null?'—':(Math.round(v*10)/10).toFixed(1);};
+      viewName='Action Center · Effort per meeting scheduled (City)';
+      tblHTML='<table><thead><tr><th>City</th><th>Present LRM</th><th>MS</th><th>TT / MS (min)</th><th>Dials / MS</th><th>Conn / MS</th></tr></thead><tbody>'
+        + pg.map(function(b){return '<tr><td>'+esc(b.name)+'</td><td>'+b.present+'</td><td>'+Math.round(b.ms)+'</td><td>'+r1d(b.ttPerMs)+'</td><td>'+r1d(b.dialsPerMs)+'</td><td>'+r1d(b.connPerMs)+'</td></tr>';}).join('')
+        + '</tbody></table>';
+    } else if(actScope==='dist'){
       var dg=computeDistribution(filterAgents(),distLevel);
       var dhd={overall:'Scope',ados:'AD',zsm:'ZSM',tl:'Team Lead'}[distLevel];
       viewName='Action Center · Distribution ('+dhd+')';
@@ -1962,8 +1961,7 @@ function downloadPDF(){
   window.print();
 }
 </script>
-<!-- echarts removed 4 Sep 2026: the Floor Board heatmap it drew was replaced by the
-     MTD table, so this was a blocking third-party script for a chart nobody draws. -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <script src="distribution.js"></script>
 <script src="speed.js"></script>
 </body>
