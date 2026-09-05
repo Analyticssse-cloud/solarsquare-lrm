@@ -124,10 +124,14 @@ function computeMSPlan(rows, schedRows, roster){
   rows.forEach(function(r){
     if(num(r,'Call Count')<DIST.presentMin) return;
     var k=msPlanCity(r['City']);
-    if(!g[k]) g[k]={name:k,present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0};
+    if(!g[k]) g[k]={name:k,present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,days:1};
     var b=g[k];
     b.present++; b.dials+=num(r,'Call Count'); b.conn+=num(r,'Connected Calls');
     b.ttMin+=num(r,'Total Talk Time')*60; b.ms+=num(r,'MS Today'); b.msT1+=num(r,'MS T+1');
+    /* Per-CITY day count, not the global one. A city whose LRMs only have rows
+       on 1 of the 5 days in range must not have its actuals divided by 5 — that
+       was deflating every metric ~5x and making live cities look idle. */
+    b.days=Math.max(b.days, Number(r._dayCount)||1);
   });
   // Floor-wide ratios: the fallback for thin cities and the Pan India row's own basis.
   var fl={name:'Pan India',present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,target:MS_TARGET_TOTAL};
@@ -135,11 +139,12 @@ function computeMSPlan(rows, schedRows, roster){
     fl.present+=b.present; fl.dials+=b.dials; fl.conn+=b.conn; fl.ttMin+=b.ttMin; fl.ms+=b.ms; fl.msT1+=b.msT1; });
   // Every TARGET city gets a row even with no calls in range — a city quietly
   // absent from the data is exactly what this table should surface.
-  Object.keys(MS_TARGETS).forEach(function(k){ if(!g[k]) g[k]={name:k,present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0}; });
+  Object.keys(MS_TARGETS).forEach(function(k){ if(!g[k]) g[k]={name:k,present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,days:1}; });
 
-  // Per-day means, so a multi-day range reads on the same scale as the day target.
-  var perDay=function(b){ ['dials','conn','ttMin','ms','msT1'].forEach(function(k){ b[k]=b[k]/days; }); return b; };
-  if(days>1){ Object.keys(g).forEach(function(k){ perDay(g[k]); }); perDay(fl); }
+  // Per-day means, each city divided by ITS OWN active-day count (see above).
+  var perDay=function(b,d){ if(d>1) ['dials','conn','ttMin','ms','msT1'].forEach(function(k){ b[k]=b[k]/d; }); return b; };
+  Object.keys(g).forEach(function(k){ perDay(g[k], g[k].days||1); });
+  perDay(fl, days);
 
   var sched = msPlanSchedule(schedRows, roster, 1);   // cohort = T+1 (tomorrow) — the plan's target day
   var flSchedMS = 0; (schedRows||[]).forEach(function(r){
@@ -201,8 +206,13 @@ var PLAN_COLS=(function(){
   return out;
 })();
 var PLAN_CSS='<style>table.dist.plan th,table.dist.plan td{padding:3px 8px;font-size:11px;line-height:1.35}'
-  +'table.dist.plan th.grp{text-align:center;font-size:10px;letter-spacing:.06em;text-transform:uppercase;opacity:.65;padding-bottom:1px;border-bottom:1px solid rgba(0,0,0,.08)}'
-  +'table.dist.plan th.sub{font-weight:600;font-size:10px;padding-top:2px}</style>';
+  +'table.dist.plan th.grp{text-align:center;font-size:10px;letter-spacing:.06em;text-transform:uppercase;opacity:.65;padding-bottom:1px;border-bottom:1px solid rgba(0,0,0,.08);position:sticky;top:0;z-index:3}'
+  +'table.dist.plan th.sub{font-weight:600;font-size:10px;padding-top:2px;position:sticky;top:17px;z-index:2}'
+  /* The view-selector row must stay above the lead callout: both sit in the same
+     panel and the sticky table headers otherwise raise their stacking context
+     over it, clipping the Below-the-bar / Effort-per-MS / MS-Plan buttons. */
+  +'.dist-view{position:relative;z-index:5}'
+  +'.dist-lead{position:relative;z-index:0;margin-top:4px}</style>';
 /* 3-day cohort strip (T+0/T+1/T+2), a plain sum per day — the "cohort view"
    alongside the LRM-cut "effort view" above. Read-only context row; the plan's
    own math stays anchored on T+1 regardless of what this shows. */
@@ -226,7 +236,7 @@ function renderMSPlan(rows, schedRows, roster){
         +(i===1?' (today\u2019s plan)':'')+': <b>'+Math.round(c.ms).toLocaleString('en-IN')+'</b> MS scheduled'
         +'</span>'; }).join('')
     + '</div>' : '';
-  var lead='<div class="dist-lead">Each block reads <b>Done &rarr; per MS &rarr; Needed</b>: '
+  var lead='<div class="dist-lead"><b>Done &rarr; per MS &rarr; Needed</b> in each block. '
     + '<b>Needed</b> = today\'s cost of one meeting &times; meetings still to book. '
     + (hasSched
         ? '<b>Left to book</b> = target minus what\'s already confirmed for tomorrow (<b>by city</b> = customer\'s cluster, <b>by LRM</b> = the booking LRM\'s own city) — a green <b>+N over</b> means the day is already past target. '
