@@ -161,7 +161,15 @@ function planDerive(b,fl,sched){
   // Minutes of talk per CONNECT is a real measured cost and stays measured in
   // both bases; only the dial/connect requirement changes basis.
   var minPerConn = src.conn ? src.ttMin/src.conn : null;
-  if(planBasis==='funnel'){
+  /* NEXT-DAY basis (6 Sep 2026): the measured cost of a meeting booked FOR
+     TOMORROW — dials on day D over meetings confirmed on D for D+1, so both
+     sides are the same day's work. See msdriver.js for the sample and limits.
+     Guarded on the helper existing so a stale index.html without the new
+     script tag falls back to the funnel instead of throwing. */
+  if(planBasis==='nextday' && typeof msDriverRatio==='function'){
+    var R=msDriverRatio(b.name);
+    b.dialsPerMs=R.dials; b.connPerMs=R.conn; b.ttPerMs=R.tt; b.driverThin=R.thin;
+  } else if(planBasis==='funnel'){
     var F=MSPLAN_FUNNEL;
     b.connPerMs  = 1/F.msRate;
     b.dialsPerMs = 1/(F.connRate*F.msRate);
@@ -349,9 +357,14 @@ function renderMSPlan(rows, schedRows, roster){
       + '<button data-planbasis="funnel" class="'+(planBasis==='funnel'?'on':'')+'"><b>Funnel</b><span>'
         + Math.round(MSPLAN_FUNNEL.connRate*100)+'% connect × '+Math.round(MSPLAN_FUNNEL.msRate*100)+'% conv</span></button>'
       + '<button data-planbasis="observed" class="'+(planBasis==='observed'?'on':'')+'"><b>Observed</b><span>today’s dials per MS</span></button>'
+      + (typeof MSDRIVER!=='undefined'
+          ? '<button data-planbasis="nextday" class="'+(planBasis==='nextday'?'on':'')+'"><b>Next-day</b><span>measured '+MSDRIVER.org.dials+' dials per MS</span></button>'
+          : '')
     + '</span>'
     + '</div>';
-  var basisNote = planBasis==='funnel'
+  var basisNote = (planBasis==='nextday' && typeof MSDRIVER!=='undefined')
+    ? '<b>Needed</b> is the <b>measured</b> cost of booking a meeting for the NEXT day: dials on a day ÷ meetings confirmed that day <em>for tomorrow</em>, so both sides are the same day\'s work — the leak the Observed basis has, and the reason the Funnel assumes rates instead. Floor-wide that is <b>'+MSDRIVER.org.dials+' dials per meeting</b>, because only '+MSDRIVER.t1Share+'% of confirmations are for the next day, making a next-day meeting cost '+MSDRIVER.vsAvg+'× an average one. Measured '+MSDRIVER.window+' (weekdays — the floor books same-day at weekends), cities under '+MSDRIVER.minT1+' next-day meetings borrow the floor ratio. '
+    : planBasis==='funnel'
     ? '<b>Needed</b> is a funnel: connects = MS left ÷ '+Math.round(MSPLAN_FUNNEL.msRate*100)+'%, dials = MS left ÷ ('
       + Math.round(MSPLAN_FUNNEL.connRate*100)+'% × '+Math.round(MSPLAN_FUNNEL.msRate*100)+'%) = '
       + Math.round(1/(MSPLAN_FUNNEL.connRate*MSPLAN_FUNNEL.msRate))+' dials per meeting. Meetings already on the calendar only reduce MS left — they are never in a denominator. '
@@ -378,6 +391,7 @@ function renderMSPlan(rows, schedRows, roster){
   var row=function(b,cls){
     var gapCls=b.dialGap===null?'':(b.dialGap>0?'bad':'ok');
     var nameCell='<td class="nm">'+esc(b.name)+(b.thin&&b.present?' <span title="Thin sample — floor-wide ratio used">&dagger;</span>':'')
+      + (planBasis==='nextday'&&b.driverThin&&b.name!=='Pan India'?' <span title="Under '+((typeof MSDRIVER!=='undefined')?MSDRIVER.minT1:15)+' next-day meetings in the study window — floor next-day ratio used">&Dagger;</span>':'')
       + (b.target===null?' <span class="fb-sub" style="font-size:10px">no target</span>':'')
       + (b.noData?' <span class="fb-sub" style="font-size:10px">no LRM on floor</span>':'')+'</td>';
     return '<tr class="'+(cls||'')+'">'+nameCell
