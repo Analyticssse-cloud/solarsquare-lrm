@@ -231,10 +231,17 @@ function planLeft(v,cls){
 /* Column spec — grouped so the header reads as plain language instead of 17
    cryptic flat labels. PLAN_GROUPS drives the two-row table header (group row +
    short sub-labels); PLAN_COLS is the flat list, with QUALIFIED labels, kept for
-   the PDF/CSV export where there is no group row to give context. */
+   the PDF/CSV export where there is no group row to give context.
+   The Meetings block is DAY-AWARE (6 Sep): `On calendar` is the selected day's
+   own inventory from the schedule feed, so On calendar + Left to book = Target
+   and picking a different day visibly moves the block. The old `Tomorrow`
+   column was the Ozontel booking-velocity `MS T+1` — meetings BOOKED today that
+   land tomorrow — which reads ~0 early in the day and never responded to the
+   picker, so it looked like the table was frozen. Removed from the table;
+   still computed (`msT1`) for anything else that wants it. */
 var PLAN_GROUPS=[
   { label:'', cols:[['name','City','nm'],['present','LRM','']] },
-  { label:'Meetings', cols:[['ms','Today'],['msT1','Tomorrow'],['target','Target']] },
+  { label:'Meetings', cols:[['ms','Booked today'],['msLRM','On calendar'],['target','Target']] },
   { label:'Left to book', cols:[['msLeftSite','by city'],['msLeftLRM','by LRM']] },
   { label:'Dials', cols:[['dials','Done'],['dialsPerMs','per MS'],['reqDials','Needed'],['dialGap','Gap']] },
   { label:'Connects', cols:[['conn','Done'],['connPerMs','per MS'],['reqConn','Needed']] },
@@ -306,9 +313,10 @@ function renderMSPlan(rows, schedRows, roster){
   var lead='<div class="dist-lead"><b>Done &rarr; per MS &rarr; Needed</b> in each block, for meetings on <b>'+planDayLabel(planDay)+'</b>. '
     + '<b>Needed</b> = today\'s cost of one meeting &times; meetings still to book. '
     + (hasSched
-        ? '<b>Left to book</b> = target minus what\'s already confirmed for '+planDayName(planDay)+' (<b>by city</b> = customer\'s cluster, <b>by LRM</b> = the booking LRM\'s own city) — a green <b>+N over</b> means the day is already past target. '
+        ? '<b>On calendar</b> = already confirmed for '+planDayName(planDay)+', <b>Left to book</b> = target minus that (<b>by city</b> = customer\'s cluster, <b>by LRM</b> = the booking LRM\'s own city) — a green <b>+N over</b> means the day is already past target. '
         : '<span style="color:#b45309">Schedule-inventory feed not loaded yet, so <b>Left to book</b> still shows the full target.</span> ')
     + '<b>&dagger;</b> = sample too thin (under '+fmt(MSPLAN.minConn)+' connects or '+MSPLAN.minMs+' meetings), so the floor-wide ratio is used. '
+    + '<b>Booked today</b> = meetings this city\'s LRMs booked today, for any future date (velocity). '
     + (P.days>1?'Actuals are the mean of '+P.days+' days in range. ':'')
     + 'Present LRMs only ('+DIST.presentMin+'+ dials).</div>';
   var grpRow='<tr>'+PLAN_GROUPS.map(function(g){
@@ -328,7 +336,7 @@ function renderMSPlan(rows, schedRows, roster){
       + (b.noData?' <span class="fb-sub" style="font-size:10px">no LRM on floor</span>':'')+'</td>';
     return '<tr class="'+(cls||'')+'">'+nameCell
       + '<td>'+(b.present||'—')+'</td>'
-      + planNum(b.ms,0,'g2 sep')+planNum(b.msT1,0)+planNum(b.target,0)
+      + planNum(b.ms,0,'g2 sep')+planNum(b.msLRM,0)+planNum(b.target,0)
       + planLeft(b.msLeftSite,'sep')+planLeft(b.msLeftLRM)
       + planNum(b.dials,0,'g2 sep')+planNum(b.dialsPerMs,1)+planNum(b.reqDials,0)+planNum(b.dialGap,0,cls?'':gapCls)
       + planNum(b.conn,0,'g2 sep')+planNum(b.connPerMs,1)+planNum(b.reqConn,0)
