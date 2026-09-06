@@ -46,6 +46,20 @@ var MS_TARGETS = {
 };
 var MS_TARGET_TOTAL = 1156;            // Pan India (the city targets sum to exactly this)
 var MSPLAN = { minConn:150, minMs:5 }; // sample floor for trusting a city's own ratios
+/* FUNNEL BASIS (user, 6 Sep 2026) — the default requirement math.
+   The observed "dials per MS" is not a cost: it divides TODAY's dials by the
+   meetings booked today, while today's dials also produce meetings for T+1/T+2
+   and the meetings already on a day's calendar were produced by EARLIER days'
+   dials. Reading 10 dials/MS off that says the floor needs 11,000 dials for
+   1,100 meetings, which is arithmetically wrong.
+   The requirement is a funnel instead: dials → connects at `connRate` →
+   meetings at `msRate` of connects. So
+     connects needed = MS left / msRate
+     dials needed    = MS left / (connRate x msRate)
+   Already-scheduled meetings never enter a denominator — they only reduce
+   MS left. */
+var MSPLAN_FUNNEL = { connRate:0.25, msRate:0.20 };
+var planBasis = (function(){ try { return localStorage.getItem('lrmPlanBasis') || 'funnel'; } catch(e) { return 'funnel'; } })();
 /* The sheet's Cluster spelling and the target list's spelling differ in a handful
    of cities. Normalise both sides through this map so a rename upstream cannot
    silently orphan a target row. */
@@ -138,9 +152,19 @@ function msPlanSchedule(schedRows, roster, cohort){
 function planDerive(b,fl,sched){
   b.thin = !(b.conn>=MSPLAN.minConn && b.ms>=MSPLAN.minMs);
   var src = (b.thin && fl) ? fl : b;
-  b.dialsPerMs = src.ms ? src.dials/src.ms : null;
-  b.connPerMs  = src.ms ? src.conn /src.ms : null;
-  b.ttPerMs    = src.ms ? src.ttMin/src.ms : null;
+  // Minutes of talk per CONNECT is a real measured cost and stays measured in
+  // both bases; only the dial/connect requirement changes basis.
+  var minPerConn = src.conn ? src.ttMin/src.conn : null;
+  if(planBasis==='funnel'){
+    var F=MSPLAN_FUNNEL;
+    b.connPerMs  = 1/F.msRate;
+    b.dialsPerMs = 1/(F.connRate*F.msRate);
+    b.ttPerMs    = minPerConn===null?null:minPerConn*b.connPerMs;
+  } else {
+    b.dialsPerMs = src.ms ? src.dials/src.ms : null;
+    b.connPerMs  = src.ms ? src.conn /src.ms : null;
+    b.ttPerMs    = src.ms ? src.ttMin/src.ms : null;
+  }
   var msSite = sched && sched.bySite[b.name] || 0;
   var msLRM  = sched && sched.byLRM[b.name]  || 0;
   b.msSite = msSite; b.msLRM = msLRM;
@@ -164,14 +188,21 @@ function computeMSPlan(rows, schedRows, roster){
     var k=msPlanCity(r['City']);
     if(!g[k]) g[k]={name:k,present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,days:1};
     var b=g[k];
-    b.present++; b.dials+=num(r,'Call Count'); b.conn+=num(r,'Connected Calls');
-    b.ttMin+=num(r,'Total Talk Time')*60; b.ms+=num(r,'MS Today'); b.msT1+=num(r,'MS T+1');
-    /* Per-CITY day count, not the global one. A city whose LRMs only have rows
-       on 1 of the 5 days in range must not have its actuals divided by 5 — that
-       was deflating every metric ~5x and making live cities look idle. */
-    b.days=Math.max(b.days, Number(r._dayCount)||1);
+    /* PER-LRM DAILY MEAN, then summed — not city-total ÷ max(day count).
+       `Call Count` etc. are RANGE SUMS per LRM and `_dayCount` is that LRM's own
+       number of active days, and the two are only comparable per LRM. The old
+       code summed the whole city and divided by the LARGEST day count in it, so
+       one LRM with rows on 30 days deflated every colleague with 1 day by ~30x
+       — the floor read ~500 dials/day against a real ~22,000, and the per-MS
+       ratios were wrong by a different factor in every city (bug found 6 Sep). */
+    var d=Math.max(1, Number(r._dayCount)||1);
+    b.present++;
+    b.dials+=num(r,'Call Count')/d; b.conn+=num(r,'Connected Calls')/d;
+    b.ttMin+=num(r,'Total Talk Time')*60/d; b.ms+=num(r,'MS Today')/d; b.msT1+=num(r,'MS T+1')/d;
+    b.days=Math.max(b.days, d);
   });
-  // Floor-wide ratios: the fallback for thin cities and the Pan India row's own basis.
+  // Floor-wide ratios: the fallback for thin cities and the Pan India row's own
+  // basis. Already per-day (the city buckets are), so it is a plain sum.
   var fl={name:'Pan India',present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,target:MS_TARGET_TOTAL};
   Object.keys(g).forEach(function(k){ var b=g[k];
     fl.present+=b.present; fl.dials+=b.dials; fl.conn+=b.conn; fl.ttMin+=b.ttMin; fl.ms+=b.ms; fl.msT1+=b.msT1; });
@@ -187,10 +218,7 @@ function computeMSPlan(rows, schedRows, roster){
     if(!g[k]) g[k]={name:k,present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,days:1};
   });
 
-  // Per-day means, each city divided by ITS OWN active-day count (see above).
-  var perDay=function(b,d){ if(d>1) ['dials','conn','ttMin','ms','msT1'].forEach(function(k){ b[k]=b[k]/d; }); return b; };
-  Object.keys(g).forEach(function(k){ perDay(g[k], g[k].days||1); });
-  perDay(fl, days);
+  // Per-day means are already applied per LRM in the loop above — nothing to divide here.
 
   // Floor total comes from the SAME cohort pass as the city rows (was a second,
   // stricter loop that could read 0 while the cities showed sums).
@@ -275,6 +303,7 @@ var PLAN_CSS='<style>table.dist.plan th,table.dist.plan td{padding:3px 8px;font-
   +'.plan-days button:hover{border-color:var(--blue)}'
   +'.plan-days button.on{background:var(--blue);border-color:var(--blue);color:rgba(255,255,255,.78)}'
   +'.plan-days button.on b{color:#fff}'
+  +'.plan-basis{display:flex;gap:8px;align-items:center;margin-left:auto}'
   /* The view-selector row must stay above the lead callout: both sit in the same
      panel and the sticky table headers otherwise raise their stacking context
      over it, clipping the Below-the-bar / Effort-per-MS / MS-Plan buttons. */
@@ -309,15 +338,26 @@ function renderMSPlan(rows, schedRows, roster){
           + '<span class="plan-days-ms">'+(hasSched?Math.round(c.ms).toLocaleString('en-IN')+' booked':'—')+'</span>'
           + '</button>';
       }).join('')
+    + '<span class="plan-basis">'
+      + '<span class="plan-days-lb">Basis</span>'
+      + '<button data-planbasis="funnel" class="'+(planBasis==='funnel'?'on':'')+'"><b>Funnel</b><span>'
+        + Math.round(MSPLAN_FUNNEL.connRate*100)+'% connect × '+Math.round(MSPLAN_FUNNEL.msRate*100)+'% conv</span></button>'
+      + '<button data-planbasis="observed" class="'+(planBasis==='observed'?'on':'')+'"><b>Observed</b><span>today’s dials per MS</span></button>'
+    + '</span>'
     + '</div>';
+  var basisNote = planBasis==='funnel'
+    ? '<b>Needed</b> is a funnel: connects = MS left ÷ '+Math.round(MSPLAN_FUNNEL.msRate*100)+'%, dials = MS left ÷ ('
+      + Math.round(MSPLAN_FUNNEL.connRate*100)+'% × '+Math.round(MSPLAN_FUNNEL.msRate*100)+'%) = '
+      + Math.round(1/(MSPLAN_FUNNEL.connRate*MSPLAN_FUNNEL.msRate))+' dials per meeting. Meetings already on the calendar only reduce MS left — they are never in a denominator. '
+    : '<b>Needed</b> = today\'s observed cost of one meeting × meetings still to book. Read with care: it divides today\'s dials by meetings booked TODAY, while those dials also produce meetings for later days. ';
   var lead='<div class="dist-lead"><b>Done &rarr; per MS &rarr; Needed</b> in each block, for meetings on <b>'+planDayLabel(planDay)+'</b>. '
-    + '<b>Needed</b> = today\'s cost of one meeting &times; meetings still to book. '
+    + basisNote
     + (hasSched
         ? '<b>On calendar</b> = already confirmed for '+planDayName(planDay)+', <b>Left to book</b> = target minus that (<b>by city</b> = customer\'s cluster, <b>by LRM</b> = the booking LRM\'s own city) — a green <b>+N over</b> means the day is already past target. '
         : '<span style="color:#b45309">Schedule-inventory feed not loaded yet, so <b>Left to book</b> still shows the full target.</span> ')
     + '<b>&dagger;</b> = sample too thin (under '+fmt(MSPLAN.minConn)+' connects or '+MSPLAN.minMs+' meetings), so the floor-wide ratio is used. '
     + '<b>Booked today</b> = meetings this city\'s LRMs booked today, for any future date (velocity). '
-    + (P.days>1?'Actuals are the mean of '+P.days+' days in range. ':'')
+    + (P.days>1?'Actuals are each LRM\'s own daily average over the '+P.days+' days in range, summed. ':'')
     + 'Present LRMs only ('+DIST.presentMin+'+ dials).</div>';
   var grpRow='<tr>'+PLAN_GROUPS.map(function(g){
     return '<th class="grp'+(g.label?' sep':'')+'" colspan="'+g.cols.length+'">'+esc(g.label)+'</th>';
