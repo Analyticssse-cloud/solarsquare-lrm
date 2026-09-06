@@ -45,7 +45,13 @@ var MS_TARGETS = {
   'Erode':3,'Trichy':0,'Prayagraj':0,'Madurai':0
 };
 var MS_TARGET_TOTAL = 1156;            // Pan India (the city targets sum to exactly this)
-var MSPLAN = { minConn:150, minMs:5 }; // sample floor for trusting a city's own ratios
+/* Sample floor for trusting a city's OWN observed ratio. These are DAILY-scale
+   (the actuals are each LRM's daily mean, summed), so the old range-scale bar of
+   150 connects / 5 meetings made nearly every city "thin" — the whole column
+   read one identical floor-wide number (9.7 everywhere, 6 Sep). The bar now only
+   catches a city that cannot form a ratio at all: fewer than one meeting a day,
+   or almost no connected calls to divide. */
+var MSPLAN = { minConn:10, minMs:1 };
 /* FUNNEL BASIS (user, 6 Sep 2026) — the default requirement math.
    The observed "dials per MS" is not a cost: it divides TODAY's dials by the
    meetings booked today, while today's dials also produce meetings for T+1/T+2
@@ -355,7 +361,7 @@ function renderMSPlan(rows, schedRows, roster){
     + (hasSched
         ? '<b>On calendar</b> = already confirmed for '+planDayName(planDay)+', <b>Left to book</b> = target minus that (<b>by city</b> = customer\'s cluster, <b>by LRM</b> = the booking LRM\'s own city) — a green <b>+N over</b> means the day is already past target. '
         : '<span style="color:#b45309">Schedule-inventory feed not loaded yet, so <b>Left to book</b> still shows the full target.</span> ')
-    + '<b>&dagger;</b> = sample too thin (under '+fmt(MSPLAN.minConn)+' connects or '+MSPLAN.minMs+' meetings), so the floor-wide ratio is used. '
+    + '<b>&dagger;</b> = too few of its own numbers to form a ratio (under '+fmt(MSPLAN.minConn)+' connects or '+MSPLAN.minMs+' meeting a day), so the floor-wide ratio is used. '
     + '<b>Booked today</b> = meetings this city\'s LRMs booked today, for any future date (velocity). '
     + (P.days>1?'Actuals are each LRM\'s own daily average over the '+P.days+' days in range, summed. ':'')
     + 'Present LRMs only ('+DIST.presentMin+'+ dials).</div>';
