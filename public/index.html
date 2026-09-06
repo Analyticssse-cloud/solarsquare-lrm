@@ -226,6 +226,10 @@
     .dist-wrap { overflow: auto; flex: 1 1 auto; min-height: 0; }
     .dist-lead { font-size: 11px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; }
     .dist-lead b { color: var(--text); }
+    /* The Action Center panel is a flex column. Without an explicit flex basis the
+       view selector and the callout are shrinkable items, so a short viewport
+       squashes the selector to half height and the callout draws over it. */
+    .act-head, .dist-lvl, .dist-lead { flex: 0 0 auto; }
     .dist-lvl { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
     .dist-lvl button { border: none; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 700; padding: 5px 14px; cursor: pointer; }
     .dist-lvl button:hover { color: var(--blue); }
@@ -1861,6 +1865,7 @@ function renderAction(){
   panel.innerHTML=head+vseg+(isPlan?renderMSPlan(filterAgents(),D.msScheduleRows,D.rosterRows):isPer?renderPerMS(filterAgents()):renderDistribution(filterAgents()));
   if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
   panel.querySelectorAll('table.dist th[data-plan]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-plan'); planSort.dir=(planSort.col===k)?planSort.dir*-1:-1; planSort.col=k; renderAction(); }); });
+  panel.querySelectorAll('.plan-days button[data-planday]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); planDay=Number(btn.getAttribute('data-planday')); try{localStorage.setItem('lrmPlanDay',planDay);}catch(err){} renderAction(); }); });
   panel.querySelectorAll('.dist-view button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); actView=btn.getAttribute('data-view'); try{localStorage.setItem('lrmActView',actView);}catch(err){} renderAction(); }); });
   panel.querySelectorAll('table.dist th[data-per]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-per'); perSort.dir=(perSort.col===k)?perSort.dir*-1:-1; perSort.col=k; renderAction(); }); });
   panel.querySelectorAll('.dist-lvl:not(.dist-view) button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); distLevel=btn.getAttribute('data-lvl'); renderAction(); }); });
@@ -1912,7 +1917,7 @@ function downloadPDF(){
     var isCity=actScope==='city';
     if(actView==='plan'){
       var P=computeMSPlan(filterAgents(),D.msScheduleRows,D.rosterRows), i0=function(v){return v===null?'—':Math.round(v).toLocaleString('en-IN');}, i1=function(v){return v===null?'—':(Math.round(v*10)/10).toFixed(1);};
-      viewName='Action Center · MS Plan (effort needed to close tomorrow\'s MS gap)';
+      viewName='Action Center · MS Plan (effort needed for meetings on '+planDayLabel(planDay)+')';
       tblHTML='<table><thead><tr>'+PLAN_COLS.map(function(c){return '<th>'+c[1]+'</th>';}).join('')+'</tr></thead><tbody>'
         + [P.floor].concat(P.rows).map(function(b){return '<tr><td>'+esc(b.name)+(b.thin&&b.present?' †':'')+'</td><td>'+(b.present||'—')+'</td>'
             + '<td>'+i0(b.ms)+'</td><td>'+i0(b.msT1)+'</td><td>'+i0(b.target)+'</td>'
@@ -1975,8 +1980,8 @@ function downloadPDF(){
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
-<script src="distribution.js"></script>
-<script src="speed.js"></script>
-<script src="msplan.js"></script>
+<script src="distribution.js?v=20260906b"></script>
+<script src="speed.js?v=20260906b"></script>
+<script src="msplan.js?v=20260906b"></script>
 </body>
 </html>

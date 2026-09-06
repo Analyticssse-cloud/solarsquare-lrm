@@ -66,10 +66,48 @@ function msPlanCity(raw){
   return s.replace(/\b\w/g,function(c){return c.toUpperCase();});
 }
 var planSort = { col:'dialGap', dir:-1 };
+/* WHICH DAY the plan is stated against (user, 6 Sep 2026): a Sunday floor is
+   working on Tuesday's calendar because Monday is a holiday, so a hard-coded
+   T+1 is wrong on any day before a break. Cohort 0/1/2 = today / tomorrow /
+   day after, matching the feed's own `Days Out`. Remembered per user. */
+var planDay = (function(){ try { var v=localStorage.getItem('lrmPlanDay'); return v===null?1:Number(v); } catch(e) { return 1; } })();
+function planDayLabel(off){
+  var d=new Date(); d.setDate(d.getDate()+off);
+  var wd=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+  return wd+' '+d.getDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+}
+function planDayName(off){ return off===0?'today':off===1?'tomorrow':planDayLabel(off); }
 /* Days covered by the range, taken from the aggregation's own day count so it
    matches whatever the API actually returned (a missing day must not divide). */
 function msPlanDays(rows){
   var d=1; rows.forEach(function(r){ d=Math.max(d, Number(r._dayCount)||1); }); return d;
+}
+/* Which cohort a feed row belongs to. `Days Out` is the feed's own column, but it
+   is optional (dashboard.js sends null when the sheet lacks it) — in that case
+   derive it from `Schedule Date` against the real local today, so a feed written
+   before the column existed cannot silently collapse three days into one sum
+   (the old code returned every row for every cohort → MS Left triple-counted,
+   while the floor row required Days Out === 1 and read 0. The two disagreed). */
+function msPlanCohortOf(r){
+  var d=r['Days Out'];
+  if(d!==null&&d!==undefined&&String(d).trim()!==''&&isFinite(Number(d))) return Number(d);
+  var s=String(r['Schedule Date']||'').trim(); if(!s) return null;
+  var dt=null, m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) dt=new Date(+m[1],+m[2]-1,+m[3]);
+  else { var p=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/); if(p) dt=new Date(+p[3],+p[2]-1,+p[1]); }
+  if(!dt||isNaN(dt.getTime())) return null;
+  var n=new Date(), t0=new Date(n.getFullYear(),n.getMonth(),n.getDate());
+  return Math.round((dt-t0)/86400000);
+}
+/* Rows belonging to one cohort. Rows whose cohort cannot be resolved at all are
+   kept ONLY when the whole feed is unresolvable — otherwise a half-tagged feed
+   would double-count. Single source of truth for the table, the floor row and
+   the strip, so they can never state different totals. */
+function msPlanCohortRows(schedRows, cohort){
+  var rows=schedRows||[];
+  var res=rows.map(msPlanCohortOf);
+  var any=res.some(function(c){ return c!==null; });
+  return rows.filter(function(r,i){ return any ? res[i]===cohort : true; });
 }
 /* Sum `sql/ms-inventory-lead-snapshot.sql` (v16, T+0/T+1/T+2 cohort) rows two
    ways: by the feed's own Cluster/City (site/demand cut), and by the scheduled
@@ -78,15 +116,15 @@ function msPlanDays(rows){
    TOMORROW (T+1) — the other two days ride along in the feed for later use
    (e.g. a 3-day strip) but don't enter this table's math. */
 function msPlanSchedule(schedRows, roster, cohort){
-  var bySite={}, byLRM={};
+  var bySite={}, byLRM={}, total=0;
   var rosterCity={};
   (roster||[]).forEach(function(r){
     var email=String(r['Agent Id']||'').trim().toLowerCase();
     if(email) rosterCity[email]=r['City']||'';
   });
-  (schedRows||[]).forEach(function(r){
-    if(r['Days Out']!==null && r['Days Out']!==undefined && String(r['Days Out'])!==String(cohort)) return;
+  msPlanCohortRows(schedRows, cohort).forEach(function(r){
     var n=Number(r['MS Scheduled'])||0; if(!n) return;
+    total+=n;
     var siteKey=msPlanCity(r['Cluster']||r['City']);
     bySite[siteKey]=(bySite[siteKey]||0)+n;
     var email=String(r['Assigned LRM']||'').trim().toLowerCase();
@@ -94,7 +132,7 @@ function msPlanSchedule(schedRows, roster, cohort){
     var lrmKey=msPlanCity(lrmCity||r['Cluster']||r['City']);
     byLRM[lrmKey]=(byLRM[lrmKey]||0)+n;
   });
-  return { bySite:bySite, byLRM:byLRM };
+  return { bySite:bySite, byLRM:byLRM, total:total };
 }
 /* per-MS ratios + the requirement they imply, for one city or the floor total */
 function planDerive(b,fl,sched){
@@ -140,17 +178,23 @@ function computeMSPlan(rows, schedRows, roster){
   // Every TARGET city gets a row even with no calls in range — a city quietly
   // absent from the data is exactly what this table should surface.
   Object.keys(MS_TARGETS).forEach(function(k){ if(!g[k]) g[k]={name:k,present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,days:1}; });
+  /* A city that appears in the schedule feed but has no target and no calls in
+     range still gets a row — otherwise its scheduled meetings are counted in the
+     Pan India total and nowhere else, and the floor row stops reconciling with
+     the column of cities under it. */
+  var sched = msPlanSchedule(schedRows, roster, planDay);   // the selected target day, not a fixed T+1
+  Object.keys(sched.bySite).concat(Object.keys(sched.byLRM)).forEach(function(k){
+    if(!g[k]) g[k]={name:k,present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,days:1};
+  });
 
   // Per-day means, each city divided by ITS OWN active-day count (see above).
   var perDay=function(b,d){ if(d>1) ['dials','conn','ttMin','ms','msT1'].forEach(function(k){ b[k]=b[k]/d; }); return b; };
   Object.keys(g).forEach(function(k){ perDay(g[k], g[k].days||1); });
   perDay(fl, days);
 
-  var sched = msPlanSchedule(schedRows, roster, 1);   // cohort = T+1 (tomorrow) — the plan's target day
-  var flSchedMS = 0; (schedRows||[]).forEach(function(r){
-    if(String(r['Days Out'])!=='1') return;
-    flSchedMS += Number(r['MS Scheduled'])||0;
-  });
+  // Floor total comes from the SAME cohort pass as the city rows (was a second,
+  // stricter loop that could read 0 while the cities showed sums).
+  var flSchedMS = sched.total;
   fl.msSite = flSchedMS; fl.msLRM = flSchedMS;
   planDerive(fl, null, { bySite:{'Pan India':flSchedMS}, byLRM:{'Pan India':flSchedMS} });
 
@@ -208,6 +252,22 @@ var PLAN_COLS=(function(){
 var PLAN_CSS='<style>table.dist.plan th,table.dist.plan td{padding:3px 8px;font-size:11px;line-height:1.35}'
   +'table.dist.plan th.grp{text-align:center;font-size:10px;letter-spacing:.06em;text-transform:uppercase;opacity:.65;padding-bottom:1px;border-bottom:1px solid rgba(0,0,0,.08);position:sticky;top:0;z-index:3}'
   +'table.dist.plan th.sub{font-weight:600;font-size:10px;padding-top:2px;position:sticky;top:17px;z-index:2}'
+  /* td.sep is styled globally but th.sep was not, so the group separators stopped
+     at the header. Same hairline on both rows of the header. */
+  +'table.dist.plan th.sep{border-left:1px solid var(--border)}'
+  /* The panel is a flex column: without this the button row and the callout are
+     shrinkable flex items, so a short viewport squashes the view selector to
+     half height and the callout draws over it (the reported overlap). */
+  +'.act-head,.dist-lvl,.dist-lead,.plan-days{flex:0 0 auto}'
+  +'.plan-days{display:flex;gap:8px;align-items:stretch;margin-bottom:8px;position:relative;z-index:4}'
+  +'.plan-days-lb{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);align-self:center;margin-right:2px}'
+  +'.plan-days button{display:flex;flex-direction:column;gap:1px;text-align:left;border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:5px 12px;cursor:pointer;font-family:inherit;color:var(--muted);line-height:1.25}'
+  +'.plan-days button b{font-size:12px;color:var(--text)}'
+  +'.plan-days button span{font-size:10px}'
+  +'.plan-days button .plan-days-ms{font-weight:700}'
+  +'.plan-days button:hover{border-color:var(--blue)}'
+  +'.plan-days button.on{background:var(--blue);border-color:var(--blue);color:rgba(255,255,255,.78)}'
+  +'.plan-days button.on b{color:#fff}'
   /* The view-selector row must stay above the lead callout: both sit in the same
      panel and the sticky table headers otherwise raise their stacking context
      over it, clipping the Below-the-bar / Effort-per-MS / MS-Plan buttons. */
@@ -219,7 +279,7 @@ var PLAN_CSS='<style>table.dist.plan th,table.dist.plan td{padding:3px 8px;font-
 function msPlanCohortStrip(schedRows){
   var byDay={};
   (schedRows||[]).forEach(function(r){
-    var d=r['Days Out']; if(d===null||d===undefined) return;
+    var d=msPlanCohortOf(r); if(d===null||d===undefined) return;
     var k=String(d);
     if(!byDay[k]) byDay[k]={cohort:r['Cohort']||('T+'+k),ms:0,leads:0};
     byDay[k].ms+=Number(r['MS Scheduled'])||0;
@@ -230,16 +290,23 @@ function msPlanCohortStrip(schedRows){
 function renderMSPlan(rows, schedRows, roster){
   var P=computeMSPlan(rows, schedRows, roster), fl=P.floor;
   var hasSched = (schedRows||[]).length>0;
-  var strip = hasSched ? msPlanCohortStrip(schedRows) : null;
-  var stripHTML = strip ? '<div class="dist-lead" style="display:flex;gap:24px;align-items:baseline">'
-    + strip.map(function(c,i){ return '<span'+(i===1?' style="font-weight:600"':'')+'>'+esc(c.cohort)
-        +(i===1?' (today\u2019s plan)':'')+': <b>'+Math.round(c.ms).toLocaleString('en-IN')+'</b> MS scheduled'
-        +'</span>'; }).join('')
-    + '</div>' : '';
-  var lead='<div class="dist-lead"><b>Done &rarr; per MS &rarr; Needed</b> in each block. '
+  var strip = msPlanCohortStrip(schedRows);
+  /* The strip doubles as the day PICKER — the plan follows whichever day is
+     selected, so a holiday tomorrow just means planning the day after. */
+  var stripHTML = '<div class="plan-days">'
+    + '<span class="plan-days-lb">Planning for</span>'
+    + strip.map(function(c,i){
+        return '<button data-planday="'+i+'" class="'+(planDay===i?'on':'')+'">'
+          + '<b>'+planDayLabel(i)+'</b>'
+          + '<span>'+(i===0?'today':i===1?'tomorrow':'day after')+'</span>'
+          + '<span class="plan-days-ms">'+(hasSched?Math.round(c.ms).toLocaleString('en-IN')+' booked':'—')+'</span>'
+          + '</button>';
+      }).join('')
+    + '</div>';
+  var lead='<div class="dist-lead"><b>Done &rarr; per MS &rarr; Needed</b> in each block, for meetings on <b>'+planDayLabel(planDay)+'</b>. '
     + '<b>Needed</b> = today\'s cost of one meeting &times; meetings still to book. '
     + (hasSched
-        ? '<b>Left to book</b> = target minus what\'s already confirmed for tomorrow (<b>by city</b> = customer\'s cluster, <b>by LRM</b> = the booking LRM\'s own city) — a green <b>+N over</b> means the day is already past target. '
+        ? '<b>Left to book</b> = target minus what\'s already confirmed for '+planDayName(planDay)+' (<b>by city</b> = customer\'s cluster, <b>by LRM</b> = the booking LRM\'s own city) — a green <b>+N over</b> means the day is already past target. '
         : '<span style="color:#b45309">Schedule-inventory feed not loaded yet, so <b>Left to book</b> still shows the full target.</span> ')
     + '<b>&dagger;</b> = sample too thin (under '+fmt(MSPLAN.minConn)+' connects or '+MSPLAN.minMs+' meetings), so the floor-wide ratio is used. '
     + (P.days>1?'Actuals are the mean of '+P.days+' days in range. ':'')
