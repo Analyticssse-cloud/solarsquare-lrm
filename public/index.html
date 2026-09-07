@@ -614,10 +614,10 @@ var perSort = { col:'dialsPerMs', dir:-1 };
 /* Distribution ("who is below the bar"), not averages. Present = made more than PRESENT_MIN calls. */
 /* Day-end bars per LRM. ttLow is a SECOND, harder talk-time floor the user asked
    for (4 Sep): 120 min is the target, under 90 min is the intervention line. */
-var DIST = { presentMin:1, dial:150, ttMin:120, ttLow:90, ms:10 };
+var DIST = { presentMin:1, dial:200, ttMin:120, ttLow:90, ms:10 };
 /* Every bar is scored against the share of the shift ELAPSED, not the whole day
    (user, 4 Sep): at 14:00 an LRM on 94 dials is on pace, and flagging them against
-   150 would put most of the floor "below the bar" every morning. On a finished day
+   200 would put most of the floor "below the bar" every morning. On a finished day
    the factor is 1, so day-end numbers are unchanged. */
 function distPace(){ var h=floorHours().length||1; return Math.max(0.01, Math.min(1, floorElapsed()/h)); }
 function distBar(k){ return Math.round(DIST[k]*distPace()); }
@@ -1365,12 +1365,12 @@ function floorHeroHTML(rows){
    Every target on this tab is scored BY HOURS ELAPSED (user, 4 Sep): the bar is
    the per-LRM day target times the elapsed share of the shift, the same
    distPace() the Action Center uses. So a 09:40 board ranks people against the
-   morning's worth of work, not against 150 dials nobody could have made yet, and
+   morning's worth of work, not against 200 dials nobody could have made yet, and
    the two tabs can never state different bars. On a finished day the factor is 1.
    Bars are plain CSS, not ECharts: three static bar rows do not justify the chart
    engine the Distribution heatmaps need, and this tab must open instantly.
    Honours the filter bar and viewer scope, because it reads filterAgents(). */
-var FLOOR_TARGET = { dials:150, talkMin:120, ms:10 };
+var FLOOR_TARGET = { dials:200, talkMin:120, ms:10 };
 /* One column set per metric: how the value is read off a row, how it prints, and
    the per-LRM day target it is scored against. */
 var FLOOR_BOARDS = [
@@ -1867,6 +1867,8 @@ function renderAction(){
   panel.querySelectorAll('table.dist th[data-plan]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-plan'); planSort.dir=(planSort.col===k)?planSort.dir*-1:-1; planSort.col=k; renderAction(); }); });
   panel.querySelectorAll('.plan-basis button[data-planbasis]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); planBasis=btn.getAttribute('data-planbasis'); try{localStorage.setItem('lrmPlanBasis',planBasis);}catch(err){} renderAction(); }); });
   panel.querySelectorAll('.plan-days button[data-planday]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); planDay=Number(btn.getAttribute('data-planday')); try{localStorage.setItem('lrmPlanDay',planDay);}catch(err){} renderAction(); }); });
+  panel.querySelectorAll('.plan-basis button[data-plansameday]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); planSameDay=btn.getAttribute('data-plansameday')==='1'; try{localStorage.setItem('lrmPlanSameday',planSameDay?'1':'0');}catch(err){} renderAction(); }); });
+  panel.querySelectorAll('table.dist td[data-plantarget]').forEach(function(td){ var cancelled=false; td.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); td.blur(); } else if(e.key==='Escape'){ e.preventDefault(); cancelled=true; renderAction(); } }); td.addEventListener('blur',function(){ if(cancelled) return; msPlanSetTarget(td.getAttribute('data-plantarget'), td.textContent); renderAction(); }); });
   panel.querySelectorAll('.dist-view button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); actView=btn.getAttribute('data-view'); try{localStorage.setItem('lrmActView',actView);}catch(err){} renderAction(); }); });
   panel.querySelectorAll('table.dist th[data-per]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-per'); perSort.dir=(perSort.col===k)?perSort.dir*-1:-1; perSort.col=k; renderAction(); }); });
   panel.querySelectorAll('.dist-lvl:not(.dist-view) button').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); distLevel=btn.getAttribute('data-lvl'); renderAction(); }); });
@@ -1981,9 +1983,9 @@ function downloadPDF(){
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
-<script src="distribution.js?v=20260906g"></script>
+<script src="distribution.js?v=20260907b"></script>
 <script src="speed.js?v=20260906g"></script>
-<script src="msdriver.js?v=20260906g"></script>
-<script src="msplan.js?v=20260906g"></script>
+<script src="msdriver.js?v=20260907a"></script>
+<script src="msplan.js?v=20260907b"></script>
 </body>
 </html>

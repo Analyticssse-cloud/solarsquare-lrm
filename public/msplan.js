@@ -65,7 +65,54 @@ var MSPLAN = { minConn:10, minMs:1 };
    Already-scheduled meetings never enter a denominator — they only reduce
    MS left. */
 var MSPLAN_FUNNEL = { connRate:0.25, msRate:0.20 };
-var planBasis = (function(){ try { return localStorage.getItem('lrmPlanBasis') || 'funnel'; } catch(e) { return 'funnel'; } })();
+/* DEFAULT BASIS = next-day (user, 6 Sep 2026). The question this table answers
+   is "tomorrow already has meetings on it from earlier days' calls — how much
+   calling do I have to do TODAY to fill the rest of it?" That is the MARGINAL
+   cost of a meeting booked FOR the next day: neither an assumed funnel nor
+   today's all-horizon average. So `nextday` is the default whenever msdriver.js
+   is loaded; Funnel and Observed stay as comparison bases. A stored preference
+   still wins, and without msdriver.js it falls back to Funnel. */
+var planBasis = (function(){
+  try { var v=localStorage.getItem('lrmPlanBasis'); if(v) return v; } catch(e) {}
+  return (typeof MSDRIVER!=='undefined') ? 'nextday' : 'funnel';
+})();
+/* SAME-DAY CREDIT (user, 6 Sep 2026). Pricing the whole remaining gap as
+   pre-booking work over-charges the floor: 31% of a day's calendar is confirmed
+   ON the day itself (measured 2-6 Sep 2026). So `same-day exp.` = share x target
+   and `to pre-book` = MS Left minus that, floored at 0 — and it is `to pre-book`,
+   not the raw gap, that the Needed columns are priced on. Toggle off to charge
+   the whole gap (remembered in localStorage.lrmPlanSameday). */
+var MSPLAN_SAMEDAY = 0.31;
+var planSameDay = (function(){ try { return localStorage.getItem('lrmPlanSameday')!=='0'; } catch(e) { return true; } })();
+/* The floor's OWN measured dials per present LRM per day — the only honest way
+   to restate a dial requirement as headcount. `LRMs implied` = required dials /
+   this; `vs present` compares it to who is actually on the floor. A capacity
+   sanity check, never a hiring number. */
+var MSPLAN_DIALS_PER_LRM = 142;
+/* EDITABLE TARGETS: the Target cell is typed into, so a planner can set a city's
+   number for tomorrow and every column right of it recomputes. Overrides are
+   per browser; MS_TARGETS stays the shipped default and an empty cell reverts. */
+var planTargets = (function(){ try { return JSON.parse(localStorage.getItem('lrmPlanTargets')||'{}')||{}; } catch(e) { return {}; } })();
+function msPlanTarget(city){
+  var v=planTargets[city];
+  if(v!==undefined&&v!==null&&String(v).trim()!==''&&isFinite(Number(v))) return Number(v);
+  return MS_TARGETS[city]!==undefined?MS_TARGETS[city]:null;
+}
+function msPlanSetTarget(city, raw){
+  var s=String(raw==null?'':raw).replace(/[^0-9.\-]/g,'').trim();
+  if(s===''||!isFinite(Number(s))) delete planTargets[city]; else planTargets[city]=Math.max(0,Math.round(Number(s)));
+  try { localStorage.setItem('lrmPlanTargets', JSON.stringify(planTargets)); } catch(e) {}
+}
+/* Floor target follows the edits — a city typed down must not leave the Pan India
+   row stating the old total. Cities that exist only as an override still count. */
+function msPlanTargetTotal(){
+  var t=0;
+  Object.keys(MS_TARGETS).forEach(function(k){ var v=msPlanTarget(k); if(v!==null) t+=v; });
+  Object.keys(planTargets).forEach(function(k){
+    if(MS_TARGETS[k]===undefined){ var v=Number(planTargets[k]); if(isFinite(v)) t+=v; }
+  });
+  return t;
+}
 /* The sheet's Cluster spelling and the target list's spelling differ in a handful
    of cities. Normalise both sides through this map so a rename upstream cannot
    silently orphan a target row. */
@@ -184,14 +231,33 @@ function planDerive(b,fl,sched){
   b.msSite = msSite; b.msLRM = msLRM;
   b.msLeftSite = (b.target===null) ? null : (b.target - msSite);
   b.msLeftLRM  = (b.target===null) ? null : (b.target - msLRM);
-  // Requirement basis: MS Left (LRM) clamped at 0 for arithmetic only — a
-  // surplus city needs zero more effort, never negative dials.
-  var t = (b.msLeftLRM===null) ? b.target : Math.max(b.msLeftLRM, 0);
+  /* Requirement basis: MS Left (LRM), less the share this floor reliably
+     confirms on the day itself, clamped at 0 for the arithmetic only — a
+     surplus city needs zero more effort, never negative dials. Display keeps
+     the signed MS Left so an overbooked day still reads as a surplus. */
+  /* PRE-BOOK QUOTA, not a flat haircut on the target (user, 6 Sep 2026).
+     31% of a day's calendar is confirmed ON the day, so 69% of it has to be
+     pre-booked: quota = (1 - MSPLAN_SAMEDAY) x target. What is left to pre-book
+     TODAY is that quota minus the meetings earlier days already put on the day,
+     so the credit shrinks as the calendar fills and hits 0 once pre-booking is
+     already ahead of quota. Algebraically identical to the old
+     (target - booked) - 31%*target, but it states the dependence on what is
+     already booked instead of hiding it. */
+  b.preQuota = (b.target===null) ? null : (planSameDay ? (1-MSPLAN_SAMEDAY)*b.target : b.target);
+  b.sameDayExp = (b.target===null) ? null : (planSameDay ? MSPLAN_SAMEDAY*b.target : 0);
+  b.preBook = (b.preQuota===null) ? null : Math.max(b.preQuota - (b.msLRM||0), 0);
+  var t = b.preBook;
   b.reqDials = (t!==null && b.dialsPerMs!==null) ? b.dialsPerMs*t : null;
   b.reqConn  = (t!==null && b.connPerMs !==null) ? b.connPerMs *t : null;
   b.reqTT    = (t!==null && b.ttPerMs   !==null) ? b.ttPerMs   *t : null;
   b.dialGap  = b.reqDials===null?null:b.reqDials-b.dials;
   b.connGap  = b.reqConn ===null?null:b.reqConn -b.conn;
+  // Per-person split of both sides — the rate now vs the ask for the plan day.
+  // Blank (not zero) where nobody is on the floor: 0 LRMs is undefined, not free.
+  b.dialsPerLRM    = b.present ? b.dials/b.present : null;
+  b.reqDialsPerLRM = (b.present && b.reqDials!==null) ? b.reqDials/b.present : null;
+  b.lrmImplied     = b.reqDials===null?null:b.reqDials/MSPLAN_DIALS_PER_LRM;
+  b.lrmVsPresent   = b.lrmImplied===null?null:b.lrmImplied-b.present;
   return b;
 }
 function computeMSPlan(rows, schedRows, roster){
@@ -217,7 +283,7 @@ function computeMSPlan(rows, schedRows, roster){
   });
   // Floor-wide ratios: the fallback for thin cities and the Pan India row's own
   // basis. Already per-day (the city buckets are), so it is a plain sum.
-  var fl={name:'Pan India',present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,target:MS_TARGET_TOTAL};
+  var fl={name:'Pan India',present:0,dials:0,conn:0,ttMin:0,ms:0,msT1:0,target:msPlanTargetTotal()};
   Object.keys(g).forEach(function(k){ var b=g[k];
     fl.present+=b.present; fl.dials+=b.dials; fl.conn+=b.conn; fl.ttMin+=b.ttMin; fl.ms+=b.ms; fl.msT1+=b.msT1; });
   // Every TARGET city gets a row even with no calls in range — a city quietly
@@ -242,7 +308,7 @@ function computeMSPlan(rows, schedRows, roster){
 
   var out=Object.keys(g).map(function(k){
     var b=g[k];
-    b.target=MS_TARGETS[k]!==undefined?MS_TARGETS[k]:null;
+    b.target=msPlanTarget(k);
     b.noData=!b.present;
     return planDerive(b,fl,sched);
   });
@@ -284,10 +350,12 @@ function planLeft(v,cls){
 var PLAN_GROUPS=[
   { label:'', cols:[['name','City','nm'],['present','LRM','']] },
   { label:'Meetings', cols:[['ms','Booked today'],['msLRM','On calendar'],['target','Target']] },
-  { label:'Left to book', cols:[['msLeftSite','by city'],['msLeftLRM','by LRM']] },
+  { label:'Left to book', cols:[['msLeftSite','by city'],['msLeftLRM','by LRM'],['sameDayExp','same-day exp.'],['preQuota','pre-book quota'],['preBook','to pre-book']] },
   { label:'Dials', cols:[['dials','Done'],['dialsPerMs','per MS'],['reqDials','Needed'],['dialGap','Gap']] },
+  { label:'Dials / LRM', cols:[['dialsPerLRM','Done'],['reqDialsPerLRM','Needed']] },
   { label:'Connects', cols:[['conn','Done'],['connPerMs','per MS'],['reqConn','Needed']] },
-  { label:'Talk time (min)', cols:[['ttMin','Done'],['ttPerMs','per MS'],['reqTT','Needed']] }
+  { label:'Talk time (min)', cols:[['ttMin','Done'],['ttPerMs','per MS'],['reqTT','Needed']] },
+  { label:'Capacity', cols:[['lrmImplied','LRMs implied'],['lrmVsPresent','vs present']] }
 ];
 var PLAN_COLS=(function(){
   var out=[];
@@ -318,6 +386,14 @@ var PLAN_CSS='<style>table.dist.plan th,table.dist.plan td{padding:3px 8px;font-
   +'.plan-days button.on{background:var(--blue);border-color:var(--blue);color:rgba(255,255,255,.78)}'
   +'.plan-days button.on b{color:#fff}'
   +'.plan-basis{display:flex;gap:8px;align-items:center;margin-left:auto}'
+  /* Editable Target cell: reads as a typed field, not a static number, without
+     turning the row into a form. */
+  +'table.dist.plan td.plan-tgt{cursor:text;border-bottom:1px dashed rgba(0,0,0,.28);font-variant-numeric:tabular-nums}'
+  +'table.dist.plan td.plan-tgt:focus{outline:none;background:rgba(37,99,235,.09);border-bottom:1px solid var(--blue)}'
+  +'table.dist.plan td.plan-edited{font-weight:800;color:var(--blue)}'
+  /* The table is the only shrinkable item in the panel's flex column, so a short
+     viewport collapsed it to height:0 and clipped every row. */
+  +'.dist-wrap{min-height:220px}'
   /* The view-selector row must stay above the lead callout: both sit in the same
      panel and the sticky table headers otherwise raise their stacking context
      over it, clipping the Below-the-bar / Effort-per-MS / MS-Plan buttons. */
@@ -360,21 +436,28 @@ function renderMSPlan(rows, schedRows, roster){
       + (typeof MSDRIVER!=='undefined'
           ? '<button data-planbasis="nextday" class="'+(planBasis==='nextday'?'on':'')+'"><b>Next-day</b><span>measured '+MSDRIVER.org.dials+' dials per MS</span></button>'
           : '')
+      + '<button data-plansameday="'+(planSameDay?'0':'1')+'" class="'+(planSameDay?'on':'')+'"><b>Same-day credit</b><span>'
+        + (planSameDay?Math.round(MSPLAN_SAMEDAY*100)+'% of target credited':'off \u2014 whole gap charged')+'</span></button>'
     + '</span>'
     + '</div>';
   var basisNote = (planBasis==='nextday' && typeof MSDRIVER!=='undefined')
-    ? '<b>Needed</b> is the <b>measured</b> cost of booking a meeting for the NEXT day: dials on a day ÷ meetings confirmed that day <em>for tomorrow</em>, so both sides are the same day\'s work — the leak the Observed basis has, and the reason the Funnel assumes rates instead. Floor-wide that is <b>'+MSDRIVER.org.dials+' dials per meeting</b>, because only '+MSDRIVER.t1Share+'% of confirmations are for the next day, making a next-day meeting cost '+MSDRIVER.vsAvg+'× an average one. Measured '+MSDRIVER.window+' (weekdays — the floor books same-day at weekends), cities under '+MSDRIVER.minT1+' next-day meetings borrow the floor ratio. '
+    ? '<b>Needed</b> is the <b>measured marginal</b> cost of booking a meeting FOR '+planDayName(planDay)+': dials on a day ÷ meetings confirmed that day <em>for the next day</em>, so both sides are the same day\'s work — the leak the Observed basis has, and the reason Funnel has to assume rates instead. Floor-wide that is <b>'+MSDRIVER.org.dials+' dials per meeting</b>, because only '+MSDRIVER.t1Share+'% of confirmations are for the next day, making a next-day meeting cost '+MSDRIVER.vsAvg+'× an average one. It is charged only on the meetings <em>still</em> to book — never on the full target, which would price '+planDayName(planDay)+' as if its calendar were empty. Measured '+MSDRIVER.window+' (weekdays — the floor books same-day at weekends), cities under '+MSDRIVER.minT1+' next-day meetings borrow the floor ratio. '
     : planBasis==='funnel'
     ? '<b>Needed</b> is a funnel: connects = MS left ÷ '+Math.round(MSPLAN_FUNNEL.msRate*100)+'%, dials = MS left ÷ ('
       + Math.round(MSPLAN_FUNNEL.connRate*100)+'% × '+Math.round(MSPLAN_FUNNEL.msRate*100)+'%) = '
       + Math.round(1/(MSPLAN_FUNNEL.connRate*MSPLAN_FUNNEL.msRate))+' dials per meeting. Meetings already on the calendar only reduce MS left — they are never in a denominator. '
     : '<b>Needed</b> = today\'s observed cost of one meeting × meetings still to book. Read with care: it divides today\'s dials by meetings booked TODAY, while those dials also produce meetings for later days. ';
-  var lead='<div class="dist-lead"><b>Done &rarr; per MS &rarr; Needed</b> in each block, for meetings on <b>'+planDayLabel(planDay)+'</b>. '
+  var lead='<div class="dist-lead"><b>Done &rarr; per MS &rarr; Needed</b> in each block &mdash; <b>how much calling today</b> it takes to fill <b>'+planDayLabel(planDay)+'</b>, on top of what is already booked on it. '
     + basisNote
     + (hasSched
         ? '<b>On calendar</b> = already confirmed for '+planDayName(planDay)+', <b>Left to book</b> = target minus that (<b>by city</b> = customer\'s cluster, <b>by LRM</b> = the booking LRM\'s own city) — a green <b>+N over</b> means the day is already past target. '
         : '<span style="color:#b45309">Schedule-inventory feed not loaded yet, so <b>Left to book</b> still shows the full target.</span> ')
     + '<b>&dagger;</b> = too few of its own numbers to form a ratio (under '+fmt(MSPLAN.minConn)+' connects or '+MSPLAN.minMs+' meeting a day), so the floor-wide ratio is used. '
+    + '<b>same-day exp.</b> = '+Math.round(MSPLAN_SAMEDAY*100)+'% of the target, the share of a day\'s calendar this floor confirms ON the day (measured 2-6 Sep 2026), so <b>pre-book quota</b> = the other '+Math.round((1-MSPLAN_SAMEDAY)*100)+'% \u2014 the part that must be on the calendar BEFORE the day starts. <b>to pre-book</b> = that quota minus what earlier days already booked, so it falls as the calendar fills and reaches <b>0</b> once pre-booking is past quota. That, not the raw gap, is what the <b>Needed</b> columns are priced on. '
+    + (planSameDay?'Turn <b>Same-day credit</b> off to charge the whole gap instead. ':'<b>Same-day credit is off</b>, so the whole gap is charged \u2014 turn it back on to credit the '+Math.round(MSPLAN_SAMEDAY*100)+'% booked on the day. ')
+    + '<b>Target</b> is editable \u2014 type a city\'s target for '+planDayName(planDay)+' and every column right of it recomputes. '
+    + '<b>LRMs implied</b> = the dial requirement \u00f7 the floor\'s own measured '+MSPLAN_DIALS_PER_LRM+' dials per present LRM per day; <b>vs present</b> compares that to who is on the floor \u2014 a capacity sanity check, not a hiring number. '
+    + '<b>Done / LRM</b> and <b>Needed / LRM</b> split each side by the LRMs present today \u2014 the per-person dial rate now, against the per-person ask for '+planDayName(planDay)+'. Blank where no LRM is on the floor. '
     + '<b>Booked today</b> = meetings this city\'s LRMs booked today, for any future date (velocity). '
     + (P.days>1?'Actuals are each LRM\'s own daily average over the '+P.days+' days in range, summed. ':'')
     + 'Present LRMs only ('+DIST.presentMin+'+ dials).</div>';
@@ -394,13 +477,23 @@ function renderMSPlan(rows, schedRows, roster){
       + (planBasis==='nextday'&&b.driverThin&&b.name!=='Pan India'?' <span title="Under '+((typeof MSDRIVER!=='undefined')?MSDRIVER.minT1:15)+' next-day meetings in the study window — floor next-day ratio used">&Dagger;</span>':'')
       + (b.target===null?' <span class="fb-sub" style="font-size:10px">no target</span>':'')
       + (b.noData?' <span class="fb-sub" style="font-size:10px">no LRM on floor</span>':'')+'</td>';
+    /* Target is typed, except on the floor row (it is the sum of the cities —
+       editing it there would have nowhere to land). */
+    var edited = planTargets[b.name]!==undefined;
+    var tgtCell = cls
+      ? planNum(b.target,0)
+      : '<td class="plan-tgt'+(edited?' plan-edited':'')+'" contenteditable="true" data-plantarget="'+esc(b.name)+'" title="Type tomorrow\u2019s target">'
+        + (b.target===null?'':Math.round(b.target))+'</td>';
+    var vsCls = b.lrmVsPresent===null?'':(b.lrmVsPresent>0.5?'bad':'ok');
     return '<tr class="'+(cls||'')+'">'+nameCell
       + '<td>'+(b.present||'—')+'</td>'
-      + planNum(b.ms,0,'g2 sep')+planNum(b.msLRM,0)+planNum(b.target,0)
-      + planLeft(b.msLeftSite,'sep')+planLeft(b.msLeftLRM)
+      + planNum(b.ms,0,'g2 sep')+planNum(b.msLRM,0)+tgtCell
+      + planLeft(b.msLeftSite,'sep')+planLeft(b.msLeftLRM)+planNum(b.sameDayExp,0)+planNum(b.preQuota,0)+planNum(b.preBook,0)
       + planNum(b.dials,0,'g2 sep')+planNum(b.dialsPerMs,1)+planNum(b.reqDials,0)+planNum(b.dialGap,0,cls?'':gapCls)
+      + planNum(b.dialsPerLRM,0,'g2 sep')+planNum(b.reqDialsPerLRM,0)
       + planNum(b.conn,0,'g2 sep')+planNum(b.connPerMs,1)+planNum(b.reqConn,0)
-      + planNum(b.ttMin,0,'g2 sep')+planNum(b.ttPerMs,1)+planNum(b.reqTT,0)+'</tr>';
+      + planNum(b.ttMin,0,'g2 sep')+planNum(b.ttPerMs,1)+planNum(b.reqTT,0)
+      + planNum(b.lrmImplied,1,'g2 sep')+planNum(b.lrmVsPresent,1,cls?'':vsCls)+'</tr>';
   };
   var body=P.rows.length?row(fl,'dist-total')+P.rows.map(function(b){return row(b);}).join('')
     :'<tr><td colspan="'+PLAN_COLS.length+'" class="fb-sub" style="text-align:center;padding:20px">No LRMs in this range.</td></tr>';

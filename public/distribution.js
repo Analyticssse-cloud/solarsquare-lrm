@@ -22,11 +22,11 @@
    activeTab.  ECharts is loaded from the CDN in index.html.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* The bar. 20 dials / 15 talk-min / 1.25 MS an hour over 8 PRODUCTIVE hours
-   inside the 10:00-19:00 shift, so the day target lands exactly on 150/120/10.
+/* The bar. 25 dials / 15 talk-min / 1.25 MS an hour over 8 PRODUCTIVE hours
+   inside the 10:00-19:00 shift, so the day target lands exactly on 200/120/10.
    One edit point — DIST_HOURS is derived, never hardcoded elsewhere. */
 var DIST_TARGET = { shiftStart: 10, shiftEnd: 19, productiveHours: 8,
-                    dialsPerHour: 20, talkMinPerHour: 15, msPerHour: 1.25 };
+                    dialsPerHour: 25, talkMinPerHour: 15, msPerHour: 1.25 };
 var DIST_HOURS = (function () {
   var out = [];
   for (var h = DIST_TARGET.shiftStart; h < DIST_TARGET.shiftEnd; h++) out.push(h);
@@ -47,7 +47,7 @@ var DIST_PAGE = '#ffffff', DIST_INK = '#18233f', DIST_MUTED = '#6a7494', DIST_RU
 
 /* The per-LRM DAY target the MTD table accrues. Mirrors FLOOR_TARGET in index.html;
    read from it when that file is loaded so the two can never drift. */
-var FLOOR_TARGET_DAY = (typeof FLOOR_TARGET !== 'undefined') ? FLOOR_TARGET : { dials:150, talkMin:120, ms:10 };
+var FLOOR_TARGET_DAY = (typeof FLOOR_TARGET !== 'undefined') ? FLOOR_TARGET : { dials:200, talkMin:120, ms:10 };
 var distMetric = 'dials', distGroup = 'tl', distMode = 'pct', distOpen = null;
 var distCharts = {}, distObservers = {};
 
