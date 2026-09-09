@@ -104,9 +104,10 @@
     body.tv .fb-stamp, body.tv .fb-foot, body.tv .fh-note { display: none; }
     body.tv .fb-box { padding: 10px 14px 12px; }
     body.tv .fb-box h4 { font-size: 16px; margin-bottom: 7px; }
-    body.tv table.fb-lb { font-size: 20px; }
-    body.tv table.fb-lb th { font-size: 13px; }
-    body.tv table.fb-lb td { padding: 7px 8px; }
+    body.tv table.fb-lb { font-size: 17px; }
+    body.tv table.fb-lb th { font-size: 12px; padding-bottom: 4px; }
+    body.tv table.fb-lb td { padding: 4px 8px; }
+    body.tv table.fb-lb td.fb-mini { width: 90px; }
     body.tv table.fb-lb td.fb-nm { max-width: none; }
     .fb-tvsel { display: flex; align-items: center; gap: 8px; }
     .fb-tvchip { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 16px; font: inherit; font-size: 15px; font-weight: 700; color: var(--muted); cursor: pointer; white-space: nowrap; }
@@ -1578,7 +1579,7 @@ function renderFloor(){
      desk view is untouched: all three pairs, ten rows each. */
   var tvOn   = document.body.classList.contains('tv');
   var boards = tvOn ? [FLOOR_BOARDS[tvBoard % FLOOR_BOARDS.length]] : FLOOR_BOARDS;
-  var lim    = tvOn ? 5 : 10;
+  var lim    = 10;   // user, 9 Sep: the wall wants the full Top 10 / Bottom 10
   var sel = '';
   if(tvOn){
     sel = '<div class="fb-tvsel">' + FLOOR_BOARDS.map(function(b,i){
