@@ -69,6 +69,29 @@
     .kpi-val.gold  { color: var(--gold); }
     .kpi-val.green { color: #54e295; }
     .kpi-lbl   { font-size: 9px; color: rgba(255,255,255,0.42); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+    /* ── TV / big-screen mode ──────────────────────────────────────────────
+       One class on <body>. No new data and no second layout: the existing KPI
+       strip becomes the back-of-room band and every type step inside the shell
+       moves up to a wall scale. Sticks per browser so the floor TV stays in it. */
+    #btnTV.on { background: var(--gold); border-color: var(--gold); color: #18233f; }
+    body.tv .kpi-strip { padding: 0 26px; flex-wrap: wrap; }
+    body.tv .kpi-item { padding: 16px 26px; min-width: 190px; }
+    body.tv .kpi-val { font-size: clamp(34px, 3.4vw, 64px); line-height: 1; letter-spacing: -2px; }
+    body.tv .kpi-lbl { font-size: 15px; letter-spacing: 1.2px; margin-top: 7px; color: rgba(255,255,255,0.62); }
+    body.tv .hdr { height: auto; min-height: 66px; padding-top: 9px; padding-bottom: 9px; flex-wrap: wrap; row-gap: 6px; }
+    body.tv .hdr-title { font-size: 21px; white-space: nowrap; }
+    body.tv .hdr-right { flex-wrap: wrap; row-gap: 6px; }
+    body.tv .hdr-ts, body.tv .hdr-date { white-space: nowrap; }
+    .tabs { overflow-x: auto; }
+    body.tv .tab { white-space: nowrap; }
+    body.tv .hdr-sub, body.tv .hdr-ts, body.tv .hdr-date { font-size: 15px; }
+    body.tv .tab { font-size: 17px; padding: 13px 19px; }
+    body.tv .tab-more, body.tv .whoami { font-size: 15px; }
+    body.tv table { font-size: 17px; }
+    body.tv thead th, body.tv table.hl th { font-size: 13px; }
+    body.tv table.hl td, body.tv tbody td { padding: 9px 8px; }
+    body.tv .hl-cells i { height: 22px; line-height: 22px; font-size: 12px; }
+    body.tv .rollup-note, body.tv .hl-note, body.tv .fb-foot { font-size: 15px; }
 
     .tabs { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; flex: 0 0 auto; }
     .tab  { padding: 9px 18px; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
@@ -324,6 +347,7 @@
   </div>
   <div class="hdr-right">
     <span class="hdr-ts" id="tsLabel"></span>
+    <button id="btnTV" title="Big-screen mode — scales the board up for the floor TV">📺 TV</button>
     <button id="btnPDF">⬇ PDF</button>
     <button id="btnRefresh">↻ Refresh</button>
     <span class="hdr-date" id="dateLabel">—</span>
@@ -835,10 +859,51 @@ function switchTab(name) {
   renderActive();
 }
 
+/* Render the ACTIVE panel only. Every filter, date and tab change used to draw
+   all ten panels, nine of them display:none - so a single chip click paid for ten
+   table builds and every ECharts instance. switchTab() already calls renderActive()
+   when a panel becomes visible, so a panel is always rendered before it is seen.
+   PDF export reads the active panel too, so nothing depends on hidden DOM. */
+var PANEL_RENDERERS = {
+  dist:    function(){ renderHourlyBoard(); },
+  floor:   function(){ renderFloor(); },
+  city:    function(){ renderCity(); },
+  agent:   function(){ renderAgent(); },
+  academy: function(){ renderAcademy(); },
+  ados:    function(){ renderRollup('ados'); },
+  zsm:     function(){ renderRollup('zsm'); },
+  tl:      function(){ renderRollup('tl'); },
+  action:  function(){ renderAction(); },
+  speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); }
+};
 function renderActive() {
   if(!D) return;
-  buildKPI(); renderHourlyBoard(); renderFloor(); renderCity(); renderAgent(); renderAcademy(); renderRollup('ados'); renderRollup('zsm'); renderRollup('tl'); renderAction(); if(typeof renderSpeed==='function') renderSpeed();
+  buildKPI();
+  var fn = PANEL_RENDERERS[activeTab];
+  if(fn) fn();
 }
+
+/* TV mode - the dashboard on the floor television. Desk type is unreadable from
+   the back of the room, so this scales the whole shell up and turns the KPI strip
+   into the overall band. Display state only: same tabs, same data, same panels. */
+var tvMode = false;
+try { tvMode = localStorage.getItem('lrmTvMode') === '1'; } catch(e){}
+function applyTV(){
+  document.body.classList.toggle('tv', tvMode);
+  var b = document.getElementById('btnTV');
+  if(b){ b.classList.toggle('on', tvMode); b.textContent = tvMode ? '\u25a0 Exit TV' : '\ud83d\udcfa TV'; }
+}
+function setTV(on){
+  tvMode = !!on;
+  try { localStorage.setItem('lrmTvMode', tvMode ? '1' : '0'); } catch(e){}
+  applyTV();
+  renderActive();
+}
+(function(){
+  var b = document.getElementById('btnTV');
+  if(b) b.addEventListener('click', function(){ setTV(!tvMode); });
+  applyTV();
+})();
 
 /* ── Sign-in ─────────────────────────────────────────────────────────────────
    Reads /api/config to learn whether auth is switched on. If GOOGLE_CLIENT_ID is
