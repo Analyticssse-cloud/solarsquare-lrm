@@ -91,7 +91,28 @@
     body.tv thead th, body.tv table.hl th { font-size: 13px; }
     body.tv table.hl td, body.tv tbody td { padding: 9px 8px; }
     body.tv .hl-cells i { height: 22px; line-height: 22px; font-size: 12px; }
-    body.tv .rollup-note, body.tv .hl-note, body.tv .fb-foot { font-size: 15px; }
+    body.tv .rollup-note, body.tv .hl-note { font-size: 15px; }
+    /* Trim for the wall: the band holds one row of six, the chrome gives back its
+       height, and Top/Bottom Performers starts above the fold. */
+    body.tv .kpi-item.kpi-sec { display: none; }
+    body.tv .kpi-strip { flex-wrap: nowrap; }
+    body.tv .kpi-item { padding: 9px 22px; min-width: 0; }
+    body.tv .kpi-val { font-size: clamp(30px, 2.6vw, 50px); }
+    body.tv .kpi-lbl { font-size: 13px; margin-top: 3px; }
+    body.tv .hdr-sub { display: none; }
+    body.tv .filterbar { font-size: 14px; }
+    body.tv .fb-stamp, body.tv .fb-foot, body.tv .fh-note { display: none; }
+    body.tv .fb-box { padding: 10px 14px 12px; }
+    body.tv .fb-box h4 { font-size: 16px; margin-bottom: 7px; }
+    body.tv table.fb-lb { font-size: 20px; }
+    body.tv table.fb-lb th { font-size: 13px; }
+    body.tv table.fb-lb td { padding: 7px 8px; }
+    body.tv table.fb-lb td.fb-nm { max-width: none; }
+    .fb-tvsel { display: flex; align-items: center; gap: 8px; }
+    .fb-tvchip { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 16px; font: inherit; font-size: 15px; font-weight: 700; color: var(--muted); cursor: pointer; white-space: nowrap; }
+    .fb-tvchip:hover { border-color: var(--blue-mid); color: var(--blue); }
+    .fb-tvchip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .fb-tvnote { font-size: 14px; font-style: italic; color: var(--muted); margin-left: 4px; }
 
     .tabs { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; flex: 0 0 auto; }
     .tab  { padding: 9px 18px; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
@@ -1274,18 +1295,21 @@ function buildKPI() {
   }
   var items = [
     {v:fmt(t.totalCalls),    l:'Total Calls',  cls:''},
-    {v:fmt(t.uniqueDials),   l:'Unique Dials', cls:''},
+    {v:fmt(t.uniqueDials),   l:'Unique Dials', cls:'', sec:true},
     {v:fmt(t.connected),     l:'Connected',    cls:'green'},
     {v:t.totalTTHr+' hr',    l:'Talk Time',    cls:''},
     {v:(t.avgTalkMin||0)+' min', l:'Avg Talk Time', cls:'gold'},
     {v:fmt(t.msToday),       l:'MS Today',     cls:'gold'},
-    {v:fmt(t.msT0),          l:'MS T+0',       cls:''},
-    {v:fmt(t.msT1),          l:'MS T+1',       cls:''},
+    {v:fmt(t.msT0),          l:'MS T+0',       cls:'', sec:true},
+    {v:fmt(t.msT1),          l:'MS T+1',       cls:'', sec:true},
     {v:fmt(activeLRMs),      l:'Active LRMs',  cls:''},
-    {v:fmt(cities),          l:'Cities',       cls:''}
+    {v:fmt(cities),          l:'Cities',       cls:'', sec:true}
   ];
+  // sec:true = secondary. TV mode hides these (CSS) so the band holds ONE row and
+  // the panel below it starts above the fold. All ten are always in the DOM, so the
+  // PDF export and the normal desk view are unchanged.
   document.getElementById('kpiStrip').innerHTML = items.map(function(i){
-    return '<div class="kpi-item"><div class="kpi-val '+i.cls+'">'+i.v+'</div><div class="kpi-lbl">'+i.l+'</div></div>';
+    return '<div class="kpi-item'+(i.sec?' kpi-sec':'')+'"><div class="kpi-val '+i.cls+'">'+i.v+'</div><div class="kpi-lbl">'+i.l+'</div></div>';
   }).join('');
 }
 
@@ -1512,7 +1536,7 @@ function floorHourly(rows, board){
     + '<div class="fh-chart"><s class="fh-line" style="bottom:'+(17+linePct*1.04)+'px"></s>'+bars+'</div>'
     + '<div class="fh-foot"><b>'+hit+' of '+live+'</b> elapsed hour'+(live===1?'':'s')+' at or above the bar</div></div>';
 }
-function floorTable(rows, board, dir){
+function floorTable(rows, board, dir, limit){
   // dir 1 = top (highest first), -1 = bottom (lowest first).
   // Scored against the elapsed-hours bar, not the day target — see the note above.
   var bar = Math.max(1, Math.round(board.target * distPace()));
@@ -1522,7 +1546,7 @@ function floorTable(rows, board, dir){
     // reshuffling equal scores (a whole column of zeroes, most days).
     if(d) return d;
     return String(a['LRM Name']||a['Agent Id']||'').localeCompare(String(b['LRM Name']||b['Agent Id']||''));
-  }).slice(0,10);
+  }).slice(0, limit || 10);
   var pace = Math.round(distPace()*100);
   var max = rows.reduce(function(m,r){ return Math.max(m, board.get(r)); }, 0) || 1;
   var body = sorted.map(function(r,i){
@@ -1533,7 +1557,8 @@ function floorTable(rows, board, dir){
          + '<td><b class="'+(pct>=100?'ok':'no')+'">'+pct+'%</b></td>'
          + '<td class="fb-mini"><s><i style="width:'+Math.max(2,(v/max*100)).toFixed(1)+'%"></i></s></td></tr>';
   }).join('') || '<tr><td colspan="5" class="fb-sub">No LRMs in this range.</td></tr>';
-  return '<div class="fb-box"><div class="fh-hd"><h4>'+(dir===1?'Top 10':'Bottom 10')+' &mdash; '+board.label+'</h4>'
+  var n = limit || 10;
+  return '<div class="fb-box"><div class="fh-hd"><h4>'+(dir===1?'Top ':'Bottom ')+n+' &mdash; '+board.label+'</h4>'
        + '<span class="fh-note">bar '+board.show(bar)+' &middot; '+pace+'% of the '
        + board.show(board.target)+' day target</span></div>'
        + '<table class="fb-lb"><tr><th></th><th>LRM</th><th>'+board.label+'</th>'
@@ -1545,6 +1570,21 @@ function renderFloor(){
   var rows = filterAgents();
   var now = istNow();
   var asOf = String(now.getUTCHours()).padStart(2,'0')+':'+String(now.getUTCMinutes()).padStart(2,'0');
+  /* TV mode: three metrics x (top 10 + bottom 10) is three screens of scrolling,
+     and nobody scrolls a television. So the wall version shows ONE metric at a
+     time - top 5 beside bottom 5, which fits above the fold at wall type - and
+     rotates through Dials / Talk time / MS every 20s. Clicking a chip pins that
+     metric and stops the rotation (click the pinned chip again to resume). The
+     desk view is untouched: all three pairs, ten rows each. */
+  var tvOn   = document.body.classList.contains('tv');
+  var boards = tvOn ? [FLOOR_BOARDS[tvBoard % FLOOR_BOARDS.length]] : FLOOR_BOARDS;
+  var lim    = tvOn ? 5 : 10;
+  var sel = '';
+  if(tvOn){
+    sel = '<div class="fb-tvsel">' + FLOOR_BOARDS.map(function(b,i){
+      return '<button class="fb-tvchip'+(i===(tvBoard%FLOOR_BOARDS.length)?' on':'')+'" data-tvb="'+i+'">'+b.label+'</button>';
+    }).join('') + '<span class="fb-tvnote">'+(tvPinned?'pinned':'rotating every 20s')+'</span></div>';
+  }
   el.innerHTML =
     '<div class="fb-wrap">'
     + '<div class="fb-stamp"><span class="fb-live">AS OF '+asOf+' IST</span>'
@@ -1552,8 +1592,9 @@ function renderFloor(){
     +   (filtersActive()?' (filtered)':'')
     +   ' &middot; scored by hours elapsed: '+Math.round(distPace()*100)+'% of '+FLOOR_TARGET.dials
     +   ' dials / '+FLOOR_TARGET.talkMin+' talk-min / '+FLOOR_TARGET.ms+' MS per LRM per day</span></div>'
-    + FLOOR_BOARDS.map(function(b){
-        return '<div class="fb-pair">'+floorTable(rows,b,1)+floorTable(rows,b,-1)+'</div>';
+    + sel
+    + boards.map(function(b){
+        return '<div class="fb-pair">'+floorTable(rows,b,1,lim)+floorTable(rows,b,-1,lim)+'</div>';
       }).join('')
     + '<div class="fb-foot"><span class="fb-link" id="fbToTable">Details &mdash; full LRM table &rsaquo;</span>'
     +   '<span class="fb-note">Ranks and the % column are scored against the elapsed share of the shift, '
@@ -1561,6 +1602,29 @@ function renderFloor(){
     + '</div>';
   var lnk = document.getElementById('fbToTable');
   if(lnk) lnk.onclick = function(){ switchTab('agent'); };
+  el.querySelectorAll('[data-tvb]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var i = Number(btn.getAttribute('data-tvb'));
+      if(tvPinned && i === (tvBoard % FLOOR_BOARDS.length)) tvPinned = false;
+      else { tvBoard = i; tvPinned = true; }
+      tvRotate(); renderFloor();
+    });
+  });
+  tvRotate();
+}
+
+/* One interval, owned here. Runs only while TV mode is on, the performers tab is
+   the active one and no metric is pinned - so it cannot fight a viewer or tick in
+   the background on a desk. */
+var tvBoard = 0, tvPinned = false, tvTimer = null;
+function tvRotate(){
+  if(tvTimer){ clearInterval(tvTimer); tvTimer = null; }
+  if(!document.body.classList.contains('tv') || activeTab !== 'floor' || tvPinned) return;
+  tvTimer = setInterval(function(){
+    if(!document.body.classList.contains('tv') || activeTab !== 'floor'){ tvRotate(); return; }
+    tvBoard = (tvBoard + 1) % FLOOR_BOARDS.length;
+    renderFloor();
+  }, 20000);
 }
 
 function syncFilterBar() {
