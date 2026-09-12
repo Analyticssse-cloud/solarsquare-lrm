@@ -418,40 +418,155 @@ function distDrawMtd() {
     (tot.days ? ' · up to ' + tot.days + ' day' + (tot.days === 1 ? '' : 's') + ' per LRM' : '');
 }
 
+/* ── Hourly trend on calling (replaces the group MTD card — user, 7 Sep 2026) ──
+   Floor-total DIALS and TALK MINUTES by hour of the shift, as a line, for the
+   LRMs in view. Three things on each chart, which is exactly what the user asked
+   for ("line trend", "dials + talk time", "both references"):
+     · today   — solid, drawn only to the elapsed hour (an unreached hour is left
+                 open, never drawn as a zero, same rule as the old bar chart)
+     · yesterday — the previous DAY PRESENT IN THE FEED, faint and dashed, full shift
+     · pace    — flat dashed bar = per-hour target x LRMs in view (DIST_TARGET)
+   Reads D.hourlyRows only, so no new API surface, and honours filterAgents().
+   The MTD group table below (distDrawMtd / distGroup / distOpen) is no longer
+   mounted; the functions are kept so the card can be restored in one line. */
+var DIST_TREND = [
+  { key: 'dials', label: 'Dials by hour',     per: DIST_TARGET.dialsPerHour,   ink: '#2348a8', soft: 'rgba(35,72,168,.10)' },
+  { key: 'talk',  label: 'Talk time by hour', per: DIST_TARGET.talkMinPerHour, ink: '#1f6b45', soft: 'rgba(31,107,69,.10)', suffix: ' min' }
+];
+function distTrendMax(a) { return (a || []).reduce(function (m, v) { return Math.max(m, Number(v) || 0); }, 0); }
+function distTrendDay(d) {
+  var p = String(d || '').slice(0, 10).split('-');
+  if (p.length !== 3) return String(d || '');
+  var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(p[1]) - 1] || p[1];
+  return Number(p[2]) + ' ' + mo;
+}
+/* Floor totals per hour, per DAY — the trend compares days, so unlike distSeries
+   nothing is averaged together here. */
+function distTrendData() {
+  var rows = filterAgents(), keep = {};
+  rows.forEach(function (r) {
+    var e = String(r['Agent Id'] || '').trim().toLowerCase();
+    if (e) keep[e] = 1;
+  });
+  var per = {};
+  (D.hourlyRows || []).forEach(function (h) {
+    var e = String(h.agent || h['Agent Id'] || '').trim().toLowerCase();
+    if (!keep[e]) return;
+    var idx = DIST_HOURS.indexOf(Number(h.hour !== undefined ? h.hour : h['Hour']));
+    if (idx < 0) return;
+    var day = String(h.date || '').slice(0, 10) || '_';
+    var slot = per[day] || (per[day] = {
+      dials: DIST_HOURS.map(function () { return 0; }),
+      talk:  DIST_HOURS.map(function () { return 0; })
+    });
+    slot.dials[idx] += Number(h.calls || h['Call Count'] || 0);
+    slot.talk[idx]  += Number(h.talkHr || h['Total Talk Time'] || 0) * 60;
+  });
+  var days = Object.keys(per).sort();
+  var curDay = days[days.length - 1] || null, prevDay = days[days.length - 2] || null;
+  return { hours: DIST_HOURS, lrms: rows.length, elapsed: distElapsed(),
+           curDay: curDay, prevDay: prevDay,
+           cur: curDay ? per[curDay] : null, prev: prevDay ? per[prevDay] : null };
+}
+function distTrendSvg(M, d) {
+  var W = 640, H = 224, L = 48, R = 16, T = 18, B = 30, n = d.hours.length;
+  var cur = d.cur[M.key] || [], prev = d.prev ? (d.prev[M.key] || null) : null;
+  var pace = M.per * d.lrms;
+  var mx = (Math.max(pace, distTrendMax(cur), distTrendMax(prev)) || 1) * 1.18;
+  var X = function (i) { return L + (W - L - R) * (n > 1 ? i / (n - 1) : 0); };
+  var Y = function (v) { return T + (H - T - B) * (1 - Math.max(0, Math.min(1, (Number(v) || 0) / mx))); };
+  var pts = function (a) { return a.map(function (v, i) { return X(i).toFixed(1) + ',' + Y(v).toFixed(1); }).join(' '); };
+  var s = '';
+  [0, 0.5, 1].forEach(function (f) {
+    var v = mx * f, yy = Y(v);
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + yy.toFixed(1) + '" y2="' + yy.toFixed(1) + '" stroke="' + DIST_RULE + '"/>'
+       + '<text x="' + (L - 8) + '" y="' + (yy + 3.5).toFixed(1) + '" text-anchor="end" font-size="10" fill="' + DIST_MUTED + '">' + fmt(Math.round(v)) + '</text>';
+  });
+  var py = Y(pace);
+  var live0 = cur.slice(0, Math.max(0, Math.min(n, d.elapsed)));
+  /* The pace caption used to be hard-anchored at the right edge, which is exactly
+     where the last live point's value label sits — on a good day (pace near the
+     latest hour) the two overprinted. So it moves to the LEFT edge whenever the
+     pace line runs close to that last label. */
+  var lastY = live0.length ? Y(live0[live0.length - 1]) : null;
+  var farRight = lastY === null || Math.abs(py - lastY) >= 20;
+  s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + py.toFixed(1) + '" y2="' + py.toFixed(1) + '" stroke="#c0392b" stroke-width="1.6" stroke-dasharray="7 5"/>'
+     + '<text x="' + (farRight ? (W - R) : (L + 4)) + '" y="' + (py - 6).toFixed(1) + '" text-anchor="' + (farRight ? 'end' : 'start') + '" font-size="10" font-weight="700" fill="#b0382c">PACE ' + fmt(Math.round(pace)) + '</text>';
+  if (prev) s += '<polyline fill="none" stroke="#9aa8c6" stroke-width="1.8" stroke-dasharray="4 4" stroke-linejoin="round" points="' + pts(prev) + '"/>';
+  var live = cur.slice(0, Math.max(0, Math.min(n, d.elapsed)));
+  if (live.length > 1) {
+    s += '<path fill="' + M.soft + '" stroke="none" d="M' + X(0).toFixed(1) + ',' + Y(live[0]).toFixed(1) + ' '
+       + live.map(function (v, i) { return 'L' + X(i).toFixed(1) + ',' + Y(v).toFixed(1); }).join(' ')
+       + ' L' + X(live.length - 1).toFixed(1) + ',' + Y(0).toFixed(1) + ' L' + X(0).toFixed(1) + ',' + Y(0).toFixed(1) + ' Z"/>';
+  }
+  if (live.length) {
+    if (live.length > 1) s += '<polyline fill="none" stroke="' + M.ink + '" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" points="' + pts(live) + '"/>';
+    live.forEach(function (v, i) {
+      var last = i === live.length - 1;
+      s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(v).toFixed(1) + '" r="' + (last ? 4.6 : 2.8) + '" fill="' + (last ? '#ffb81c' : M.ink) + '" stroke="#fff" stroke-width="' + (last ? 2 : 1.4) + '"/>'
+         + '<text x="' + X(i).toFixed(1) + '" y="' + (Y(v) - (last ? 11 : 9)).toFixed(1) + '" text-anchor="middle" font-size="' + (last ? 11 : 9.5) + '" font-weight="700" fill="' + (last ? DIST_INK : M.ink) + '">' + fmt(Math.round(v)) + '</text>';
+    });
+  } else {
+    s += '<text x="' + ((L + W - R) / 2) + '" y="' + ((T + H - B) / 2) + '" text-anchor="middle" font-size="11" fill="' + DIST_MUTED + '">Shift has not started</text>';
+  }
+  d.hours.forEach(function (hr, i) {
+    var fut = i >= d.elapsed;
+    s += '<text x="' + X(i).toFixed(1) + '" y="' + (H - 10) + '" text-anchor="middle" font-size="10" font-weight="' + (fut ? 400 : 700) + '" fill="' + (fut ? '#aab3c8' : DIST_MUTED) + '">' + ('0' + hr).slice(-2) + '</text>';
+  });
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block" role="img" '
+       + 'aria-label="' + esc(M.label) + '" font-family="Segoe UI, system-ui, sans-serif">' + s + '</svg>';
+}
+function distTrendCard(M, d) {
+  var cur = d.cur[M.key] || [], live = cur.slice(0, Math.max(0, Math.min(d.hours.length, d.elapsed)));
+  var tot = live.reduce(function (a, v) { return a + v; }, 0);
+  var pace = M.per * d.lrms * live.length;
+  var pct = pace ? Math.round(tot / pace * 100) : 0;
+  return '<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px 4px;background:var(--surface)">'
+    + '<div class="fh-hd"><h4>' + esc(M.label) + '</h4>'
+    + '<span class="fh-note"><b style="color:' + (pct >= 100 ? 'var(--green)' : 'var(--red)') + '">' + fmt(Math.round(tot)) + (M.suffix || '') + '</b>'
+    + ' so far &middot; ' + pct + '% of pace</span></div>'
+    + distTrendSvg(M, d) + '</div>';
+}
+function distDrawTrend() {
+  var host = document.getElementById('distTrend');
+  if (!host) return;
+  var d = distTrendData();
+  var sub = document.getElementById('distTrendSub');
+  if (sub) sub.innerHTML = fmt(d.lrms) + ' LRMs in view'
+    + (d.curDay ? ' &middot; <b>' + esc(distTrendDay(d.curDay)) + '</b>' : '')
+    + (d.prevDay ? ' vs <b>' + esc(distTrendDay(d.prevDay)) + '</b> (dashed grey)'
+                 : ' &middot; widen the date filter to get a comparison day');
+  if (!d.curDay) {
+    host.innerHTML = '<div class="fb-sub" style="text-align:center;padding:18px">No hourly calling feed in this range.</div>';
+    return;
+  }
+  host.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">'
+    + DIST_TREND.map(function (M) { return distTrendCard(M, d); }).join('') + '</div>';
+}
+
 /* ── Panel shell ────────────────────────────────────────────────────────── */
 function renderHourlyBoard() {
   var el = document.getElementById('distPanel');
   if (!el || !D) return;
-  // No ECharts and no hourly feed needed any more — the MTD table and the hero
-  // both read the daily agent rows.
-  if (!document.getElementById('distMtd')) {
+  // The group MTD card was replaced by the hourly calling trend (user, 7 Sep 2026).
+  // Hero still reads the daily agent rows; the trend reads D.hourlyRows.
+  if (!document.getElementById('distTrend')) {
     el.innerHTML =
       '<div class="fb-wrap">'
     +   '<div id="distHero"></div>'
     +   '<div class="fb-stamp"><span class="fb-live" id="distStamp"></span>'
     +     '<span id="distStampSub"></span></div>'
-    +   '<div class="fb-box"><div class="hl-hd"><h4>Dials, talk time and meetings &mdash; total for the range</h4>'
-    +     '<div class="hl-chips" id="distChipGroup">'
-    +       '<button data-g="ados">ADOS</button><button data-g="zsm">ZSM</button>'
-    +       '<button data-g="tl" class="on">TL</button><button data-g="city">City</button></div>'
-    +     '</div>'
-    +     '<div class="fb-sub" id="distMtdSub"></div>'
-    +     '<div id="distMtd"></div>'
-    +     '<div class="fb-hrnote">Set the date filter to the 1st &rarr; today for month to date. '
-    +     '<b>vs target</b> is against the target accrued over the days each LRM actually worked, so a '
-    +     'mid-month joiner is not scored against the whole month. Click a row to open its LRMs.</div>'
+    +   '<div class="fb-box"><div class="fh-hd"><h4>Hourly trend on calling &mdash; floor total</h4>'
+    +     '<span class="fh-note" id="distTrendSub"></span></div>'
+    +     '<div id="distTrend"></div>'
+    +     '<div class="fb-hrnote">Floor totals by hour of the '
+    +       DIST_TARGET.shiftStart + ':00&ndash;' + DIST_TARGET.shiftEnd + ':00 shift for the LRMs in view. '
+    +     '<b>Solid</b> = the latest day in range, drawn only to the elapsed hour &mdash; an hour not yet '
+    +     'reached is left open, never drawn as a zero. <b>Dashed grey</b> = the previous day in range, same hours. '
+    +     '<b>Red</b> = pace (' + DIST_TARGET.dialsPerHour + ' dials / ' + DIST_TARGET.talkMinPerHour
+    +     ' talk-min per LRM per hour &times; LRMs in view).</div>'
     +   '</div>'
-    +   '<div class="fb-hrnote"><b>MS booked ≠ MS Today.</b> The hourly feed counts meetings '
-    +     'booked in that hour; MS Today counts meetings scheduled for that day — two different '
-    +     'populations, so they will not reconcile. 18% of bookings fall outside the shift and are '
-    +     'not shown here, so these columns sum to less than the day’s MS total.</div>'
     + '</div>';
-    document.getElementById('distChipGroup').addEventListener('click', function (e) {
-      if (e.target.tagName !== 'BUTTON') return;
-      distGroup = e.target.getAttribute('data-g'); distOpen = null;
-      Array.prototype.forEach.call(this.children, function (b) { b.classList.remove('on'); });
-      e.target.classList.add('on'); distRender();
-    });
   }
   var stamp = document.getElementById('distStamp');
   if (stamp) {
@@ -472,7 +587,7 @@ function distDrawHero() {
   if (!host) return;
   host.innerHTML = (typeof floorHeroHTML === 'function') ? floorHeroHTML(filterAgents()) : '';
 }
-function distRender() { distDrawHero(); distDrawMtd(); }
+function distRender() { distDrawHero(); distDrawTrend(); }
 window.addEventListener('resize', function () {
   Object.keys(distCharts).forEach(function (k) { try { distCharts[k].resize(); } catch (e) {} });
 });
