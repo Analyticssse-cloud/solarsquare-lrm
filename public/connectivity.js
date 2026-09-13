@@ -237,11 +237,16 @@ function connNoSource(what) {
      backend's error text is shown when there is one — blank must never be a
      mystery. */
   var err = (D && D.connHas && D.connHas.error) || '';
+  var dg  = (D && D.connHas && D.connHas.diag) || {};
+  var titles = dg.titles && dg.titles.length ? dg.titles.join(', ') : '';
+  var picked = dg.picked ? Object.keys(dg.picked).map(function (k) { return k + ' → ' + dg.picked[k]; }).join(', ') : '';
   return '<div class="fb-box"><h4>' + esc(what) + '</h4>'
        + (err
-          ? '<div class="fb-sub" style="padding:14px 0;color:#b0382c;font-weight:700">' + esc(err) + '</div>'
-          : '<div class="fb-sub" style="padding:14px 0">No source tab yet. This view appears once the '
+          ? '<div class="fb-sub" style="padding:14px 0 4px;color:#b0382c;font-weight:700">' + esc(err) + '</div>'
+          : '<div class="fb-sub" style="padding:14px 0 4px">No source tab yet. This view appears once the '
             + 'feed is landing in the sheet &mdash; it is deliberately blank rather than showing zeroes.</div>')
+       + (titles ? '<div class="fb-sub" style="padding:0 0 10px">Tabs in the live sheet: ' + esc(titles)
+            + (picked ? ' &middot; matched: ' + esc(picked) : '') + '</div>' : '')
        + '</div>';
 }
 /* Is the data in view the live 15-minute snapshot (weekly grain, no dates) or
