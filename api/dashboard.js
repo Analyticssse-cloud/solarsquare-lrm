@@ -51,6 +51,28 @@ const EXCLUDED_LRMS = new Set([
 ].map(e => norm(e)));
 const isExcluded = (email) => EXCLUDED_LRMS.has(norm(email));
 
+/* ── One person, two email IDs (13 Sep 2026) ───────────────────────────────────
+   Onik S showed 159 dials in the LRM table but 365 on the Floor Board, and the
+   filter reported "2 LRMs" for one search — two Ozontel `Agent Id` values for
+   the same human. `norm()` already folds the @homes alias; this map is for the
+   pairs it cannot know about (a second account, a renamed local part). Both
+   the headcount and every total double for each person listed here, so this is
+   also the first thing to check when a RANGE total reads high.
+
+   Add `'alias@solarsquare.in': 'real@solarsquare.in'` — the alias's rows are
+   then credited to the real address everywhere (totals, rollups, LRM count),
+   exactly as if the sheet had one ID. Deliberately NOT inferred from names: two
+   real people can share a name, and silently merging them would be worse than
+   the bug. Use `/api/dashboard?diag=1` → `possibleDuplicatePeople` to find the
+   pairs, confirm with the user, then list them here. */
+const EMAIL_ALIASES = {
+  // 'onik.sarkar@solarsquare.in': 'onik.s@solarsquare.in',
+};
+const canon = (v) => {
+  const e = norm(v);
+  return EMAIL_ALIASES[e] || e;
+};
+
 function rowDate(cell) {
   if (cell === null || cell === undefined) return '';
   return String(cell).trim().slice(0, 10);
@@ -193,7 +215,7 @@ export default async function handler(req, res) {
     for (let i = 1; i < mapRaw.length; i++) {
       const r = mapRaw[i];
       if (!r) continue;
-      const email = norm(r[iEmail]);
+      const email = canon(r[iEmail]);
       if (!email || !email.includes('@')) continue;
       if (isExcluded(email)) continue;   // suppressed LRM — never enters the roster
       const roleCell = iRole >= 0 ? r[iRole] : '';
@@ -272,7 +294,7 @@ export default async function handler(req, res) {
     oData.forEach(row => {
       const d = rowDate(row[0]);
       if (!d || d < effFrom || d > effTo) return;
-      const em = norm(oiAgent >= 0 ? row[oiAgent] : '');
+      const em = canon(oiAgent >= 0 ? row[oiAgent] : '');
       if (!em) return;
       const k = d + '|' + em;
       if (dedup.has(k)) dupRowsDropped++;
@@ -280,6 +302,86 @@ export default async function handler(req, res) {
     });
 
     const bucket = {};
+    /* ── ?diag=1 : per-date audit of the Ozontel tab ──────────────────────────
+       Added 13 Sep 2026 because the month total still read high AFTER the
+       (date, agent) dedup, which rules out the obvious duplication and means
+       the shape of the sheet has to be looked at rather than guessed. Costs no
+       extra sheet read (oData is already in memory) and returns instead of
+       building the payload, so it is safe to hit on production. */
+    if (String(req.query.diag || '') === '1') {
+      const byDate = {};
+      let rawRows = 0, rawCalls = 0, badDates = [];
+      const iCall = findCol(oHdr, ['Call Count', 'Total Calls']);
+      oData.forEach(row => {
+        const d = rowDate(row[0]);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+          if (badDates.length < 8) badDates.push(String(row[0]));
+          return;
+        }
+        if (d < effFrom || d > effTo) return;
+        const em = canon(oiAgent >= 0 ? row[oiAgent] : '');
+        const c = num(iCall >= 0 ? row[iCall] : 0);
+        rawRows++; rawCalls += c;
+        const b = byDate[d] || (byDate[d] = { date: d, rows: 0, calls: 0, agents: new Set(), dupPairs: 0, seen: new Set() });
+        b.rows++; b.calls += c; b.agents.add(em);
+        if (b.seen.has(em)) b.dupPairs++; else b.seen.add(em);
+      });
+      const dedupCalls = [...dedup.values()].reduce((a, row) => a + num(iCall >= 0 ? row[iCall] : 0), 0);
+      // Which agents carry the most rows for a single date — the signature of a
+      // row written more than once under slightly different keys.
+      const perAgent = {};
+      dedup.forEach((row, k) => {
+        const em = k.split('|')[1];
+        const a = perAgent[em] || (perAgent[em] = { email: em, dates: 0, calls: 0 });
+        a.dates++; a.calls += num(iCall >= 0 ? row[iCall] : 0);
+      });
+      const top = Object.values(perAgent).sort((x, y) => y.calls - x.calls).slice(0, 8);
+      /* THE LIKELY CULPRIT: one person under two Agent Ids. Grouped by the
+         sheet's own LRM Name (falling back to the email's local part) and only
+         reported — never merged automatically, because two real people can
+         share a name. Confirmed pairs go in EMAIL_ALIASES at the top. */
+      const iName2 = findCol(oHdr, ['LRM Name', 'Agent Name', 'Name']);
+      const byName = {};
+      dedup.forEach((row, k) => {
+        const em = k.split('|')[1];
+        const nm = (iName2 >= 0 ? String(row[iName2] || '').trim() : '') || em.split('@')[0].split('.')[0];
+        const key2 = nm.toLowerCase().replace(/\s+/g, ' ');
+        const g = byName[key2] || (byName[key2] = { name: nm, emails: {} });
+        g.emails[em] = (g.emails[em] || 0) + num(iCall >= 0 ? row[iCall] : 0);
+      });
+      const dupPeople = Object.values(byName)
+        .filter(g => Object.keys(g.emails).length > 1)
+        .map(g => ({ name: g.name, emails: g.emails,
+                     callsTotal: Object.values(g.emails).reduce((a, b) => a + b, 0) }))
+        .sort((a, b) => b.callsTotal - a.callsTotal);
+      return res.status(200).json({
+        range: { from: effFrom, to: effTo },
+        headerRow: oHdr,
+        callCountColumn: iCall >= 0 ? oHdr[iCall] : '(not found)',
+        agentColumn: oiAgent >= 0 ? oHdr[oiAgent] : '(not found)',
+        totals: {
+          rowsInRange: rawRows,
+          callsRaw: rawCalls,
+          callsAfterDedup: dedupCalls,
+          distinctDateAgentPairs: dedup.size,
+          duplicatePairsFound: dupRowsDropped,
+          distinctAgents: Object.keys(perAgent).length,
+          peopleWithTwoIds: dupPeople.length,
+          callsOnSecondIds: dupPeople.reduce((a, g) => {
+            const vals = Object.values(g.emails).sort((x, y) => y - x);
+            return a + vals.slice(1).reduce((s, v) => s + v, 0);
+          }, 0),
+        },
+        possibleDuplicatePeople: dupPeople,
+        unparseableDateSamples: badDates,
+        perDate: Object.keys(byDate).sort().map(d => ({
+          date: d, rows: byDate[d].rows, agents: byDate[d].agents.size,
+          calls: byDate[d].calls, duplicateAgentRows: byDate[d].dupPairs,
+          callsPerAgent: byDate[d].agents.size ? Math.round(byDate[d].calls / byDate[d].agents.size) : 0,
+        })),
+        topAgentsInRange: top,
+      });
+    }
     dedup.forEach(row => {
       const obj = {};
       oHdr.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
@@ -287,7 +389,7 @@ export default async function handler(req, res) {
       let agt = String(obj['Agent Id'] || '').trim();
       if (!agt || !agt.includes('@') || agt.includes('->')) return;
       if (isExcluded(agt)) return;   // suppressed LRM — no calls, no totals, no rollup
-      const key = norm(agt);
+      const key = canon(agt);
       /* Only Role = LRM / LRM-pilot counts. A TL or ZSM who dials has call rows in
          Ozontel; letting them through inflates the LRM count and every per-LRM
          target that multiplies by it. Gated only when the roster carries roles. */
