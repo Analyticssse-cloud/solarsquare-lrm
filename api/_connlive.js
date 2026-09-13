@@ -191,7 +191,7 @@ function adaptHourly(raw, todayISO) {
     const dev = usable ? (share / expShare - 1) * 100 : 0;
     return {
       'Date': todayISO,
-      'Hour': hourTxt,
+      'Hour': x.hourTxt,
       'Status': x.status === 'not yet' ? 'not yet' : x.status,
       'Calls': x.calls,
       'Share %': share,
