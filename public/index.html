@@ -521,6 +521,18 @@ table.fb-lb td.fb-zero{color:#c0392b}
 .fb-tline{position:absolute;left:0;right:0;border-top:1px dashed var(--red);pointer-events:none}
 .fb-tline span{position:absolute;right:0;top:2px;font-size:9px;font-weight:700;color:var(--red);background:var(--surface);padding:0 3px}
 .fb-hrnote{font-size:11px;color:var(--muted);margin-top:8px;font-style:italic}
+/* Connectivity / Call Health additions. The strip's <u> is a secondary figure
+   riding the same headline (a % beside a count); <em class=conn-cs> is the
+   definition line these views need, because "connects" and "real
+   conversations" are different numbers and the gap between them is the whole
+   argument. .conn-mix is the depth-mix stacked bar. */
+.fb-strip b u{text-decoration:none;font-size:12px;font-weight:600;color:var(--muted);margin-left:4px;letter-spacing:0}
+/* The definition line under each strip figure. It carries the argument ("100 = par for this lead mix"), so it takes --muted like every other secondary string here — an invented lighter grey measured 2.58:1. Its place in the hierarchy comes from size and the absence of tracked caps, never from dropping below legible. */
+.conn-cs{display:block;font-size:10px;font-style:normal;color:var(--muted);margin-top:3px;line-height:1.3;text-transform:none;letter-spacing:0}
+.conn-mix{display:inline-flex;width:74px;height:7px;border-radius:4px;overflow:hidden;background:#e8edf8;vertical-align:middle}
+.conn-mix i{display:block;height:100%}
+.conn-stack{display:flex;flex-direction:column;gap:12px;flex:1 1 auto;min-width:0;align-content:start}
+.conn-stack>.fb-box{flex:0 0 auto}
 .fb-bars{display:flex;flex-direction:column;gap:7px}
 .fb-bar{display:grid;grid-template-columns:96px 1fr 54px;align-items:center;gap:9px;font-size:12px}
 .fb-bar em{font-style:normal;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -603,6 +615,9 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabZSM">🧭 ZSM View</div>
   <div class="tab"        id="tabTL">🧑‍🤝‍🧑 TL View</div>
   <div class="tab"        id="tabAction">⚡ Action Center</div>
+  <div class="tab"        id="tabConn">📞 Connectivity</div>
+  <div class="tab"        id="tabBehav">🎧 Calling Behaviour</div>
+  <div class="tab"        id="tabHealth">🛠 Call Health</div>
   <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
@@ -639,6 +654,9 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="zsmPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="tlPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="actionPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="connPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="behavPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="healthPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="speedPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
@@ -765,6 +783,9 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabZSM').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('zsm'); });
   document.getElementById('tabTL').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('tl'); });
   document.getElementById('tabAction').addEventListener('click', function(){ switchTab('action'); });
+  document.getElementById('tabConn').addEventListener('click', function(){ switchTab('conn'); });
+  document.getElementById('tabBehav').addEventListener('click', function(){ switchTab('behav'); });
+  document.getElementById('tabHealth').addEventListener('click', function(){ switchTab('health'); });
   document.getElementById('tabSpeed').addEventListener('click', function(){ switchTab('speed'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
@@ -886,8 +907,8 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', academy:'tabAcademy', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', speed:'tabSpeed' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', academy:'academyPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', speed:'speedPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', academy:'tabAcademy', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', conn:'tabConn', behav:'tabBehav', health:'tabHealth', speed:'tabSpeed' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', academy:'academyPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', conn:'connPanel', behav:'behavPanel', health:'healthPanel', speed:'speedPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -909,6 +930,9 @@ var PANEL_RENDERERS = {
   zsm:     function(){ renderRollup('zsm'); },
   tl:      function(){ renderRollup('tl'); },
   action:  function(){ renderAction(); },
+  conn:    function(){ if(typeof renderConnectivity==='function') renderConnectivity(); },
+  behav:   function(){ if(typeof renderBehaviour==='function') renderBehaviour(); },
+  health:  function(){ if(typeof renderCallHealth==='function') renderCallHealth(); },
   speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); }
 };
 function renderActive() {
@@ -2041,7 +2065,7 @@ function renderAction(){
   var head='<div class="act-head"><span class="act-note">'+notes[actView]+'</span></div>';
   var views=[['dist','Below the bar'],['perms','Effort per MS'],['plan','MS Plan']];
   var vseg='<div class="dist-lvl dist-view">'+views.map(function(v){return '<button data-view="'+v[0]+'" class="'+(actView===v[0]?'on':'')+'">'+v[1]+'</button>';}).join('')+'</div>';
-  panel.innerHTML=head+vseg+(isPlan?renderMSPlan(filterAgents(),D.msScheduleRows,D.rosterRows):isPer?renderPerMS(filterAgents()):renderDistribution(filterAgents()));
+  panel.innerHTML=head+vseg+(typeof connBreakStrip==='function'?connBreakStrip():'')+(isPlan?renderMSPlan(filterAgents(),D.msScheduleRows,D.rosterRows):isPer?renderPerMS(filterAgents()):renderDistribution(filterAgents()));
   if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
   panel.querySelectorAll('table.dist th[data-plan]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-plan'); planSort.dir=(planSort.col===k)?planSort.dir*-1:-1; planSort.col=k; renderAction(); }); });
   panel.querySelectorAll('.plan-basis button[data-planbasis]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); planBasis=btn.getAttribute('data-planbasis'); try{localStorage.setItem('lrmPlanBasis',planBasis);}catch(err){} renderAction(); }); });
@@ -2166,5 +2190,7 @@ function downloadPDF(){
 <script src="speed.js?v=20260906g"></script>
 <script src="msdriver.js?v=20260907a"></script>
 <script src="msplan.js?v=20260907b"></script>
+<script src="connectivity.js?v=20260913b"></script>
+<script src="callhealth.js?v=20260913b"></script>
 </body>
 </html>
