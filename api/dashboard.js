@@ -26,6 +26,7 @@
 import { readSheet } from './_sheets.js';
 import { requireUser, deny } from './_auth.js';
 import { readLiveConnectivity } from './_connlive.js';
+import { cachedRead, anyStale } from './_sheetcache.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase().replace('@homes.solarsquare.in', '@solarsquare.in');
 const num  = (v) => Number(v) || 0;
@@ -111,20 +112,34 @@ export default async function handler(req, res) {
     if (from && to && from > to) { const t = from; from = to; to = t; }
 
     // ── 1. Ozontel ────────────────────────────────────────────────────────────
-    /* ALL SHEET TABS ARE FETCHED IN PARALLEL (13 Sep 2026). They used to be six
-       sequential awaits, so the page waited for six full round-trips to Google
-       one after another — the single biggest component of load time. They are
-       independent reads, so one Promise.all collapses that to roughly the
-       slowest one. Errors are captured per tab and re-thrown at the original
-       call site, so every existing try/catch below behaves exactly as before. */
+    /* ALL SHEET TABS ARE FETCHED IN PARALLEL, THROUGH THE CACHE (13 Sep 2026).
+       They used to be six sequential awaits — six full round-trips to Google,
+       one after another, and the biggest component of load time.
+
+       But parallel alone made the QUOTA worse, not better: "Read requests per
+       minute per user" counts the SERVICE ACCOUNT, so every viewer and the
+       15-minute Apps Script share one 60/min budget, and six simultaneous
+       reads per page load exhausted it. `_sheetcache.js` is what makes this
+       safe — per-tab TTLs, in-flight dedupe, retry on 429, and a stale copy
+       served rather than failing the page. Concurrency is also capped, so a
+       cold instance asks for three tabs at a time instead of six at once.
+
+       Errors are captured per tab and re-thrown at the original call site, so
+       every existing try/catch below behaves exactly as before. */
     const PRE_TABS = ['Ozontel', 'LRM_TL_MAP', 'hourly', 'speed', 'speed_leads',
                       'MS Schedule Inventory'];
     const pre = {};
-    await Promise.all(PRE_TABS.map(async (t) => {
-      try { pre[t] = await readSheet(t); } catch (e) { pre[t] = e instanceof Error ? e : new Error(String(e)); }
-    }));
+    const queue = PRE_TABS.slice();
+    const worker = async () => {
+      while (queue.length) {
+        const t = queue.shift();
+        try { pre[t] = await cachedRead(readSheet, t); }
+        catch (e) { pre[t] = e instanceof Error ? e : new Error(String(e)); }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
     const read = async (t) => {
-      const v = Object.prototype.hasOwnProperty.call(pre, t) ? pre[t] : await readSheet(t);
+      const v = Object.prototype.hasOwnProperty.call(pre, t) ? pre[t] : await cachedRead(readSheet, t);
       if (v instanceof Error) throw v;
       return v;
     };
@@ -835,7 +850,7 @@ export default async function handler(req, res) {
         source: connSource, today: todayISO, error: connError, diag: connDiag,
       },
       agentCols, agentRows: agentRowsSlim,
-      dupRowsDropped,
+      dupRowsDropped, stale: anyStale(),
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
       lrmList,
