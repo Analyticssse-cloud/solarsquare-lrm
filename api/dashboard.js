@@ -692,7 +692,16 @@ export default async function handler(req, res) {
       'Calls Beyond Cap', 'Rapid Redials', 'Rapid Redial %', 'Attempts 1-3',
       'Attempts 4-10', 'Attempts 11+', 'Avg Attempt Depth', 'Baseline Days'];
 
-    const [connDaily, connHourly, connAnomaly, didRows, inboundRows] = await Promise.all([
+    /* When CONN_SHEET_ID is set the live tabs ARE the source, so the five
+       legacy card tabs are not read at all. That is not just tidiness: each
+       read counts against "Sheets read requests per minute per user", one
+       dashboard request already spends six on the main sheet, and five
+       speculative reads for tabs that do not exist is what tipped it over on
+       13 Sep. Unset the env var and the legacy path returns unchanged. */
+    const useLive = !!String(process.env.CONN_SHEET_ID || '').trim();
+    const [connDaily, connHourly, connAnomaly, didRows, inboundRows] = useLive
+      ? [[], [], [], [], []]
+      : await Promise.all([
       passThrough('conn_daily',   { emailCol: ['LRM Email', 'Agent Id'], numeric: CONN_NUM }),
       passThrough('conn_hourly',  { numeric: ['Calls', 'Callers', 'Calls per Caller', 'Share %',
                                    'Expected Share %', 'Expected Calls', 'Band Low', 'Band High',
@@ -726,10 +735,11 @@ export default async function handler(req, res) {
        no Date column, and the views must say so instead of letting the date
        filter look as though it applied. */
     const todayISO = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-    let connFloor = [];
+    let connFloor = [], connError = '';
     try {
       const live = await readLiveConnectivity(readSheet, todayISO);
       connFloor = live.connFloor;
+      connError = live.error || '';
       if (!connDaily.length && live.connDaily.length) {
         live.connDaily.forEach(r => {
           const em = norm(r['LRM Email']);
@@ -741,6 +751,7 @@ export default async function handler(req, res) {
       if (!didRows.length)    didRows.push(...live.didRows);
     } catch (e) {
       console.warn('Live connectivity tabs unavailable: ' + e.message);
+      connError = e.message;
     }
     const connSource = connDaily.length
       ? (connDaily[0]['Days'] !== undefined ? 'live' : 'cards') : 'none';
@@ -778,7 +789,7 @@ export default async function handler(req, res) {
         daily: connDaily.length > 0, hourly: connHourly.length > 0,
         anomaly: connAnomaly.length > 0, did: didRows.length > 0,
         inbound: inboundRows.length > 0, floor: connFloor.length > 0,
-        source: connSource, today: todayISO,
+        source: connSource, today: todayISO, error: connError,
       },
       agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),

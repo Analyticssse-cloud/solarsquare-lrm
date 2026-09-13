@@ -321,11 +321,28 @@ function adaptFloor(raw) {
      1. share that spreadsheet with GOOGLE_SA_EMAIL (Viewer is enough — this
         path only ever reads);
      2. set CONN_SHEET_ID in the Vercel environment and redeploy.
-   Without either, every tab reads as absent and the views say "no source" — it
-   cannot half-load or show zeroes. */
-const LIVE_TABS = ['Live_Callers', 'Live_Hourly', 'Live_DIDs', 'Live_Floor'];
 
-async function externalReader(sheetId) {
+   QUOTA IS THE REAL CONSTRAINT HERE, NOT AUTH (learned the hard way 13 Sep:
+   "Read requests per minute per user" exceeded, and the views went blank
+   because a throttled read is indistinguishable from a missing tab). The
+   Sheets API allows 60 reads per minute per service account, and ONE dashboard
+   request already reads Ozontel, the roster, hourly, speed, speed_leads and MS
+   inventory. So this file must be cheap:
+     · ONE batchGet for all four tabs, not four gets (falls back to per-tab
+       reads only if the batch is rejected, e.g. a renamed tab);
+     · a module-level cache shared by every request the same warm instance
+       serves — the source only refreshes every 15 minutes, so a 120s TTL costs
+       nothing in freshness and removes almost all of the load;
+     · failures are cached too, briefly, so a throttled minute cannot turn into
+       a retry storm that keeps the quota pinned;
+     · the error TEXT is returned, so the views can say "quota" instead of
+       rendering an empty panel that looks like a missing feed. */
+const LIVE_TABS = ['Live_Callers', 'Live_Hourly', 'Live_DIDs', 'Live_Floor'];
+const CACHE_OK_MS  = 120000;
+const CACHE_ERR_MS = 20000;
+let cache = null;   // { key, at, ttl, value }
+
+async function sheetsApi() {
   const { google } = await import('googleapis');
   const auth = new google.auth.JWT(
     process.env.GOOGLE_SA_EMAIL,
@@ -333,33 +350,72 @@ async function externalReader(sheetId) {
     (process.env.GOOGLE_SA_KEY || '').replace(/\\n/g, '\n'),
     ['https://www.googleapis.com/auth/spreadsheets.readonly']
   );
-  const api = google.sheets({ version: 'v4', auth });
-  return async (range) => {
-    const res = await api.spreadsheets.values.get({ spreadsheetId: sheetId, range });
-    return res.data.values || [];
-  };
+  return google.sheets({ version: 'v4', auth });
+}
+
+/* All four tabs in one API call. Returns a map tab -> values, or throws. */
+async function batchRead(sheetId) {
+  const api = await sheetsApi();
+  const res = await api.spreadsheets.values.batchGet({
+    spreadsheetId: sheetId, ranges: LIVE_TABS,
+  });
+  const out = {};
+  (res.data.valueRanges || []).forEach((vr, i) => {
+    // batchGet preserves request order; the range string carries the tab name
+    // but is quoted and may be suffixed, so trust the index.
+    out[LIVE_TABS[i]] = vr.values || [];
+  });
+  return out;
 }
 
 export async function readLiveConnectivity(readTab, todayISO) {
-  let read = readTab;
   const ext = String(process.env.CONN_SHEET_ID || '').trim();
+  const key = ext || 'self';
+  const now = Date.now();
+  if (cache && cache.key === key && now - cache.at < cache.ttl) return cache.value;
+
+  let tabs = null, error = '';
   if (ext) {
     try {
-      read = await externalReader(ext);
+      tabs = await batchRead(ext);
     } catch (e) {
-      console.warn('CONN_SHEET_ID set but its client failed: ' + e.message);
-      read = readTab;
+      const msg = String((e && e.message) || e);
+      // One retry path only: a rejected BATCH (renamed/missing tab) is worth
+      // re-reading tab by tab. A quota or permission error is not — retrying
+      // makes it worse.
+      if (/quota|rate|429/i.test(msg)) {
+        error = 'Google Sheets read quota exceeded — the feed will reappear within a minute.';
+      } else if (/permission|403|not found|404/i.test(msg)) {
+        error = 'The live sheet is not readable by the service account (share it as Viewer, and check CONN_SHEET_ID).';
+      } else {
+        try {
+          const api = await sheetsApi();
+          tabs = {};
+          for (const t of LIVE_TABS) {
+            try {
+              const r = await api.spreadsheets.values.get({ spreadsheetId: ext, range: t });
+              tabs[t] = r.data.values || [];
+            } catch (e2) { tabs[t] = []; }
+          }
+        } catch (e3) { error = msg; }
+      }
+      if (!tabs) console.warn('Live connectivity read failed: ' + msg);
+    }
+  } else {
+    tabs = {};
+    for (const t of LIVE_TABS) {
+      try { tabs[t] = await readTab(t); } catch (e) { tabs[t] = []; }
     }
   }
-  const get = async (tab) => {
-    try { return await read(tab); } catch (e) { return []; }
-  };
-  const [callers, hourly, dids, floor] = await Promise.all(LIVE_TABS.map(get));
-  return {
-    connDaily:  adaptCallers(callers),
-    connHourly: adaptHourly(hourly, todayISO),
-    didRows:    adaptDIDs(dids),
-    connFloor:  adaptFloor(floor),
-    external:   !!ext,
-  };
+
+  const value = tabs ? {
+    connDaily:  adaptCallers(tabs['Live_Callers']),
+    connHourly: adaptHourly(tabs['Live_Hourly'], todayISO),
+    didRows:    adaptDIDs(tabs['Live_DIDs']),
+    connFloor:  adaptFloor(tabs['Live_Floor']),
+    external:   !!ext, error: '',
+  } : { connDaily: [], connHourly: [], didRows: [], connFloor: [], external: !!ext, error: error };
+
+  cache = { key, at: now, ttl: tabs ? CACHE_OK_MS : CACHE_ERR_MS, value };
+  return value;
 }
