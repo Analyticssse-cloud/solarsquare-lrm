@@ -368,14 +368,75 @@ const CACHE_OK_MS  = 120000;
 const CACHE_ERR_MS = 20000;
 let cache = null;   // { key, at, ttl, value }
 
+/* ── Service-account credentials ─────────────────────────────────────────────
+   This file needs its own client (it reads a DIFFERENT spreadsheet from the
+   dashboard's `readSheet`), so it has to resolve the credentials itself — and
+   that is where it broke on 13 Sep with `1E08010C:DECODER routines::
+   unsupported`, which is OpenSSL saying "this is not a private key". It means
+   the variable was empty or the wrong shape, NOT that auth was refused.
+
+   So nothing is assumed about the variable names or the encoding: several
+   conventional names are tried, a whole service-account JSON blob is accepted,
+   wrapping quotes are stripped, literal \n sequences become real newlines, and
+   a base64-wrapped key is decoded. The name that was used is reported in the
+   error text, because "which variable is the key actually in" is the entire
+   question when this fails. */
+const KEY_VARS = ['GOOGLE_SA_KEY', 'GOOGLE_PRIVATE_KEY', 'GOOGLE_SA_PRIVATE_KEY',
+                  'GOOGLE_SERVICE_ACCOUNT_KEY', 'GCP_PRIVATE_KEY', 'SA_KEY'];
+const EMAIL_VARS = ['GOOGLE_SA_EMAIL', 'GOOGLE_CLIENT_EMAIL',
+                    'GOOGLE_SERVICE_ACCOUNT_EMAIL', 'GCP_CLIENT_EMAIL', 'SA_EMAIL'];
+const JSON_VARS = ['GOOGLE_SERVICE_ACCOUNT_JSON', 'GOOGLE_CREDENTIALS',
+                   'GOOGLE_APPLICATION_CREDENTIALS_JSON', 'GCP_SA_JSON'];
+
+function cleanKey(raw) {
+  let k = String(raw || '').trim();
+  if (!k) return '';
+  // Vercel's UI keeps pasted quotes; a quoted value arrives WITH them.
+  if ((k[0] === '"' && k[k.length - 1] === '"') || (k[0] === "'" && k[k.length - 1] === "'")) {
+    k = k.slice(1, -1);
+  }
+  k = k.replace(/\\r/g, '').replace(/\\n/g, '\n');
+  if (k.indexOf('PRIVATE KEY') < 0 && /^[A-Za-z0-9+/=\s]+$/.test(k) && k.length > 200) {
+    try { k = Buffer.from(k, 'base64').toString('utf8'); } catch (e) {}
+  }
+  return k.trim();
+}
+function credentials() {
+  for (const v of JSON_VARS) {
+    const raw = process.env[v];
+    if (!raw) continue;
+    try {
+      const j = JSON.parse(raw.trim());
+      if (j.client_email && j.private_key) {
+        return { email: j.client_email, key: cleanKey(j.private_key), from: v };
+      }
+    } catch (e) {}
+  }
+  let email = '', efrom = '';
+  for (const v of EMAIL_VARS) {
+    if (process.env[v]) { email = String(process.env[v]).trim().replace(/^['"]|['"]$/g, ''); efrom = v; break; }
+  }
+  for (const v of KEY_VARS) {
+    const k = cleanKey(process.env[v]);
+    if (k.indexOf('PRIVATE KEY') >= 0) return { email, key: k, from: v + (efrom ? ' + ' + efrom : '') };
+  }
+  // Nothing parsed: report what exists so the fix is one look.
+  const present = KEY_VARS.concat(EMAIL_VARS, JSON_VARS).filter((v) => !!process.env[v]);
+  return { email, key: '', from: '', present };
+}
+
 async function sheetsApi() {
+  const c = credentials();
+  if (!c.key || !c.email) {
+    const e = new Error('CREDS: no usable service-account key. Variables present: '
+      + ((c.present && c.present.length) ? c.present.join(', ') : '(none of the expected names)')
+      + '. Expected a PEM private key in one of ' + KEY_VARS.join(' / ')
+      + ', or a full JSON credential in ' + JSON_VARS[0] + '.');
+    throw e;
+  }
   const { google } = await import('googleapis');
-  const auth = new google.auth.JWT(
-    process.env.GOOGLE_SA_EMAIL,
-    null,
-    (process.env.GOOGLE_SA_KEY || '').replace(/\\n/g, '\n'),
-    ['https://www.googleapis.com/auth/spreadsheets.readonly']
-  );
+  const auth = new google.auth.JWT(c.email, null, c.key,
+    ['https://www.googleapis.com/auth/spreadsheets.readonly']);
   return google.sheets({ version: 'v4', auth });
 }
 
@@ -418,7 +479,13 @@ export async function readLiveConnectivity(readTab, todayISO) {
       diag = { titles: r.titles, picked: r.picked };
     } catch (e) {
       const msg = String((e && e.message) || e);
-      if (/quota|rate|429/i.test(msg)) {
+      if (/^CREDS:/.test(msg)) {
+        error = msg.replace(/^CREDS:\s*/, '');
+      } else if (/DECODER|unsupported|PEM|private key/i.test(msg)) {
+        error = 'The service-account private key in this deployment could not be parsed (OpenSSL: '
+              + 'unsupported). Re-paste GOOGLE_SA_KEY including the BEGIN/END lines, with \\n escapes '
+              + 'or real newlines, no surrounding quotes — then redeploy.';
+      } else if (/quota|rate|429/i.test(msg)) {
         error = 'Google Sheets read quota exceeded — the feed will reappear within a minute.';
       } else if (/permission|403/i.test(msg)) {
         error = 'The live sheet is not readable by the service account — share it with GOOGLE_SA_EMAIL as Viewer.';

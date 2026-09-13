@@ -111,7 +111,25 @@ export default async function handler(req, res) {
     if (from && to && from > to) { const t = from; from = to; to = t; }
 
     // ── 1. Ozontel ────────────────────────────────────────────────────────────
-    const oRaw = await readSheet('Ozontel');
+    /* ALL SHEET TABS ARE FETCHED IN PARALLEL (13 Sep 2026). They used to be six
+       sequential awaits, so the page waited for six full round-trips to Google
+       one after another — the single biggest component of load time. They are
+       independent reads, so one Promise.all collapses that to roughly the
+       slowest one. Errors are captured per tab and re-thrown at the original
+       call site, so every existing try/catch below behaves exactly as before. */
+    const PRE_TABS = ['Ozontel', 'LRM_TL_MAP', 'hourly', 'speed', 'speed_leads',
+                      'MS Schedule Inventory'];
+    const pre = {};
+    await Promise.all(PRE_TABS.map(async (t) => {
+      try { pre[t] = await readSheet(t); } catch (e) { pre[t] = e instanceof Error ? e : new Error(String(e)); }
+    }));
+    const read = async (t) => {
+      const v = Object.prototype.hasOwnProperty.call(pre, t) ? pre[t] : await readSheet(t);
+      if (v instanceof Error) throw v;
+      return v;
+    };
+
+    const oRaw = await read('Ozontel');
     if (!oRaw.length) return res.status(200).json(emptyPayload(from, to, viewerEmail));
 
     const oHdr  = oRaw[0].map(h => String(h).trim());
@@ -134,7 +152,7 @@ export default async function handler(req, res) {
     if (!hasInRange) { effFrom = effTo = latestDate; fellBack = true; }
 
     // ── 2. Hierarchy: LRM -> City / TL / ZSM / ADOS ───────────────────────────
-    const mapRaw = await readSheet('LRM_TL_MAP');
+    const mapRaw = await read('LRM_TL_MAP');
     const mHdr   = (mapRaw[0] || []).map(h => String(h).trim());
     const iEmail   = findCol(mHdr, ['Email IDs', 'Email ID', 'LRM Email', 'Agent Id']);
     const iCluster = findCol(mHdr, ['Cluster', 'City']);
@@ -220,10 +238,34 @@ export default async function handler(req, res) {
     };
 
     // ── 3. Aggregate Ozontel per agent across the range ──────────────────────
-    const bucket = {};
+    /* DEDUP PER (DATE, AGENT) — added 13 Sep 2026 after a month range read
+       roughly DOUBLE the real call count.
+
+       The Ozontel tab is one row per Date x LRM by construction, but two
+       writers touch it (the 15-minute live window and the backfill), so a day
+       can end up present twice. Summing then doubles every column AND inflates
+       `_dayCount`, which silently halves everything derived per day — the same
+       class of bug as the MS Plan divisor. Last row in sheet order wins: rows
+       are appended, so the newest write is the one to trust.
+
+       `dupRowsDropped` is returned in the payload rather than hidden, because a
+       non-zero value means the SHEET still has duplicates and the writer needs
+       fixing — this guard only stops them being counted. */
+    const oiAgent = findCol(oHdr, ['Agent Id', 'LRM Email']);
+    const dedup = new Map();
+    let dupRowsDropped = 0;
     oData.forEach(row => {
       const d = rowDate(row[0]);
       if (!d || d < effFrom || d > effTo) return;
+      const em = norm(oiAgent >= 0 ? row[oiAgent] : '');
+      if (!em) return;
+      const k = d + '|' + em;
+      if (dedup.has(k)) dupRowsDropped++;
+      dedup.set(k, row);
+    });
+
+    const bucket = {};
+    dedup.forEach(row => {
       const obj = {};
       oHdr.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
 
@@ -422,7 +464,7 @@ export default async function handler(req, res) {
     let hourlyRows = [];
     let hourlyHasMS = false;
     try {
-      const hRaw = await readSheet('hourly');
+      const hRaw = await read('hourly');
       if (hRaw.length > 1) {
         const hHdr    = hRaw[0].map(h => String(h).trim());
         const hiDate  = findCol(hHdr, ['Date']);
@@ -486,7 +528,7 @@ export default async function handler(req, res) {
     const SPEED_BUCKETS = ['TAT 0-5', 'TAT 5-10', 'TAT 10-30', 'TAT 30-60', 'TAT >60'];
     let speedRows = [], speedLeads = [], speedHas = false;
     try {
-      const sRaw = await readSheet('speed');
+      const sRaw = await read('speed');
       if (sRaw.length > 1) {
         speedHas = true;
         const sHdr = sRaw[0].map(h => String(h).trim());
@@ -550,7 +592,7 @@ export default async function handler(req, res) {
       console.warn('No speed tab: ' + e.message);
     }
     try {
-      const lRaw = await readSheet('speed_leads');
+      const lRaw = await read('speed_leads');
       if (lRaw.length > 1) {
         const lHdr = lRaw[0].map(h => String(h).trim());
         const li = (names) => findCol(lHdr, names);
@@ -600,7 +642,7 @@ export default async function handler(req, res) {
        sheet hasn't been wired yet. */
     let msScheduleRows = [];
     try {
-      const iRaw = await readSheet('MS Schedule Inventory');
+      const iRaw = await read('MS Schedule Inventory');
       if (iRaw.length > 1) {
         const iHdr = iRaw[0].map(h => String(h).trim());
         const ii = (names) => findCol(iHdr, names);
@@ -793,6 +835,7 @@ export default async function handler(req, res) {
         source: connSource, today: todayISO, error: connError, diag: connDiag,
       },
       agentCols, agentRows: agentRowsSlim,
+      dupRowsDropped,
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
       lrmList,
