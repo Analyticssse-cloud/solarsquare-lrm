@@ -338,6 +338,32 @@ function adaptFloor(raw) {
      · the error TEXT is returned, so the views can say "quota" instead of
        rendering an empty panel that looks like a missing feed. */
 const LIVE_TABS = ['Live_Callers', 'Live_Hourly', 'Live_DIDs', 'Live_Floor'];
+/* Tab titles are DISCOVERED, not assumed. The four names above came from the
+   refresh-status block's JSON keys, which turned out not to be the sheet's
+   actual titles — and a batchGet on a wrong range throws "Unable to parse
+   range", which the first version swallowed into an empty feed with no message.
+   So: list the real titles once (one cheap metadata read), match each role by
+   squashed name, and if a role cannot be matched SAY WHICH TITLES EXIST. */
+const TAB_MATCH = [
+  ['callers', ['livecallers', 'callers', 'caller', 'livecaller', 'livelrms', 'lrms', 'livelrm', 'agents']],
+  ['hourly',  ['livehourly', 'hourly', 'livehours', 'hours', 'livehour']],
+  ['dids',    ['livedids', 'dids', 'did', 'livenumbers', 'numbers', 'livedid']],
+  ['floor',   ['livefloor', 'floor', 'livesummary', 'summary', 'livetoday']],
+];
+function matchTitles(titles) {
+  const bySquash = {};
+  titles.forEach((t) => { bySquash[sq(t)] = t; });
+  const out = {};
+  TAB_MATCH.forEach(([role, cands]) => {
+    for (const c of cands) if (bySquash[c]) { out[role] = bySquash[c]; return; }
+    // Nothing exact: accept a title that CONTAINS the primary candidate, so
+    // "Live_Callers (v2)" or "Live Callers " still resolve.
+    const prim = cands[0];
+    const hit = titles.find((t) => sq(t).indexOf(prim) >= 0 || prim.indexOf(sq(t)) >= 0);
+    if (hit) out[role] = hit;
+  });
+  return out;
+}
 const CACHE_OK_MS  = 120000;
 const CACHE_ERR_MS = 20000;
 let cache = null;   // { key, at, ttl, value }
@@ -353,19 +379,29 @@ async function sheetsApi() {
   return google.sheets({ version: 'v4', auth });
 }
 
-/* All four tabs in one API call. Returns a map tab -> values, or throws. */
-async function batchRead(sheetId) {
+/* Metadata + one batched values read = two API calls for the whole feed. */
+async function readExternal(sheetId) {
   const api = await sheetsApi();
+  const meta = await api.spreadsheets.get({
+    spreadsheetId: sheetId, fields: 'sheets.properties.title',
+  });
+  const titles = (meta.data.sheets || []).map((s) => s.properties.title);
+  const picked = matchTitles(titles);
+  const roles = Object.keys(picked);
+  if (!roles.length) {
+    return { tabs: null, titles, picked,
+      error: 'Live sheet is readable, but none of its tabs match the expected names. Tabs found: '
+           + (titles.join(', ') || '(none)') + '.' };
+  }
+  // A title with a space or a quote must be quoted as an A1 range.
+  const rangeOf = (t) => "'" + String(t).replace(/'/g, "''") + "'";
   const res = await api.spreadsheets.values.batchGet({
-    spreadsheetId: sheetId, ranges: LIVE_TABS,
+    spreadsheetId: sheetId, ranges: roles.map((r) => rangeOf(picked[r])),
   });
-  const out = {};
-  (res.data.valueRanges || []).forEach((vr, i) => {
-    // batchGet preserves request order; the range string carries the tab name
-    // but is quoted and may be suffixed, so trust the index.
-    out[LIVE_TABS[i]] = vr.values || [];
-  });
-  return out;
+  const vrs = res.data.valueRanges || [];
+  const tabs = {};
+  roles.forEach((r, i) => { tabs[r] = (vrs[i] && vrs[i].values) || []; });
+  return { tabs, titles, picked, error: '' };
 }
 
 export async function readLiveConnectivity(readTab, todayISO) {
@@ -374,48 +410,61 @@ export async function readLiveConnectivity(readTab, todayISO) {
   const now = Date.now();
   if (cache && cache.key === key && now - cache.at < cache.ttl) return cache.value;
 
-  let tabs = null, error = '';
+  let tabs = null, error = '', diag = {};
   if (ext) {
     try {
-      tabs = await batchRead(ext);
+      const r = await readExternal(ext);
+      tabs = r.tabs; error = r.error;
+      diag = { titles: r.titles, picked: r.picked };
     } catch (e) {
       const msg = String((e && e.message) || e);
-      // One retry path only: a rejected BATCH (renamed/missing tab) is worth
-      // re-reading tab by tab. A quota or permission error is not — retrying
-      // makes it worse.
       if (/quota|rate|429/i.test(msg)) {
         error = 'Google Sheets read quota exceeded — the feed will reappear within a minute.';
-      } else if (/permission|403|not found|404/i.test(msg)) {
-        error = 'The live sheet is not readable by the service account (share it as Viewer, and check CONN_SHEET_ID).';
+      } else if (/permission|403/i.test(msg)) {
+        error = 'The live sheet is not readable by the service account — share it with GOOGLE_SA_EMAIL as Viewer.';
+      } else if (/not found|404|Requested entity/i.test(msg)) {
+        error = 'No spreadsheet with the id in CONN_SHEET_ID — check the id.';
       } else {
-        try {
-          const api = await sheetsApi();
-          tabs = {};
-          for (const t of LIVE_TABS) {
-            try {
-              const r = await api.spreadsheets.values.get({ spreadsheetId: ext, range: t });
-              tabs[t] = r.data.values || [];
-            } catch (e2) { tabs[t] = []; }
-          }
-        } catch (e3) { error = msg; }
+        error = 'Live sheet read failed: ' + msg;
       }
-      if (!tabs) console.warn('Live connectivity read failed: ' + msg);
+      console.warn('Live connectivity read failed: ' + msg);
     }
   } else {
+    // No env var: fall back to the dashboard's own spreadsheet, and say so if
+    // the tabs are not there either — "not configured" and "configured but
+    // empty" must not look the same.
     tabs = {};
-    for (const t of LIVE_TABS) {
-      try { tabs[t] = await readTab(t); } catch (e) { tabs[t] = []; }
+    const roles = ['callers', 'hourly', 'dids', 'floor'];
+    for (let i = 0; i < LIVE_TABS.length; i++) {
+      try { tabs[roles[i]] = await readTab(LIVE_TABS[i]); } catch (e) { tabs[roles[i]] = []; }
+    }
+    if (!roles.some((r) => (tabs[r] || []).length > 1)) {
+      tabs = null;
+      error = 'CONN_SHEET_ID is not set in this deployment, and the dashboard sheet has no Live_* tabs.';
     }
   }
 
-  const value = tabs ? {
-    connDaily:  adaptCallers(tabs['Live_Callers']),
-    connHourly: adaptHourly(tabs['Live_Hourly'], todayISO),
-    didRows:    adaptDIDs(tabs['Live_DIDs']),
-    connFloor:  adaptFloor(tabs['Live_Floor']),
-    external:   !!ext, error: '',
-  } : { connDaily: [], connHourly: [], didRows: [], connFloor: [], external: !!ext, error: error };
+  let value;
+  if (tabs) {
+    value = {
+      connDaily:  adaptCallers(tabs.callers),
+      connHourly: adaptHourly(tabs.hourly, todayISO),
+      didRows:    adaptDIDs(tabs.dids),
+      connFloor:  adaptFloor(tabs.floor),
+      external:   !!ext, error: '', diag: diag,
+    };
+    /* Tabs read but nothing survived translation = a COLUMN mismatch, not a
+       missing feed. Name the tab and its headers rather than going quiet. */
+    if (!value.connDaily.length && (tabs.callers || []).length > 1) {
+      value.error = 'Read "' + (diag.picked && diag.picked.callers ? diag.picked.callers : 'Live_Callers')
+        + '" (' + ((tabs.callers || []).length - 1) + ' rows) but could not find an Email / Calls column. '
+        + 'Headers seen: ' + (tabs.callers[0] || []).join(' | ') + '.';
+    }
+  } else {
+    value = { connDaily: [], connHourly: [], didRows: [], connFloor: [],
+              external: !!ext, error: error, diag: diag };
+  }
 
-  cache = { key, at: now, ttl: tabs ? CACHE_OK_MS : CACHE_ERR_MS, value };
+  cache = { key, at: now, ttl: tabs && !value.error ? CACHE_OK_MS : CACHE_ERR_MS, value };
   return value;
 }

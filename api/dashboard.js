@@ -735,11 +735,12 @@ export default async function handler(req, res) {
        no Date column, and the views must say so instead of letting the date
        filter look as though it applied. */
     const todayISO = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-    let connFloor = [], connError = '';
+    let connFloor = [], connError = '', connDiag = {};
     try {
       const live = await readLiveConnectivity(readSheet, todayISO);
       connFloor = live.connFloor;
       connError = live.error || '';
+      connDiag = live.diag || {};
       if (!connDaily.length && live.connDaily.length) {
         live.connDaily.forEach(r => {
           const em = norm(r['LRM Email']);
@@ -789,7 +790,7 @@ export default async function handler(req, res) {
         daily: connDaily.length > 0, hourly: connHourly.length > 0,
         anomaly: connAnomaly.length > 0, did: didRows.length > 0,
         inbound: inboundRows.length > 0, floor: connFloor.length > 0,
-        source: connSource, today: todayISO, error: connError,
+        source: connSource, today: todayISO, error: connError, diag: connDiag,
       },
       agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),
