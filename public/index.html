@@ -864,7 +864,11 @@ function onData(data) {
     /* Duplicate (date, LRM) rows in the Ozontel tab are ignored server-side
        (they were doubling month ranges). Shown, not hidden: a non-zero count
        means the SHEET still has duplicates and the writer needs fixing. */
-    + (D.dupRowsDropped ? '  ·  ' + D.dupRowsDropped + ' duplicate sheet rows ignored' : '');
+    + (D.dupRowsDropped ? '  ·  ' + D.dupRowsDropped + ' duplicate sheet rows ignored' : '')
+    /* A Sheets read-quota throttle now serves the last good copy instead of
+       failing the page — but it must SAY so, never pass stale numbers off as
+       live. */
+    + (D.stale ? '  ·  showing last good data (sheet read throttled)' : '');
   document.getElementById('tsLabel').textContent   = 'Updated ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
   buildKPI();
   buildFilterBar();
