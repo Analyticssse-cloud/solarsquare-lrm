@@ -334,8 +334,10 @@ function renderCallHealth() {
   }
   if (!hasDid && !hasInb) {
     panel.innerHTML = connStack(chNoSource('Call health',
-      'No DID or inbound feed in the sheet yet. This view appears once those tabs are landing — deliberately '
-      + 'blank rather than showing zeroes.'));
+      (D.connHas && D.connHas.error)
+        ? D.connHas.error
+        : 'No DID or inbound feed in the sheet yet. This view appears once those tabs are landing — '
+          + 'deliberately blank rather than showing zeroes.'));
     return;
   }
 

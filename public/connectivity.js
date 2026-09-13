@@ -232,9 +232,17 @@ function connStack(html) {
   return '<div class="conn-stack">' + html + '</div>';
 }
 function connNoSource(what) {
+  /* A THROTTLED READ AND A MISSING TAB LOOK IDENTICAL from here, which is how
+     a Sheets quota error read as "the feed was never wired" on 13 Sep. So the
+     backend's error text is shown when there is one — blank must never be a
+     mystery. */
+  var err = (D && D.connHas && D.connHas.error) || '';
   return '<div class="fb-box"><h4>' + esc(what) + '</h4>'
-       + '<div class="fb-sub" style="padding:14px 0">No source tab yet. This view appears once the '
-       + 'feed is landing in the sheet &mdash; it is deliberately blank rather than showing zeroes.</div></div>';
+       + (err
+          ? '<div class="fb-sub" style="padding:14px 0;color:#b0382c;font-weight:700">' + esc(err) + '</div>'
+          : '<div class="fb-sub" style="padding:14px 0">No source tab yet. This view appears once the '
+            + 'feed is landing in the sheet &mdash; it is deliberately blank rather than showing zeroes.</div>')
+       + '</div>';
 }
 /* Is the data in view the live 15-minute snapshot (weekly grain, no dates) or
    the per-day card feed? Every view that can be misread as date-filtered says
