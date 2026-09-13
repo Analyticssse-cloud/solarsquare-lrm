@@ -25,6 +25,7 @@
 
 import { readSheet } from './_sheets.js';
 import { requireUser, deny } from './_auth.js';
+import { readLiveConnectivity } from './_connlive.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase().replace('@homes.solarsquare.in', '@solarsquare.in');
 const num  = (v) => Number(v) || 0;
@@ -635,6 +636,115 @@ export default async function handler(req, res) {
       console.warn('No MS Schedule Inventory tab: ' + e.message);
     }
 
+    /* ── 6e. Connectivity & anomaly feeds (five optional tabs) ────────────────
+       Written by Code.gs from sql/connectivity-*.sql, sql/did-reputation-v2.sql
+       and sql/inbound-routing-v1.sql. All five are OPTIONAL: an absent tab
+       yields an empty array and the matching view renders a "no source yet"
+       note. Never a floor of honest zeroes — absence is not zero.
+
+       These are read as PASS-THROUGH rows (header name -> value) rather than
+       mapped onto agentCols, because they carry columns the Ozontel tab has no
+       shape for: Baseline Days, Owner, Shape, Cohort, Confidence. Widening the
+       Ozontel tab would have meant touching Code.gs's MASTER_HEADERS, which
+       silently blanks columns when it drifts out of step with the SQL.
+
+       Excluded LRMs are filtered here, exactly as everywhere else, via norm().
+       The DID and inbound feeds have no agent column, so nothing to filter. */
+    const passThrough = async (tab, opts) => {
+      const o = opts || {};
+      try {
+        const raw = await readSheet(tab);
+        if (raw.length < 2) return [];
+        const hdr = raw[0].map(h => String(h).trim());
+        const emailIdx = o.emailCol ? findCol(hdr, o.emailCol) : -1;
+        const out = [];
+        for (let i = 1; i < raw.length; i++) {
+          const r = raw[i];
+          if (!r || !r.length) continue;
+          if (emailIdx >= 0) {
+            const em = norm(r[emailIdx]);
+            if (!em || isExcluded(em)) continue;
+          }
+          const obj = {};
+          hdr.forEach((h, j) => {
+            if (!h) return;
+            const v = r[j];
+            // numeric columns arrive from Sheets as strings with thousands
+            // separators; num() strips them. Text columns stay text.
+            obj[h] = (o.numeric && o.numeric.indexOf(h) >= 0) ? num(v)
+                   : (typeof v === 'string' ? v.trim() : v);
+          });
+          if (emailIdx >= 0) obj._email = norm(r[emailIdx]);
+          out.push(obj);
+        }
+        return out;
+      } catch (e) {
+        console.warn('No ' + tab + ' tab: ' + e.message);
+        return [];
+      }
+    };
+
+    const CONN_NUM = ['Calls', 'Unique Numbers', 'Fresh Numbers', 'Fresh %', 'Connects',
+      'Connect %', 'Expected Connects', 'Index', 'Shortfall', 'Real Conversations',
+      'Real Conv %', 'Talk Min', 'Median Talk s', 'Agent Cuts', 'Agent Cut %',
+      'Early Hangups', 'Early Hangup %', 'Median Patience s', 'Fair Wait %',
+      'Median Ring s', 'Short Connects', 'Short Connect %', 'Customers Over 3',
+      'Calls Beyond Cap', 'Rapid Redials', 'Rapid Redial %', 'Attempts 1-3',
+      'Attempts 4-10', 'Attempts 11+', 'Avg Attempt Depth', 'Baseline Days'];
+
+    const [connDaily, connHourly, connAnomaly, didRows, inboundRows] = await Promise.all([
+      passThrough('conn_daily',   { emailCol: ['LRM Email', 'Agent Id'], numeric: CONN_NUM }),
+      passThrough('conn_hourly',  { numeric: ['Calls', 'Callers', 'Calls per Caller', 'Share %',
+                                   'Expected Share %', 'Expected Calls', 'Band Low', 'Band High',
+                                   'Expected per Caller', 'Baseline Points', 'Shape Dev %',
+                                   'Connect %', 'Real Conversations', 'Early Hangup %',
+                                   'Agent Cut %', 'Median Patience s', 'Talk Min', 'Baseline Calls'] }),
+      passThrough('conn_anomaly', { emailCol: ['LRM Email'], numeric: ['Today', 'Own Normal',
+                                   'Own SD Used', 'Z', 'Move', 'Breaks', 'Calls That Day',
+                                   'Baseline Days'] }),
+      passThrough('did_rep',      { numeric: ['Calls', 'Active Days', 'Calls per Day',
+                                   'Unique Numbers', 'Connects', 'Connect %', 'Expected Connects',
+                                   'Expected %', 'Index', 'Shortfall', 'Real Conversations',
+                                   'Inbound Calls', 'Inbound per 1000 Out'] }),
+      passThrough('inbound_route',{ numeric: ['Calls', 'Answered', 'Missed', 'Answer %',
+                                   'Platform Dropped', 'Platform Dropped %', 'Caller Hung Up',
+                                   'Never Offered', 'Never Offered %', 'Ended <1s', 'Ended 1-4s',
+                                   'Ended 5-19s', 'Ended 20s+', 'Ended <5s %', 'Talk Min',
+                                   'Legs per Call', 'Worst Retry Storm', 'LRMs Reached',
+                                   'Reached No Agent'] }),
+    ]);
+
+    /* ── 6f. The LIVE tabs (Live_Callers / Live_Hourly / Live_DIDs / Live_Floor)
+       A separate Apps Script already refreshes these every 15 minutes, so they
+       — not the Metabase cards above — are the working source. _connlive.js
+       translates them into the same shapes; see that file for what the live
+       feed can and cannot supply.
+
+       Precedence: a legacy conn_* tab WINS where it exists, so wiring a card
+       later needs no code change. `connSource` tells the frontend which it got,
+       because the two differ in grain — the live feed is a weekly SNAPSHOT with
+       no Date column, and the views must say so instead of letting the date
+       filter look as though it applied. */
+    const todayISO = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    let connFloor = [];
+    try {
+      const live = await readLiveConnectivity(readSheet, todayISO);
+      connFloor = live.connFloor;
+      if (!connDaily.length && live.connDaily.length) {
+        live.connDaily.forEach(r => {
+          const em = norm(r['LRM Email']);
+          if (!em || isExcluded(em)) return;
+          connDaily.push({ ...r, _email: em });
+        });
+      }
+      if (!connHourly.length) connHourly.push(...live.connHourly);
+      if (!didRows.length)    didRows.push(...live.didRows);
+    } catch (e) {
+      console.warn('Live connectivity tabs unavailable: ' + e.message);
+    }
+    const connSource = connDaily.length
+      ? (connDaily[0]['Days'] !== undefined ? 'live' : 'cards') : 'none';
+
     // ── 7. Dropdown lists ─────────────────────────────────────────────────────
     const citySet = {}, tlNameSet = {}, lrmSet = {};
     agentRows.forEach(r => {
@@ -663,6 +773,13 @@ export default async function handler(req, res) {
       rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
       totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows, hourlyHasMS,
       speedRows, speedLeads, speedHas, speedBuckets: SPEED_BUCKETS, msScheduleRows,
+      connDaily, connHourly, connAnomaly, didRows, inboundRows, connFloor,
+      connHas: {
+        daily: connDaily.length > 0, hourly: connHourly.length > 0,
+        anomaly: connAnomaly.length > 0, did: didRows.length > 0,
+        inbound: inboundRows.length > 0, floor: connFloor.length > 0,
+        source: connSource, today: todayISO,
+      },
       agentCols, agentRows: agentRowsSlim,
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
@@ -686,6 +803,8 @@ function emptyPayload(from, to, viewerEmail) {
               meetingDone:0, msNoCall:0, dsToday:0, avgTalkMin:0 },
     cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [], hourlyHasMS: false,
     speedRows: [], speedLeads: [], speedHas: false, speedBuckets: [], msScheduleRows: [],
+    connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
+    connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false },
     agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
