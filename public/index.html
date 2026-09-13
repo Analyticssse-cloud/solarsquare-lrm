@@ -610,7 +610,6 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab" id="tabFloor">📊 Top / Bottom Performers</div>
   <div class="tab tab-review" id="tabCity">🏙 City Summary</div>
   <div class="tab tab-review" id="tabAgent">👤 LRM View</div>
-  <div class="tab"        id="tabAcademy">🎓 Training Academy</div>
   <div class="tab"        id="tabADOS">🗺 ADOS View</div>
   <div class="tab"        id="tabZSM">🧭 ZSM View</div>
   <div class="tab"        id="tabTL">🧑‍🤝‍🧑 TL View</div>
@@ -649,7 +648,6 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="floorPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="cityPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="agentPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
-  <div class="panel" id="academyPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="adosPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="zsmPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="tlPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
@@ -686,7 +684,7 @@ var actScope = 'dist';
 var distLevel = 'ados';
 /* Which table the Action Center is showing: the below-the-bar distribution, or the
    per-meeting effort table (city x TT/dials/connects per MS). Remembered per user. */
-var actView = (function(){ try { return localStorage.getItem('lrmActView') || 'dist'; } catch(e) { return 'dist'; } })();
+var actView='dist';   // MS Plan / Effort per MS removed 13 Sep 2026; no longer switchable
 var perSort = { col:'dialsPerMs', dir:-1 };
 /* Distribution ("who is below the bar"), not averages. Present = made more than PRESENT_MIN calls. */
 /* Day-end bars per LRM. ttLow is a SECOND, harder talk-time floor the user asked
@@ -778,7 +776,6 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabMore').addEventListener('click', function(){ setReviewViews(!reviewOpen); });
   applyReviewViews();
   document.getElementById('tabAgent').addEventListener('click', function(){ switchTab('agent'); });
-  document.getElementById('tabAcademy').addEventListener('click', function(){ switchTab('academy'); });
   document.getElementById('tabADOS').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('ados'); });
   document.getElementById('tabZSM').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('zsm'); });
   document.getElementById('tabTL').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('tl'); });
@@ -863,7 +860,11 @@ function onData(data) {
   document.getElementById('btnApplyDates').disabled = false;
   D = data;
   applyRole();
-  document.getElementById('dateLabel').textContent = D.dateLabel || '—';
+  document.getElementById('dateLabel').textContent = (D.dateLabel || '—')
+    /* Duplicate (date, LRM) rows in the Ozontel tab are ignored server-side
+       (they were doubling month ranges). Shown, not hidden: a non-zero count
+       means the SHEET still has duplicates and the writer needs fixing. */
+    + (D.dupRowsDropped ? '  ·  ' + D.dupRowsDropped + ' duplicate sheet rows ignored' : '');
   document.getElementById('tsLabel').textContent   = 'Updated ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
   buildKPI();
   buildFilterBar();
@@ -881,7 +882,6 @@ function setLoading() {
   var h = '<div class="loading"><div class="spinner"></div>Fetching live data…</div>';
   document.getElementById('cityPanel').innerHTML  = h;
   document.getElementById('agentPanel').innerHTML = h;
-  document.getElementById('academyPanel').innerHTML = h;
   document.getElementById('adosPanel').innerHTML = h;
   document.getElementById('zsmPanel').innerHTML = h;
   document.getElementById('tlPanel').innerHTML  = h;
@@ -907,8 +907,8 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', academy:'tabAcademy', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', conn:'tabConn', behav:'tabBehav', health:'tabHealth', speed:'tabSpeed' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', academy:'academyPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', conn:'connPanel', behav:'behavPanel', health:'healthPanel', speed:'speedPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', conn:'tabConn', behav:'tabBehav', health:'tabHealth', speed:'tabSpeed' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', conn:'connPanel', behav:'behavPanel', health:'healthPanel', speed:'speedPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -925,7 +925,6 @@ var PANEL_RENDERERS = {
   floor:   function(){ renderFloor(); },
   city:    function(){ renderCity(); },
   agent:   function(){ renderAgent(); },
-  academy: function(){ renderAcademy(); },
   ados:    function(){ renderRollup('ados'); },
   zsm:     function(){ renderRollup('zsm'); },
   tl:      function(){ renderRollup('tl'); },
@@ -2060,12 +2059,13 @@ function renderAction(){
   // duplicated what the below-the-bar counts already say more directly.
   // computeAgentActions / computeCityActions are now unreachable and can go on the
   // next cleanup pass; leaving them costs nothing at runtime.
-  var isPer=actView==='perms', isPlan=actView==='plan';
-  var notes={dist:'Counts of LRMs below the bar — click any number for the names',perms:'Effort spent per meeting scheduled, by city — lower is better',plan:'Dials and connects each city needs to hit its MS target'};
-  var head='<div class="act-head"><span class="act-note">'+notes[actView]+'</span></div>';
-  var views=[['dist','Below the bar'],['perms','Effort per MS'],['plan','MS Plan']];
-  var vseg='<div class="dist-lvl dist-view">'+views.map(function(v){return '<button data-view="'+v[0]+'" class="'+(actView===v[0]?'on':'')+'">'+v[1]+'</button>';}).join('')+'</div>';
-  panel.innerHTML=head+vseg+(typeof connBreakStrip==='function'?connBreakStrip():'')+(isPlan?renderMSPlan(filterAgents(),D.msScheduleRows,D.rosterRows):isPer?renderPerMS(filterAgents()):renderDistribution(filterAgents()));
+  /* Action Center is the below-the-bar distribution ONLY (13 Sep 2026, user):
+     the "Effort per MS" and "MS Plan" sub-views were removed, so there is no
+     view selector. `renderPerMS` / `renderMSPlan` / `computeMSPlan` and their
+     export branches are left in place but unreachable — a one-line revert. */
+  var isPer=false, isPlan=false;
+  var head='<div class="act-head"><span class="act-note">Counts of LRMs below the bar — click any number for the names</span></div>';
+  panel.innerHTML=head+(typeof connBreakStrip==='function'?connBreakStrip():'')+renderDistribution(filterAgents());
   if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
   panel.querySelectorAll('table.dist th[data-plan]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-plan'); planSort.dir=(planSort.col===k)?planSort.dir*-1:-1; planSort.col=k; renderAction(); }); });
   panel.querySelectorAll('.plan-basis button[data-planbasis]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); planBasis=btn.getAttribute('data-planbasis'); try{localStorage.setItem('lrmPlanBasis',planBasis);}catch(err){} renderAction(); }); });
