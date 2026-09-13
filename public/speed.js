@@ -60,27 +60,8 @@ var speedOpen = null;
 
 (function injectSpeedCss() {
   var css = '' +
-  /* The panel is a flex column (.panel) and .tbl-wrap is already flex:1 with a
-     sticky head — .sl-wrap being a plain block was the only thing stopping the table
-     from taking the rest of the screen. */
-  /* overflow:auto on the wrap is what makes the min-height guard degrade to a
-     SCROLL instead of a clip — same contract as .fb-wrap on the Floor Board. Without
-     it, a short window puts the table's last row past the body edge unreachably. */
-  '.sl-wrap{padding:2px 0 0;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:auto}' +
-  '.sl-wrap>.tbl-wrap{flex:1 1 auto;min-height:220px;margin-bottom:2px}' +
-  /* Short windows: the fixed chrome above the table is 277px, most of it the six KPI
-     cells and the standing-caveat paragraph. Condense both so the table keeps the room. */
-  '@media (max-height:820px){' +
-    '.sl-sub{display:none}' +
-    '.sl-kpi{padding:7px 11px}' +
-    '.sl-kpi-v{font-size:17px}' +
-    '.sl-kpi-n{display:none}' +
-    '.sl-kpis{margin-bottom:8px}' +
-    '.sl-head{margin:0 0 8px}' +
-    '.sl-tbl-note{display:none}' +
-  '}' +
-  '.sl-wrap>.sl-head,.sl-wrap>.sl-kpis,.sl-wrap>.sl-grain,.sl-wrap>.sl-tbl-note{flex:0 0 auto}' +
-  '.sl-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin:2px 0 11px}' +
+  '.sl-wrap{padding:2px 0 18px}' +
+  '.sl-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin:2px 0 14px}' +
   '.sl-title{font-size:15px;font-weight:800;color:var(--ink,#18233f);letter-spacing:-.2px}' +
   '.sl-sub{font-size:11.5px;color:var(--muted,#6a7494);max-width:640px;line-height:1.5;margin-top:3px}' +
   '.sl-sla{display:flex;align-items:center;gap:6px;margin-left:auto}' +
@@ -88,19 +69,28 @@ var speedOpen = null;
   '.sl-chip{border:1px solid var(--border,#e3e8f3);background:#fff;color:var(--ink,#18233f);font:700 11.5px/1 inherit;padding:6px 11px;border-radius:20px;cursor:pointer;white-space:nowrap}' +
   '.sl-chip:hover{border-color:#9fb0d8}' +
   '.sl-chip.on{background:#18233f;border-color:#18233f;color:#fff}' +
-  '.sl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:1px;background:var(--border,#e3e8f3);border:1px solid var(--border,#e3e8f3);margin-bottom:11px}' +
+  '.sl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:1px;background:var(--border,#e3e8f3);border:1px solid var(--border,#e3e8f3);margin-bottom:16px}' +
   '.sl-kpi:last-child{grid-column:auto/-1}' +
   '.sl-kpi{background:#fff;padding:11px 13px}' +
   '.sl-kpi-v{font-size:22px;font-weight:800;letter-spacing:-.7px;color:var(--ink,#18233f);line-height:1.1}' +
   '.sl-kpi-l{font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted,#6a7494);margin-top:3px}' +
   '.sl-kpi-n{font-size:10.5px;color:var(--muted,#6a7494);margin-top:2px}' +
   '.sl-kpi.bad .sl-kpi-v{color:#b0382c}' +
-  /* .sl-hist / .sl-bar / .sl-xlab rules went with speedHistCard() (4 Sep 2026): a
-     stylesheet for markup nothing emits is the same unreachable layer. */
+  '.sl-hist{border:1px solid var(--border,#e3e8f3);padding:14px 16px 10px;margin-bottom:18px;background:#fff}' +
+  '.sl-hist-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap}' +
+  '.sl-hist-hd b{font-size:12px;letter-spacing:-.1px}' +
+  '.sl-hist-hd span{font-size:11px;color:var(--muted,#6a7494)}' +
+  '.sl-bars{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-items:end;height:150px}' +
+  '.sl-bar{display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative}' +
+  '.sl-bar i{display:block;background:#6ea866;min-height:2px;border-radius:2px 2px 0 0}' +
+  '.sl-bar.late i{background:#d2664f}' +
+  '.sl-bar.none i{background:#8b8f9c}' +
+  '.sl-bar em{font-style:normal;font-size:11px;font-weight:800;text-align:center;color:var(--ink,#18233f);margin-bottom:4px}' +
+  '.sl-xlab{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:7px;border-top:1px solid var(--border,#e3e8f3);padding-top:6px}' +
+  '.sl-xlab span{font-size:9.5px;color:var(--muted,#6a7494);text-align:center;line-height:1.3}' +
+  '.sl-xlab span b{display:block;font-size:10px;color:var(--ink,#18233f)}' +
   '.sl-tbl-note{font-size:11px;color:var(--muted,#6a7494);margin:0 0 7px;max-width:900px;line-height:1.5}' +
-  '.sl-grain{display:flex;align-items:center;gap:6px;margin:0 0 8px;flex-wrap:wrap}' +
-  '.sl-chip[disabled]{opacity:.4;cursor:not-allowed;border-style:dashed}' +
-  '.sl-geo{font-size:11px;color:var(--muted,#6a7494);margin:0 0 8px;line-height:1.5}' +
+  '.sl-grain{display:flex;align-items:center;gap:6px;margin:0 0 10px;flex-wrap:wrap}' +
   '.sl-grid th,.sl-grid td{white-space:nowrap}' +
   '.sl-grid .sl-hgrp th{font-size:9px;letter-spacing:.6px;color:var(--muted,#6a7494);border-bottom:0;padding-bottom:2px}' +
   '.sl-grid th.sl-sep,.sl-grid td.sl-sep{border-left:1px solid var(--border,#e3e8f3)}' +
@@ -143,8 +133,16 @@ function filterSpeed() {
     if (F.tls.length && F.tls.indexOf(String(r.tlName || '')) < 0) return false;
     if (F.agents.length && F.agents.indexOf(String(r.agent || '')) < 0) return false;
     if (F.q) {
-      var hay = (r.agent + ' ' + r.city + ' ' + r.tlName).toLowerCase();
-      if (hay.indexOf(F.q) < 0) return false;
+      // Token-prefix match, same rule as the main filter bar (13 Sep 2026):
+      // a substring match made "onik" also hit Monika.
+      var words = (r.agent + ' ' + r.city + ' ' + r.tlName + ' ' + (r.name || ''))
+        .toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      var qs = String(F.q).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      for (var qi = 0; qi < qs.length; qi++) {
+        var hit = false;
+        for (var wi = 0; wi < words.length; wi++) { if (words[wi].indexOf(qs[qi]) === 0) { hit = true; break; } }
+        if (!hit) return false;
+      }
     }
     return r._inScope !== false;
   });
@@ -194,16 +192,6 @@ function speedLrmCount(rows) {
   var seen = {}, n = 0;
   (rows || []).forEach(function (r) { var a = r.agent; if (a && !seen[a]) { seen[a] = 1; n++; } });
   return n;
-}
-/* Does the feed actually carry the lead's own geo? dashboard.js writes 'Unmapped'
-   when the speed sheet has no Cluster / City column, so a table grouped on it is one
-   row called Unmapped — a statement about the feed dressed as a rollup. The LRM's
-   roster city is NOT a substitute: this grain is the lead's geo by design. */
-function speedGeoHas(rows, field) {
-  return (rows || []).some(function (r) {
-    var v = String(r[field] || '').trim();
-    return v && v !== 'Unmapped';
-  });
 }
 function speedGrainDef(k) {
   for (var i = 0; i < SPEED_GRAINS.length; i++) if (SPEED_GRAINS[i].k === (k || speedGrain)) return SPEED_GRAINS[i];
@@ -275,23 +263,11 @@ function renderSpeed() {
   // Column blocks mirror the sheet the floor already reads: population, then the
   // five exclusive buckets as COUNTS (they sum to Worked), then the same five as a
   // % of Worked. Only "Touched %" is tinted — tinting all eleven made it unreadable.
-  var geoOk = { cluster: speedGeoHas(rows, 'cluster'), city: speedGeoHas(rows, 'leadCity') };
-  var geoOff = !geoOk.cluster || !geoOk.city;
-  if (geoOk[speedGrain] === false) speedGrain = 'tl';
   var G = speedGrainDef();
   html += '<div class="sl-grain"><span class="sl-sla-lbl">Rows</span>' +
     SPEED_GRAINS.map(function (g) {
-      var off = geoOk[g.k] === false;
-      return '<button class="sl-chip' + (g.k === speedGrain ? ' on' : '') + '" data-grain="' + g.k + '"' +
-        (off ? ' disabled title="The speed sheet carries no ' + g.lab + ' for the lead"' : '') + '>' + g.lab + '</button>';
+      return '<button class="sl-chip' + (g.k === speedGrain ? ' on' : '') + '" data-grain="' + g.k + '">' + g.lab + '</button>';
     }).join('') + '</div>';
-  if (geoOff) {
-    var missing = [!geoOk.cluster ? 'Cluster' : null, !geoOk.city ? 'City' : null].filter(Boolean).join(' and ');
-    html += '<div class="sl-geo"><b>' + missing + ' rows are off:</b> this feed carries no lead ' +
-      esc(missing.toLowerCase()) + ', so grouping on it produces one row called Unmapped rather than a rollup. ' +
-      'Add the column to the <code>speed</code> tab (SQL already selects it) and the grain switches back on. ' +
-      'The LRM\'s roster city is not used as a stand-in — this grain is the lead\'s own geo.</div>';
-  }
 
   var groups = speedGroupBy(rows).filter(function (b) { return b.s.assigned > 0; });
   groups.sort(function (a, b) {
@@ -385,10 +361,32 @@ function kpiCell(v, l, note, bad) {
     '<div class="sl-kpi-l">' + esc(l) + '</div>' + (note ? '<div class="sl-kpi-n">' + esc(note) + '</div>' : '') + '</div>';
 }
 
-/* speedHistCard() was deleted 4 Sep 2026. The user removed the histogram from the
-   Floor Board, and this tab has been the table since the shape moved off it, so the
-   renderer had no caller anywhere in the app. Bucket maths still lives in
-   speedStats() — restoring the shape is one card, not a re-derivation. */
+/* The time-to-first-call histogram, as a self-contained card.
+   It used to sit at the top of this tab; the user moved it to the Distribution tab
+   (4 Sep 2026) so the FRT tab is the table and Distribution is where the shapes
+   live. Exported rather than duplicated: one set of numbers, one renderer, so the
+   two tabs can never disagree. Pass rows to scope it; defaults to filterSpeed(). */
+function speedHistCard(rows) {
+  rows = rows || (typeof filterSpeed === 'function' ? filterSpeed() : (D.speedRows || []));
+  var t = speedStats(rows);
+  if (!t.assigned) return '';
+  var k = SPEED_EDGES.indexOf(speedSLA);
+  var max = Math.max.apply(null, t.buckets.concat([t.never])) || 1;
+  var out = '<div class="sl-hist"><div class="sl-hist-hd"><b>Distribution of time to first call</b>' +
+    '<span>green = inside the ' + speedSLA + '-min SLA · ' + fmt(t.assigned) + ' leads assigned</span></div><div class="sl-bars">';
+  t.buckets.forEach(function (v, i) {
+    out += '<div class="sl-bar ' + (i <= k ? '' : 'late') + '"><em>' + fmt(v) + '</em>' +
+      '<i style="height:' + Math.max(2, Math.round((v / max) * 118)) + 'px"></i></div>';
+  });
+  out += '<div class="sl-bar none"><em>' + fmt(t.never) + '</em><i style="height:' +
+    Math.max(2, Math.round((t.never / max) * 118)) + 'px"></i></div>';
+  return out + '</div><div class="sl-xlab">' +
+    SPEED_LABELS.map(function (l, i) {
+      var pct = t.assigned > 0 ? Math.round((t.buckets[i] / t.assigned) * 1000) / 10 : 0;
+      return '<span><b>' + l + '</b>' + pct + '%</span>';
+    }).join('') +
+    '<span><b>Never called</b>' + t.neverPct + '%</span></div></div>';
+}
 
 /* The LRMs behind a group row — same eleven columns, weakest touch-rate first, so
    the row that dragged the cluster down is the first thing you read. */
