@@ -395,18 +395,23 @@ export default async function handler(req, res) {
          target that multiplies by it. Gated only when the roster carries roles. */
       if (hasRoleCol && !lrmSet2.has(key)) return;
 
-      // Accept the pre-v11 header too, so an un-backfilled sheet still renders.
-      const callCount = num(pick(obj, ['Call Count', 'Total Calls']));
+      /* Accept the pre-v11 header too, so an un-backfilled sheet still renders.
+         NORMALISE ONTO `obj` AND LET SUM_COLS DO THE ADDING (15 Sep 2026).
+         It used to add `callCount` on a second line, AFTER the SUM_COLS loop
+         had already added `obj['Call Count']` — so every day past the first
+         counted Call Count TWICE. One day looked right, and a 15-day range read
+         1.93x, which is why connectivity showed 14% against the real ~27%:
+         the numerator was correct and only the denominator was inflated.
+         Connected Calls and talk time were never affected. */
+      obj['Call Count'] = num(pick(obj, ['Call Count', 'Total Calls']));
 
       if (!bucket[key]) {
         bucket[key] = { ...obj, 'Agent Id': agt };
         SUM_COLS.forEach(k => { bucket[key][k] = num(obj[k]); });
-        bucket[key]['Call Count'] = callCount;
         AVG_COLS.forEach(k => { bucket[key]['_sum_' + k] = num(obj[k]); });
         bucket[key]._dayCount = 1;
       } else {
         SUM_COLS.forEach(k => { bucket[key][k] = num(bucket[key][k]) + num(obj[k]); });
-        bucket[key]['Call Count'] = num(bucket[key]['Call Count']) + callCount;
         AVG_COLS.forEach(k => { bucket[key]['_sum_' + k] = num(bucket[key]['_sum_' + k]) + num(obj[k]); });
         bucket[key]._dayCount++;
       }
