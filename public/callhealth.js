@@ -30,6 +30,45 @@
 
 var didSort = { col: 'Index', dir: 1 };          // worst index first
 var didCohort = 'all';
+var didMetric = (function () { try { return localStorage.getItem('lrmDidMetric') || 'Index'; } catch (e) { return 'Index'; } })();
+var DID_METRICS = {
+  'Index':         { label: 'Reputation index', baseline: 100, baselineLabel: '100 = par', suffix: '' },
+  'Connect %':     { label: 'Connectivity %', suffix: '%' },
+  'Calls per Day': { label: 'Dials per day', suffix: '' },
+  'Inbound per 1000 Out': { label: 'Return calls / 1k', suffix: '' }
+};
+
+/* Ranked bars per number, worst first, with the retirement line where the
+   index is in view. Numbers whose reading is not reliable are drawn faint and
+   pushed out of the ranking — a 3-call number at index 370 is noise, and it
+   used to sit at the top of the table looking like the best DID in the estate. */
+function didChart(rows) {
+  var M = DID_METRICS[didMetric] || DID_METRICS['Index'];
+  var view = rows.filter(function (r) { return String(r['Confidence'] || '') !== 'too few calls'; });
+  if (!view.length) view = rows;
+  var items = view.map(function (r) {
+    return { label: String(r['DID'] || ''), value: Number(r[didMetric]) || 0,
+             sub: String(r['Block'] || '') + ' · ' + fmt(r['Calls']) + ' dials' };
+  }).sort(function (a, b) { return a.value - b.value; }).slice(0, 20);
+  var opts = { suffix: M.suffix, goodHigh: true, labelW: 132, aria: M.label + ' per DID',
+               fmt: function (v) { return (M.suffix === '%' ? (Math.round(v * 10) / 10) : fmt(Math.round(v))) + M.suffix; } };
+  if (didMetric === 'Index') { opts.baseline = 100; opts.baselineLabel = '100 = par · retire under 90'; }
+  return ccRankedBars(items, opts);
+}
+/* Blocks as bars rather than a table: the whole point is that one block sits
+   clear of the others, which a column of numbers makes you compute. */
+function didBlockChart(rows) {
+  var bl = didBlocks(rows);
+  if (bl.length < 2) return '';
+  return ccRankedBars(bl.map(function (b) {
+    return { label: b.name + 'xxx', value: b.index === null ? 0 : b.index,
+             sub: b.dids + ' DIDs · ' + fmt(b.calls) + ' dials' };
+  }).sort(function (a, b) { return a.value - b.value; }), {
+    baseline: 100, baselineLabel: '100 = par', suffix: '', labelW: 132,
+    aria: 'reputation index by number block',
+    fmt: function (v) { return String(Math.round(v * 10) / 10); }
+  });
+}
 
 function chNoSource(what, why) {
   return '<div class="fb-box"><h4>' + esc(what) + '</h4>'
@@ -360,61 +399,53 @@ function renderCallHealth() {
   }
 
   if (hasDid) {
-    /* The cohort filter is built from what the feed actually carries. The live
-       tab has no in-service date, so there are no cohorts — and a fixed button
-       row would then filter every number away. "Retire list" is always offered:
-       it reads the Verdict column, which is derived from the index. */
-    var seen = {}, cohorts = ['all'];
-    D.didRows.forEach(function (r) {
-      var c = String(r['Cohort'] || '').trim();
-      if (c && !seen[c]) { seen[c] = true; cohorts.push(c); }
-    });
-    cohorts.push('retire');
-    var labels = { all: 'All', 'new (entered mid-window)': 'New', established: 'Established', 'low volume': 'Low volume', retire: 'Retire list' };
+    window.__ccDidTable = didTable(D.didRows);
+    window.__ccBlockTable = didBlockCard(D.didRows);
+    var blockChart = didBlockChart(D.didRows);
     html += didCohortCard(D.didRows)
-      + didBlockCard(D.didRows)
-      + '<div class="fb-box">'
-      +   '<div class="fh-hd"><h4>Every number</h4>'
-      +     '<span class="fh-note">' + D.didRows.length + ' DIDs &middot; ' + esc(D.dateLabel || '') + '</span></div>'
-      +   '<div class="fb-sub" style="margin:-4px 0 10px">Index = connects &divide; expected connects &times; 100, '
-      +     'depth-adjusted so a number handed fresher leads cannot look healthy on that alone. '
-      +     '<b>Under 90 is the retirement threshold; ~500 dials are needed before the figure is rankable.</b></div>'
-      +   '<div class="dist-lvl">' + cohorts.map(function (c) {
-            return '<button data-didco="' + esc(c) + '" class="' + (didCohort === c ? 'on' : '') + '">' + esc(labels[c] || c) + '</button>';
-          }).join('') + '</div>'
-      +   didTable(D.didRows)
-      +   '<div class="fb-hrnote"><b>Two things this index cannot do, and both must travel with it.</b> '
-      +     'It is <i>estate-relative</i>: if every number degrades together it still reads ~100 and sees nothing, '
-      +     'so read Conn % beside it. And it is <b>not a spam detector</b> &mdash; Google&rsquo;s dialler painted '
-      +     'calls red (&ldquo;Suspected junk caller&rdquo;) while Truecaller returned &ldquo;VERIFIED '
-      +     'BUSINESS&rdquo; for the same number in the same instant, and the flagged DID indexes 103.1, top '
-      +     'quartile. Google has identified the caller by name and flagged it anyway, so this is not spoofing: '
-      +     'its classifier has seen ~320 dials per number per day, 18% of pick-ups killed inside 15 seconds, and '
-      +     'numbers dialled 124 times with zero answers. <b>The labelling audit &mdash; one Android handset, dial '
-      +     'from each DID, record whether the red screen appears &mdash; is two hours and still not started.</b></div>'
-      +   '<div class="fb-hrnote" style="font-style:normal;color:var(--text)"><b>The 4 September removal was '
-      +     'untargeted.</b> Sixteen numbers were withdrawn; over 1&ndash;3 Sep the removed averaged index 95.4 and '
-      +     'the retained averaged 95.4 &mdash; identical. 919240270684 indexed 121.6, the second-best number in '
-      +     'the estate, and was cut; reinstating it is free and still not done. Load then rose from 214&ndash;293 '
-      +     'to 344&ndash;398 dials per number per day and nothing broke &mdash; the retained estate&rsquo;s index '
-      +     'went <i>up</i>, 90&ndash;98 to 97&ndash;106. That is why the imported 175/day ceiling was withdrawn, '
-      +     'the working default is 300, and rest days should be zero until rest is proven to restore anything.</div>'
-      +   '<div class="fb-hrnote" style="font-style:normal;color:#b0382c"><b>Outranking all of the above:</b> these '
-      +     'are ordinary 10-digit landline numbers. Under the TCCCPR Second Amendment of 12 February 2025 '
-      +     'promotional calls must originate from the 140 series and 10-digit numbers cannot be used for '
-      +     'telemarketing &mdash; penalties from &#8377;2 lakh, escalating to &#8377;10 lakh per instance, plus '
-      +     'possible blacklisting of telecom resources. A rotation scheme designed to stay ahead of spam '
-      +     'labelling is functionally the pattern the traceability provisions were written to catch. '
-      +     '<b>Get the 140-series question answered by legal before provisioning more numbers.</b></div>'
-      + '</div>';
+      + (blockChart ? ccCard({
+          title: 'By number block',
+          note: 'floor-wide',
+          sub: 'Reputation index per nine-digit block, against par.',
+          table: true, tableLabel: 'View table', tableSrc: '__ccBlockTable',
+          tableTitle: 'Number blocks · full table',
+          body: blockChart,
+          foot: 'Block differences inside the aged estate are real and survive every obvious confound: 194 agents '
+              + 'used both a strong and a weak block, the mean <i>within-agent</i> difference was +4.81pp, and 169 '
+              + 'of the 194 show it. Bringing the weak estate to the strong block&rsquo;s level is worth roughly '
+              + '500&ndash;900 extra conversations a day. <b>But if the decay reading above is right, part of that '
+              + 'gap is age, and moving volume onto the strong block would simply age it faster.</b>'
+        }) : '')
+      + ccCard({
+          title: 'Worst numbers first',
+          note: D.didRows.length + ' DIDs &middot; ' + esc(D.dateLabel || ''),
+          sub: 'Depth-adjusted, so a number handed fresher leads cannot look healthy on that alone. '
+             + '<b>Under 90 is the retirement threshold.</b> Numbers whose reading is not reliable are left out of '
+             + 'the ranking rather than drawn — a three-call number at index 370 is noise, not the best DID in the estate.',
+          table: true, tableLabel: 'View every number', tableSrc: '__ccDidTable',
+          tableTitle: 'Every number · full table',
+          seg: ccSeg('data-didmet', Object.keys(DID_METRICS).map(function (k) { return [k, DID_METRICS[k].label]; }), didMetric),
+          body: didChart(D.didRows),
+          foot: '<b>Two things this index cannot do, and both must travel with it.</b> It is <i>estate-relative</i>: '
+              + 'if every number degrades together it still reads ~100 and sees nothing, so read Conn % beside it. '
+              + 'And it is <b>not a spam detector</b> &mdash; Google&rsquo;s dialler painted calls red while '
+              + 'Truecaller returned &ldquo;VERIFIED BUSINESS&rdquo; for the same number in the same instant, and '
+              + 'the flagged DID indexes 103.1, top quartile. <b>The labelling audit &mdash; one Android handset, '
+              + 'dial from each DID &mdash; is two hours and still not started.</b> '
+              + '<b style="color:#b0382c">Outranking all of it:</b> these are ordinary 10-digit numbers, and under '
+              + 'the TCCCPR Second Amendment of 12 February 2025 promotional calls must originate from the 140 '
+              + 'series. Get that answered by legal before provisioning more numbers.'
+        });
   }
 
   panel.innerHTML = connStack(html);
+  ccWireTables(panel, 'Call health · full table', window.__ccDidTable || '');
 
-  panel.querySelectorAll('.dist-lvl button[data-didco]').forEach(function (btn) {
+  panel.querySelectorAll('.dist-lvl button[data-didmet]').forEach(function (btn) {
     btn.addEventListener('click', function (e) {
       e.stopPropagation();
-      didCohort = btn.getAttribute('data-didco');
+      didMetric = btn.getAttribute('data-didmet');
+      try { localStorage.setItem('lrmDidMetric', didMetric); } catch (err) {}
       renderCallHealth();
     });
   });

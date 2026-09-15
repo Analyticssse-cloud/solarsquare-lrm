@@ -22,10 +22,15 @@
    activeTab.  ECharts is loaded from the CDN in index.html.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* The bar. 25 dials / 15 talk-min / 1.25 MS an hour over 8 PRODUCTIVE hours
-   inside the 10:00-19:00 shift, so the day target lands exactly on 200/120/10.
+/* The bar. 25 dials / 15 talk-min / 1.25 MS an hour over 8 PRODUCTIVE hours.
+   The SHIFT SPAN is 09:00-21:00 (user, 13 Sep 2026 — the floor works earlier and
+   later than the old 10:00-19:00 window, and hours outside the span are dropped
+   from the hourly views entirely, so a narrow span silently hides real dialling).
+   The per-hour targets are NOT derived from the span: 8 productive hours inside
+   a 12-hour window still lands the day target on 200/120/10. Widening the span
+   must never quietly raise the target.
    One edit point — DIST_HOURS is derived, never hardcoded elsewhere. */
-var DIST_TARGET = { shiftStart: 10, shiftEnd: 19, productiveHours: 8,
+var DIST_TARGET = { shiftStart: 9, shiftEnd: 21, productiveHours: 8,
                     dialsPerHour: 25, talkMinPerHour: 15, msPerHour: 1.25 };
 var DIST_HOURS = (function () {
   var out = [];
@@ -466,17 +471,129 @@ function distTrendData() {
   var curDay = days[days.length - 1] || null, prevDay = days[days.length - 2] || null;
   return { hours: DIST_HOURS, lrms: rows.length, elapsed: distElapsed(),
            curDay: curDay, prevDay: prevDay,
-           cur: curDay ? per[curDay] : null, prev: prevDay ? per[prevDay] : null };
+           cur: curDay ? per[curDay] : null, prev: prevDay ? per[prevDay] : null,
+           env: distEnvelope(curDay, per[curDay]) };
+}
+
+/* ── Expected-shape envelope (conn_hourly feed) ───────────────────────────────
+   The band behind the dials line: where this hour's volume SHOULD sit, from the
+   four preceding same weekdays.
+
+   IT IS A SHARE OF THE DAY, NOT A CALL COUNT, and that is the whole point. The
+   floor has roughly tripled since mid-August, so a four-week ABSOLUTE baseline
+   measures the growth and calls it an incident — the first cut of this card
+   declared almost every hour a spike, +374% on one ordinary Friday evening. A
+   share baseline is invariant to both volume growth and headcount changes, and
+   what we actually want to see is a SHAPE break: 9 September put 1,597 calls
+   into the 09:00 hour against a normal 539 and then collapsed to 181 at 15:00
+   against a normal 2,319, recovering by 16:00. As shares that is unmissable.
+
+   The SQL renormalises the baseline across the hours that have finished, so the
+   band is directly comparable to a part-finished day; here we only scale it onto
+   the day's own elapsed total. Hours the feed has no baseline for (fewer than 3
+   same-weekday points, or a baseline hour under 50 calls) return null and are
+   left OPEN rather than drawn as a zero-width band — absence is not zero.
+
+   Returns null when the feed is absent, so the card renders exactly as before. */
+function distEnvelope(curDay, slot) {
+  if (!curDay || !slot || !D.connHourly || !D.connHourly.length) return null;
+  var byHour = {};
+  D.connHourly.forEach(function (r) {
+    if (String(r['Date'] || '').slice(0, 10) !== curDay) return;
+    var hr = parseInt(String(r['Hour'] || '').slice(0, 2), 10);
+    if (isNaN(hr)) return;
+    byHour[hr] = r;
+  });
+  if (!Object.keys(byHour).length) return null;
+  /* Scale on the floor's OWN elapsed dials, not the feed's: the feed is
+     floor-wide and unfiltered, while the chart honours the filter bar. Using the
+     chart's own total keeps the band consistent with the line drawn over it
+     whatever the filter is — the SHAPE is what transfers between scopes, which
+     is the same reason the baseline is a share in the first place. */
+  var elapsed = Math.max(0, Math.min(DIST_HOURS.length, distElapsed()));
+  var dayTotal = 0;
+  for (var i = 0; i < elapsed; i++) dayTotal += Number(slot.dials[i]) || 0;
+  if (!dayTotal) return null;
+  var mid = [], lo = [], hi = [], shape = [], any = false;
+  DIST_HOURS.forEach(function (hr, i) {
+    var r = byHour[hr];
+    var share = r ? Number(r['Expected Share %']) : 0;
+    var pts = r ? Number(r['Baseline Points']) : 0;
+    if (!r || !share || !(pts >= 3) || i >= elapsed) {
+      mid.push(null); lo.push(null); hi.push(null); shape.push('');
+      return;
+    }
+    any = true;
+    var band = Math.max(0, Number(r['Band High']) - Number(r['Expected Calls'])) || 0;
+    var expCalls = Number(r['Expected Calls']) || 0;
+    // Band width travels as a RATIO of the expectation, so it rescales with the
+    // filtered total the same way the midline does.
+    var w = expCalls ? band / expCalls : 0;
+    var m = share / 100 * dayTotal;
+    mid.push(m); lo.push(Math.max(0, m * (1 - w))); hi.push(m * (1 + w));
+    shape.push(String(r['Shape'] || ''));
+  });
+  if (!any) return null;
+  return { mid: mid, lo: lo, hi: hi, shape: shape };
 }
 function distTrendSvg(M, d) {
   var W = 640, H = 224, L = 48, R = 16, T = 18, B = 30, n = d.hours.length;
   var cur = d.cur[M.key] || [], prev = d.prev ? (d.prev[M.key] || null) : null;
   var pace = M.per * d.lrms;
-  var mx = (Math.max(pace, distTrendMax(cur), distTrendMax(prev)) || 1) * 1.18;
+  // The band can sit above the live line and the pace line both, so it has to be
+  // in the scale or it would clip flat against the top edge and read as a cap.
+  var envMax = (M.key === 'dials' && d.env) ? distTrendMax(d.env.hi.filter(function (v) { return v !== null; })) : 0;
+  var mx = (Math.max(pace, envMax, distTrendMax(cur), distTrendMax(prev)) || 1) * 1.18;
   var X = function (i) { return L + (W - L - R) * (n > 1 ? i / (n - 1) : 0); };
   var Y = function (v) { return T + (H - T - B) * (1 - Math.max(0, Math.min(1, (Number(v) || 0) / mx))); };
   var pts = function (a) { return a.map(function (v, i) { return X(i).toFixed(1) + ',' + Y(v).toFixed(1); }).join(' '); };
+  /* SMOOTH CURVES (user, 13 Sep 2026). Catmull-Rom through the points, converted
+     to cubic beziers, at a deliberately LOW tension (0.18): enough to read as a
+     curve, not enough to overshoot into a dip the data does not have. Every
+     series on this chart uses it, so the eye compares like with like. */
+  var curve = function (idx, PY) {
+    var p = idx.map(function (i) { return [X(i), PY(i)]; });
+    if (!p.length) return '';
+    if (p.length < 3) return 'M' + p.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' L');
+    var t = 0.18, out = 'M' + p[0][0].toFixed(1) + ',' + p[0][1].toFixed(1);
+    for (var i = 0; i < p.length - 1; i++) {
+      var p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p2;
+      out += ' C' + (p1[0] + (p2[0] - p0[0]) * t).toFixed(1) + ',' + (p1[1] + (p2[1] - p0[1]) * t).toFixed(1)
+           + ' ' + (p2[0] - (p3[0] - p1[0]) * t).toFixed(1) + ',' + (p2[1] - (p3[1] - p1[1]) * t).toFixed(1)
+           + ' ' + p2[0].toFixed(1) + ',' + p2[1].toFixed(1);
+    }
+    return out;
+  };
+  var seqIdx = function (a) { return a.map(function (_, i) { return i; }); };
   var s = '';
+  /* Expected-shape band, drawn FIRST so everything else sits over it. Dials only:
+     the conn_hourly card carries no talk-time baseline, and inventing one from
+     the dials shape would be a number with no source. */
+  var env = (M.key === 'dials') ? d.env : null;
+  if (env) {
+    var seg = [], run = [];
+    env.mid.forEach(function (v, i) {
+      if (v === null) { if (run.length > 1) seg.push(run); run = []; return; }
+      run.push(i);
+    });
+    if (run.length > 1) seg.push(run);
+    seg.forEach(function (idx) {
+      var topD = curve(idx, function (i) { return Y(env.hi[i]); });
+      var botD = curve(idx.slice().reverse(), function (i) { return Y(env.lo[i]); });
+      s += '<path fill="rgba(120,134,168,.13)" stroke="none" d="' + topD + ' L' + botD.slice(1) + ' Z"/>'
+         + '<path fill="none" stroke="#8794b4" stroke-width="1.2" stroke-dasharray="2 3" d="'
+         + curve(idx, function (i) { return Y(env.mid[i]); }) + '"/>';
+    });
+    // Mark the hours that actually broke the band. The dot is doubled by the
+    // caption under the card, per the "colour is always doubled" rule.
+    env.shape.forEach(function (sh, i) {
+      if (sh !== 'spike' && sh !== 'collapse') return;
+      var v = (d.cur[M.key] || [])[i];
+      if (v === undefined) return;
+      s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(v).toFixed(1) + '" r="8.5" fill="none" stroke="'
+         + (sh === 'collapse' ? '#c0392b' : '#8a6d1f') + '" stroke-width="1.6"/>';
+    });
+  }
   [0, 0.5, 1].forEach(function (f) {
     var v = mx * f, yy = Y(v);
     s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + yy.toFixed(1) + '" y2="' + yy.toFixed(1) + '" stroke="' + DIST_RULE + '"/>'
@@ -492,15 +609,17 @@ function distTrendSvg(M, d) {
   var farRight = lastY === null || Math.abs(py - lastY) >= 20;
   s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + py.toFixed(1) + '" y2="' + py.toFixed(1) + '" stroke="#c0392b" stroke-width="1.6" stroke-dasharray="7 5"/>'
      + '<text x="' + (farRight ? (W - R) : (L + 4)) + '" y="' + (py - 6).toFixed(1) + '" text-anchor="' + (farRight ? 'end' : 'start') + '" font-size="10" font-weight="700" fill="#b0382c">PACE ' + fmt(Math.round(pace)) + '</text>';
-  if (prev) s += '<polyline fill="none" stroke="#9aa8c6" stroke-width="1.8" stroke-dasharray="4 4" stroke-linejoin="round" points="' + pts(prev) + '"/>';
+  if (prev) s += '<path fill="none" stroke="#9aa8c6" stroke-width="1.8" stroke-dasharray="4 4" d="'
+     + curve(seqIdx(prev), function (i) { return Y(prev[i]); }) + '"/>';
   var live = cur.slice(0, Math.max(0, Math.min(n, d.elapsed)));
   if (live.length > 1) {
-    s += '<path fill="' + M.soft + '" stroke="none" d="M' + X(0).toFixed(1) + ',' + Y(live[0]).toFixed(1) + ' '
-       + live.map(function (v, i) { return 'L' + X(i).toFixed(1) + ',' + Y(v).toFixed(1); }).join(' ')
+    s += '<path fill="' + M.soft + '" stroke="none" d="'
+       + curve(seqIdx(live), function (i) { return Y(live[i]); })
        + ' L' + X(live.length - 1).toFixed(1) + ',' + Y(0).toFixed(1) + ' L' + X(0).toFixed(1) + ',' + Y(0).toFixed(1) + ' Z"/>';
   }
   if (live.length) {
-    if (live.length > 1) s += '<polyline fill="none" stroke="' + M.ink + '" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" points="' + pts(live) + '"/>';
+    if (live.length > 1) s += '<path fill="none" stroke="' + M.ink + '" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" d="'
+      + curve(seqIdx(live), function (i) { return Y(live[i]); }) + '"/>';
     live.forEach(function (v, i) {
       var last = i === live.length - 1;
       s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(v).toFixed(1) + '" r="' + (last ? 4.6 : 2.8) + '" fill="' + (last ? '#ffb81c' : M.ink) + '" stroke="#fff" stroke-width="' + (last ? 2 : 1.4) + '"/>'
@@ -521,11 +640,29 @@ function distTrendCard(M, d) {
   var tot = live.reduce(function (a, v) { return a + v; }, 0);
   var pace = M.per * d.lrms * live.length;
   var pct = pace ? Math.round(tot / pace * 100) : 0;
+  /* Shape breaks are named in words as well as ringed on the chart, and they are
+     OWNED: a whole-floor hour moving is a systems or roster event, never LRM
+     behaviour. The single most expensive correction in the calling analysis was
+     an inbound collapse hypothesised as agents not being Ready, which turned out
+     to be routing configuration — 61 agents were Ready on average at the moment
+     of a drop. A panel that surfaces a break without naming the owner gets it
+     solved by hiring. */
+  var breakNote = '';
+  if (M.key === 'dials' && d.env) {
+    var brk = [];
+    d.env.shape.forEach(function (sh, i) {
+      if (sh === 'spike' || sh === 'collapse') brk.push(('0' + d.hours[i]).slice(-2) + ':00 ' + sh);
+    });
+    breakNote = brk.length
+      ? '<div class="fh-foot" style="color:#b0382c;font-weight:700">Shape break — ' + esc(brk.join(', '))
+        + ' <span style="font-weight:400;color:var(--muted)">· systems / roster, not LRM behaviour</span></div>'
+      : '<div class="fh-foot">Shape within the expected band all day.</div>';
+  }
   return '<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px 4px;background:var(--surface)">'
     + '<div class="fh-hd"><h4>' + esc(M.label) + '</h4>'
     + '<span class="fh-note"><b style="color:' + (pct >= 100 ? 'var(--green)' : 'var(--red)') + '">' + fmt(Math.round(tot)) + (M.suffix || '') + '</b>'
     + ' so far &middot; ' + pct + '% of pace</span></div>'
-    + distTrendSvg(M, d) + '</div>';
+    + distTrendSvg(M, d) + breakNote + '</div>';
 }
 function distDrawTrend() {
   var host = document.getElementById('distTrend');
@@ -535,7 +672,8 @@ function distDrawTrend() {
   if (sub) sub.innerHTML = fmt(d.lrms) + ' LRMs in view'
     + (d.curDay ? ' &middot; <b>' + esc(distTrendDay(d.curDay)) + '</b>' : '')
     + (d.prevDay ? ' vs <b>' + esc(distTrendDay(d.prevDay)) + '</b> (dashed grey)'
-                 : ' &middot; widen the date filter to get a comparison day');
+                 : ' &middot; widen the date filter to get a comparison day')
+    + (d.env ? ' &middot; grey band = expected shape' : '');
   if (!d.curDay) {
     host.innerHTML = '<div class="fb-sub" style="text-align:center;padding:18px">No hourly calling feed in this range.</div>';
     return;
@@ -564,7 +702,12 @@ function renderHourlyBoard() {
     +     '<b>Solid</b> = the latest day in range, drawn only to the elapsed hour &mdash; an hour not yet '
     +     'reached is left open, never drawn as a zero. <b>Dashed grey</b> = the previous day in range, same hours. '
     +     '<b>Red</b> = pace (' + DIST_TARGET.dialsPerHour + ' dials / ' + DIST_TARGET.talkMinPerHour
-    +     ' talk-min per LRM per hour &times; LRMs in view).</div>'
+    +     ' talk-min per LRM per hour &times; LRMs in view). '
+    +     '<b>Grey band</b> (dials only) = where the hour should sit, from the four preceding '
+    +     'same weekdays &mdash; held as a <i>share of the day</i>, not a call count, because the floor '
+    +     'has roughly tripled since mid-August and an absolute baseline would measure the growth and '
+    +     'call it an incident. A ringed point broke the band; that is a systems or roster event, '
+    +     'not LRM behaviour. Hours with fewer than four comparable weekdays are left open.</div>'
     +   '</div>'
     + '</div>';
   }

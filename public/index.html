@@ -288,6 +288,15 @@
        view selector and the callout are shrinkable items, so a short viewport
        squashes the selector to half height and the callout draws over it. */
     .act-head, .dist-lvl, .dist-lead { flex: 0 0 auto; }
+    /* ONE SCROLLER FOR THE WHOLE ACTION CENTER (15 Sep 2026). The panel is a
+       fixed-height flex column, and the break strip above the distribution has
+       no flex rule — so a tall strip ate the column and squeezed .dist-wrap to
+       nothing: the table was there, off the bottom, with no scrollbar. Now the
+       whole tab scrolls as one page and the table stops being an inner
+       scroll region (a nested scroller inside a squeezed box is the bug). */
+    .act-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+    .act-scroll .dist-wrap, .act-scroll .tbl-wrap { overflow: visible; flex: 0 0 auto; min-height: 0; }
+    .act-scroll > .fb-box { flex: 0 0 auto; }
     .dist-lvl { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
     .dist-lvl button { border: none; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 700; padding: 5px 14px; cursor: pointer; }
     .dist-lvl button:hover { color: var(--blue); }
@@ -614,7 +623,6 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabZSM">🧭 ZSM View</div>
   <div class="tab"        id="tabTL">🧑‍🤝‍🧑 TL View</div>
   <div class="tab"        id="tabAction">⚡ Action Center</div>
-  <div class="tab"        id="tabConn">📞 Connectivity</div>
   <div class="tab"        id="tabBehav">🎧 Calling Behaviour</div>
   <div class="tab"        id="tabHealth">🛠 Call Health</div>
   <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
@@ -652,7 +660,6 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="zsmPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="tlPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="actionPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
-  <div class="panel" id="connPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="behavPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="healthPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="speedPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
@@ -780,7 +787,6 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabZSM').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('zsm'); });
   document.getElementById('tabTL').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('tl'); });
   document.getElementById('tabAction').addEventListener('click', function(){ switchTab('action'); });
-  document.getElementById('tabConn').addEventListener('click', function(){ switchTab('conn'); });
   document.getElementById('tabBehav').addEventListener('click', function(){ switchTab('behav'); });
   document.getElementById('tabHealth').addEventListener('click', function(){ switchTab('health'); });
   document.getElementById('tabSpeed').addEventListener('click', function(){ switchTab('speed'); });
@@ -911,8 +917,8 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', conn:'tabConn', behav:'tabBehav', health:'tabHealth', speed:'tabSpeed' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', conn:'connPanel', behav:'behavPanel', health:'healthPanel', speed:'speedPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', behav:'tabBehav', health:'tabHealth', speed:'tabSpeed' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', behav:'behavPanel', health:'healthPanel', speed:'speedPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -933,7 +939,6 @@ var PANEL_RENDERERS = {
   zsm:     function(){ renderRollup('zsm'); },
   tl:      function(){ renderRollup('tl'); },
   action:  function(){ renderAction(); },
-  conn:    function(){ if(typeof renderConnectivity==='function') renderConnectivity(); },
   behav:   function(){ if(typeof renderBehaviour==='function') renderBehaviour(); },
   health:  function(){ if(typeof renderCallHealth==='function') renderCallHealth(); },
   speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); }
@@ -2088,7 +2093,7 @@ function renderAction(){
      export branches are left in place but unreachable — a one-line revert. */
   var isPer=false, isPlan=false;
   var head='<div class="act-head"><span class="act-note">Counts of LRMs below the bar — click any number for the names</span></div>';
-  panel.innerHTML=head+(typeof connBreakStrip==='function'?connBreakStrip():'')+renderDistribution(filterAgents());
+  panel.innerHTML=head+'<div class="act-scroll">'+(typeof connBreakStrip==='function'?connBreakStrip():'')+renderDistribution(filterAgents())+'</div>';
   if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
   panel.querySelectorAll('table.dist th[data-plan]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-plan'); planSort.dir=(planSort.col===k)?planSort.dir*-1:-1; planSort.col=k; renderAction(); }); });
   panel.querySelectorAll('.plan-basis button[data-planbasis]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); planBasis=btn.getAttribute('data-planbasis'); try{localStorage.setItem('lrmPlanBasis',planBasis);}catch(err){} renderAction(); }); });
@@ -2209,11 +2214,12 @@ function downloadPDF(){
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
-<script src="distribution.js?v=20260907b"></script>
+<script src="distribution.js?v=20260913d"></script>
 <script src="speed.js?v=20260913c"></script>
 <script src="msdriver.js?v=20260907a"></script>
 <script src="msplan.js?v=20260907b"></script>
-<script src="connectivity.js?v=20260913c"></script>
-<script src="callhealth.js?v=20260913c"></script>
+<script src="conncharts.js?v=20260913d"></script>
+<script src="connectivity.js?v=20260913d"></script>
+<script src="callhealth.js?v=20260913d"></script>
 </body>
 </html>

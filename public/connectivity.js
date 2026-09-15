@@ -35,6 +35,32 @@ var CONN_INK = '#18233f', CONN_MUTED = '#6b7590', CONN_RULE = '#eef1f7';
 var connLevel = (function () { try { return localStorage.getItem('lrmConnLevel') || 'tl'; } catch (e) { return 'tl'; } })();
 var connSort  = { col: 'shortfall', dir: 1 };   // worst shortfall first
 var behavSort = { col: 'earlyPct',  dir: -1 };
+/* Which measure the ranked-bar chart is drawing. The chart answers one
+   question; this switch is how the others are reached (13 Sep 2026). */
+var connMetric = (function () { try { return localStorage.getItem('lrmConnMetric') || 'index'; } catch (e) { return 'index'; } })();
+var behavMetric = (function () { try { return localStorage.getItem('lrmBehavMetric') || 'earlyPct'; } catch (e) { return 'earlyPct'; } })();
+var CONN_METRICS = {
+  index:     { label: 'Index', baseline: 100, baselineLabel: '100 = par', suffix: '',
+               sub: 'Connects &divide; expected connects &times; 100, depth-adjusted. <b>100 is par for the lead mix that caller actually worked</b> &mdash; so this ranks, and Conn % gives the absolute level.' },
+  shortfall: { label: 'Shortfall', signed: true, suffix: '',
+               sub: 'Actual minus expected connects, in <b>conversations</b> &mdash; the same statement as the index but in a unit that adds up across a team.' },
+  connPct:   { label: 'Conn %', suffix: '%',
+               sub: 'The absolute level, unadjusted. Read it beside the index, never instead of it: the index is estate-relative and reads ~100 if the whole floor degrades together.' },
+  realPct:   { label: 'Real conv %', suffix: '%',
+               sub: 'Share of dials that became 15 seconds or more of talking. A connect that ends in four seconds is not a conversation.' }
+};
+var BEHAV_METRICS = {
+  earlyPct:  { label: 'Early hang-up %', suffix: '%', badAt: 35, goodHigh: false,
+               sub: 'Share of dials the caller cut before 20 seconds of ringing. The median customer who answers takes 13s, and 40.5% of successful conversations start after 15s.' },
+  shortPct:  { label: 'Short connect %', suffix: '%', badAt: 25, goodHigh: false,
+               sub: 'Answered, then ended inside 15 seconds, as a share of that caller&rsquo;s own connects. Unlike ring-time patience this has no lead-quality defence: the customer picked up.' },
+  medPatience: { label: 'Seconds waited', suffix: 's',
+               sub: 'Median wait before the caller hangs up. Under about 20 seconds sits inside the window where customers do still answer.' },
+  overCalls: { label: 'Calls beyond cap', suffix: '', goodHigh: false, badAt: 1,
+               sub: 'Dials beyond 3 per customer per day. Ozonetel has already offered a campaign-level daily limit per number &mdash; it is free and would cap this at the queue.' },
+  realPerDay:{ label: 'Conversations / day', suffix: '',
+               sub: 'Real conversations per working day &mdash; the output the rest of this tab is trying to protect.' }
+};
 
 /* Attempt bands, in the order they must always be drawn. The floor-wide answer
    rate per band is the model's expectation; these are the measured 1–10 Sep
@@ -357,6 +383,33 @@ function connStrip(rows) {
   ]);
 }
 
+/* The ranked-bar chart behind the Connectivity tab. Sorted worst-first on the
+   metric in view, so the top row is always where the next conversation is. */
+var connLastTable = '';
+function connChart(rows) {
+  var M = CONN_METRICS[connMetric] || CONN_METRICS.index;
+  var groups = connGroups(rows, connLevel).filter(function (b) { return b.calls > 0; });
+  var items = groups.map(function (b) {
+    var v = b[connMetric];
+    return {
+      label: b.name, value: v === null ? 0 : v, faint: v === null,
+      sub: fmt(b.calls) + ' dials · ' + b.lrms + (b.lrms === 1 ? ' LRM' : ' LRMs')
+    };
+  }).sort(function (a, b) { return a.value - b.value; });
+  if (connMetric === 'connPct' || connMetric === 'realPct') {
+    // A rate needs its floor mean as the reference, or "26%" reads as a verdict
+    // when it may be the estate norm.
+    var tot = connGroups(rows, 'overall')[0];
+    M = Object.assign({}, M, { baseline: tot ? Math.round(tot[connMetric] * 10) / 10 : undefined,
+                               baselineLabel: 'floor ' + (tot ? tot[connMetric].toFixed(1) : '') + '%' });
+  }
+  return ccRankedBars(items, {
+    baseline: M.baseline, baselineLabel: M.baselineLabel, signed: M.signed,
+    suffix: M.suffix, goodHigh: true, aria: M.label + ' by ' + connLevel,
+    fmt: function (v) { return (M.suffix === '' && Math.abs(v) >= 10 ? fmt(Math.round(v)) : (Math.round(v * 10) / 10)) + M.suffix; }
+  });
+}
+
 function connTable(rows) {
   var level = connLevel;
   var groups = connGroups(rows, level);
@@ -423,34 +476,41 @@ function renderConnectivity() {
   panel.innerHTML = connStack(
       connStrip(rows)
     + connFloorCard()
-    + '<div class="fb-box">'
-    +   '<div class="fh-hd"><h4>Depth-adjusted connectivity</h4>'
-    +     '<span class="fh-note">' + connGrainNote()
-    +     (baselineDays ? ' &middot; ' + baselineDays + '-day baseline' : '') + '</span></div>'
-    +   '<div class="fb-sub" style="margin:-4px 0 10px">Index = connects &divide; expected connects &times; 100, '
-    +     'where expected sums the floor&rsquo;s answer rate for each attempt-depth band. '
-    +     '<b>100 is par for the lead mix that caller actually worked.</b> Shortfall is the same thing in '
-    +     'conversations, so it adds up across a team.</div>'
-    +   '<div class="dist-lvl">' + levels.map(function (l) {
-          return '<button data-connlvl="' + l[0] + '" class="' + (connLevel === l[0] ? 'on' : '') + '">' + l[1] + '</button>';
-        }).join('') + '</div>'
-    +   connTable(rows)
-    +   '<div class="fb-hrnote">Click a column to sort; worst shortfall leads by default. '
-    +     '<b>Read Conn % beside the index, never instead of it</b> &mdash; the index is estate-relative, so if the '
-    +     'whole floor degrades together it still reads ~100 and sees nothing. <b>Depth mix</b> is the '
-    +     'lead-supply signal, not a performance one: fresh share fell 71.5% to 19.2% across 1&ndash;10 Sep while '
-    +     'volume rose 54%, and headline connectivity fell 4.0pp over the same period while within-bucket '
-    +     'execution improved 3.8pp. Attempt depth is bounded by the card&rsquo;s 90-day lookback, and ~20% of dial '
-    +     'volume sits on numbers first dialled before it &mdash; those read shallower than reality, so their '
-    +     'expected connects are overstated and the shortfall is pessimistic. Ranking is unaffected.</div>'
-    + '</div>'
+    + ccCard({
+        title: 'Depth-adjusted connectivity',
+        note: connGrainNote() + (baselineDays ? ' &middot; ' + baselineDays + '-day baseline' : ''),
+        sub: CONN_METRICS[connMetric].sub,
+        table: true, tableLabel: 'View table',
+        seg: '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+           + ccSeg('data-connlvl', levels, connLevel)
+           + ccSeg('data-connmet', Object.keys(CONN_METRICS).map(function (k) { return [k, CONN_METRICS[k].label]; }), connMetric)
+           + '</div>',
+        body: connChart(rows),
+        foot: 'Bars are ranked worst first, so the top of the chart is where a conversation goes. '
+            + '<b>Depth mix</b> is the lead-supply signal, not a performance one: fresh share fell 71.5% to 19.2% '
+            + 'across 1&ndash;10 Sep while volume rose 54%, and headline connectivity fell 4.0pp over the same '
+            + 'period while within-bucket execution improved 3.8pp. Attempt depth is bounded by the card&rsquo;s '
+            + '90-day lookback, and ~20% of dial volume sits on numbers first dialled before it &mdash; those read '
+            + 'shallower than reality, so their expected connects are overstated and the shortfall is pessimistic. '
+            + 'Ranking is unaffected. The full table is one click away.'
+      })
     + connDepthCard(rows));
+  connLastTable = connTable(rows);
+  ccWireTables(panel, 'Depth-adjusted connectivity · full table', connLastTable);
 
   panel.querySelectorAll('.dist-lvl button[data-connlvl]').forEach(function (btn) {
     btn.addEventListener('click', function (e) {
       e.stopPropagation();
       connLevel = btn.getAttribute('data-connlvl');
       try { localStorage.setItem('lrmConnLevel', connLevel); } catch (err) {}
+      renderConnectivity();
+    });
+  });
+  panel.querySelectorAll('.dist-lvl button[data-connmet]').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      connMetric = btn.getAttribute('data-connmet');
+      try { localStorage.setItem('lrmConnMetric', connMetric); } catch (err) {}
       renderConnectivity();
     });
   });
@@ -538,6 +598,70 @@ function behavStrip(rows) {
    systematically worsen through the day, which is what makes this a DISCIPLINE
    curve rather than a supply artefact — and 09:00 is the best hour on every
    measure while carrying only ~2.3% of volume. */
+/* The hour curve as a SMOOTH LINE (13 Sep 2026): dials as an area on the left
+   axis, connectivity and early hang-ups as lines on the right. 09:00-21:00 —
+   the floor works outside the old 10-19 window and cutting the axis there hid
+   real dialling. An hour that has not happened is a GAP, not a zero. */
+function behavHourChart() {
+  if (!D.connHas || !D.connHas.hourly) return '';
+  var byHour = {};
+  (D.connHourly || []).forEach(function (r) {
+    var hr = parseInt(String(r['Hour'] || '').slice(0, 2), 10);
+    if (isNaN(hr)) return;
+    var notYet = String(r['Status'] || '') === 'not yet';
+    var b = byHour[hr] || (byHour[hr] = { calls: 0, conn: 0, early: 0, days: 0, notYet: true });
+    if (notYet) return;
+    b.notYet = false;
+    var calls = Number(r['Calls']) || 0;
+    b.calls += calls;
+    b.conn  += calls * (Number(r['Connect %']) || 0) / 100;
+    b.early += calls * (Number(r['Early Hangup %']) || 0) / 100;
+    b.days++;
+  });
+  /* 09:00-21:00 means the hour BUCKETS 09 through 20 \u2014 the 20:00 bucket ends at
+     21:00. A 21 bucket would be the hour AFTER 9pm and reads as a permanently
+     empty column. Same derivation as DIST_HOURS on the Floor Board. */
+  var hrs = [];
+  for (var h = 9; h <= 20; h++) hrs.push(h);
+  var labels = hrs.map(function (x) { return ('0' + x).slice(-2); });
+  var dials = [], connPct = [], earlyPct = [];
+  var any = false;
+  hrs.forEach(function (x) {
+    var b = byHour[x];
+    if (!b || b.notYet || !b.calls) { dials.push(null); connPct.push(null); earlyPct.push(null); return; }
+    any = true;
+    dials.push(Math.round(b.calls));
+    connPct.push(Math.round(b.conn / b.calls * 1000) / 10);
+    earlyPct.push(Math.round(b.early / b.calls * 1000) / 10);
+  });
+  if (!any) return '';
+  return ccSmoothLines(labels, [
+    { name: 'Dials', values: dials, ink: CC_BLUE, area: 'rgba(35,72,168,.10)' },
+    { name: 'Connectivity %', values: connPct, ink: CC_GREEN, axis: 'right' },
+    { name: 'Early hang-up %', values: earlyPct, ink: CC_RED, axis: 'right', dash: '5 4' }
+  ], { aria: 'connectivity and early hang-ups by hour', height: 256 });
+}
+
+/* Ranked bars per LRM for the conduct measure in view. */
+function behavChart(rows) {
+  var M = BEHAV_METRICS[behavMetric] || BEHAV_METRICS.earlyPct;
+  var items = rows.filter(function (a) { return a.calls >= 100; }).map(function (a) {
+    var v = a[behavMetric];
+    return { label: agentName(a.email), value: v === null ? 0 : v, faint: v === null,
+             sub: String(a.row['TL Name'] || '') + ' · ' + fmt(a.calls) + ' dials' };
+  });
+  var worstFirst = M.goodHigh === false;
+  items.sort(function (a, b) { return worstFirst ? b.value - a.value : a.value - b.value; });
+  items = items.slice(0, 18);
+  var mean = rows.length ? rows.reduce(function (s, a) { return s + (Number(a[behavMetric]) || 0); }, 0) / rows.length : 0;
+  return ccRankedBars(items, {
+    suffix: M.suffix, goodHigh: M.goodHigh !== false, badAt: M.badAt,
+    baseline: Math.round(mean * 10) / 10, baselineLabel: 'floor ' + (Math.round(mean * 10) / 10) + M.suffix,
+    labelW: 172, aria: M.label + ' per LRM',
+    fmt: function (v) { return (M.suffix === '' ? fmt(Math.round(v)) : (Math.round(v * 10) / 10)) + M.suffix; }
+  });
+}
+
 function behavHourCard() {
   if (!D.connHas || !D.connHas.hourly) return '';
   var byHour = {}, hasReal = false;
@@ -737,22 +861,50 @@ function renderBehaviour() {
       + 'No rows for the current filter and date range.</div></div>');
     return;
   }
+  window.__ccBehavHour = behavHourCard();
+  window.__ccBehavTable = behavTable(rows);
+  var hourChart = behavHourChart();
   panel.innerHTML = connStack(
       behavStrip(rows)
-    + behavHourCard()
+    + (hourChart ? ccCard({
+        title: 'The hour curve &mdash; discipline through the day',
+        note: (connIsLive() ? 'today, live' : esc(D.dateLabel || '')) + ' &middot; floor-wide, unfiltered',
+        sub: 'Dials as the shaded area, connectivity and early hang-ups as lines on the right axis. '
+           + 'Connectivity falls and early hang-ups climb as the day goes on — that is the point of the card. '
+           + '09:00&ndash;21:00; an hour that has not happened is left open, never drawn as a zero.',
+        table: true, tableLabel: 'View hourly table', tableSrc: '__ccBehavHour',
+        tableTitle: 'Hour by hour · full table',
+        body: hourChart,
+        foot: 'The climb is monotonic and the lead mix does not systematically worsen through the day, so this is '
+            + 'discipline, not supply. The early hours are the best on every measure and carry the least volume '
+            + '&mdash; moving ~500 dials from the evening into 09:00 is worth roughly 60 extra conversations a day '
+            + 'at no cost.'
+      }) : behavHourCard())
     + behavNamed(rows)
-    + '<div class="fb-box">'
-    +   '<div class="fh-hd"><h4>Per LRM</h4><span class="fh-note">' + rows.length + ' LRMs &middot; click a column to sort</span></div>'
-    +   '<div class="fb-sub" style="margin:-4px 0 10px">Behaviour is a stable individual trait: within-agent '
-    +     'day-to-day variation in early hang-up rate is about 6.7 percentage points, so these figures are '
-    +     'characteristic of the person, not of the day.</div>'
-    +   behavTable(rows)
-    +   '<div class="fb-hrnote"><b>Patience</b> is the median wait before the agent hangs up; the median customer '
-    +     'who answers takes 13s, and 40.5% of successful conversations start after 15s, so cutting before 20s '
-    +     'lands inside the window where customers do answer. <b>Ozonetel only</b> &mdash; Exotel runs in parallel, '
-    +     'so every per-person count here is a partial record and must be merged before it touches an appraisal.</div>'
-    + '</div>');
+    + ccCard({
+        title: 'Per LRM',
+        note: rows.length + ' LRMs',
+        sub: BEHAV_METRICS[behavMetric].sub,
+        table: true, tableLabel: 'View full table', tableSrc: '__ccBehavTable',
+        tableTitle: 'Calling behaviour per LRM · full table',
+        seg: ccSeg('data-behavmet', Object.keys(BEHAV_METRICS).map(function (k) { return [k, BEHAV_METRICS[k].label]; }), behavMetric),
+        body: behavChart(rows),
+        foot: 'Worst 18 shown, ranked, against the floor mean (dashed). Behaviour is a stable individual trait: '
+            + 'within-agent day-to-day variation in early hang-up rate is about 6.7 percentage points, so these '
+            + 'figures are characteristic of the person, not of the day. Under 100 dials in range is excluded — a '
+            + 'short day swings every rate. <b>Ozonetel only</b> &mdash; Exotel runs in parallel, so every '
+            + 'per-person count here is a partial record and must be merged before it touches an appraisal.'
+      }));
+  ccWireTables(panel, 'Calling behaviour · full table', window.__ccBehavTable);
 
+  panel.querySelectorAll('.dist-lvl button[data-behavmet]').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      behavMetric = btn.getAttribute('data-behavmet');
+      try { localStorage.setItem('lrmBehavMetric', behavMetric); } catch (err) {}
+      renderBehaviour();
+    });
+  });
   panel.querySelectorAll('table.dist th[data-behav]').forEach(function (th) {
     th.addEventListener('click', function () {
       var k = th.getAttribute('data-behav');
