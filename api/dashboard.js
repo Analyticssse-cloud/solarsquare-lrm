@@ -29,7 +29,10 @@ import { readLiveConnectivity } from './_connlive.js';
 import { cachedRead, anyStale } from './_sheetcache.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase().replace('@homes.solarsquare.in', '@solarsquare.in');
-const num  = (v) => Number(v) || 0;
+// Comma-tolerant: Metabase's CSV export formats values over 999 as '1,146.4', and a
+// bare Number() on that is NaN -> 0. That would read as a 00:00 check-in on 'First Call
+// Min' (i.e. the best possible start) for anyone whose first call is after 16:40.
+const num  = (v) => (typeof v === 'number' ? v : Number(String(v ?? '').replace(/,/g, ''))) || 0;
 
 /* LRMs suppressed from the ENTIRE dashboard (user, 5 Sep 2026).
    Applied at the two data entry points — the LRM_TL_MAP roster and the Ozontel daily
@@ -112,8 +115,16 @@ const SUM_COLS = [
   'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'MS >T+2', 'Meeting Done',
   'MS on Calls <1min', 'MS on Calls 1-2min', 'MS on Calls >2min', 'MS - No Tracked Call',
   'DS Today', 'DS T+1', 'DS T+2',
+  // v15 (EODR). 'Total Talk Time' above is TALK ONLY; this one is ring+talk+wrap and
+  // is therefore the LARGER number despite the humbler name. Ring/Wrap Filled are
+  // fill-rate witnesses — summed so the EODR tab can compare them to Connected Calls.
+  'Ring Time', 'Wrap Time', 'Total Time (T+R+W)', 'Ring Filled', 'Wrap Filled',
 ];
-const AVG_COLS = ['Avg. Talk Time', 'Avg. Handling Time'];
+// Averaged across the days the LRM actually has a row for, not the days in the range.
+// 'First Call Min' is the check-in proxy as minutes-since-midnight: a clock string
+// cannot be averaged over a 30-day window, so the SQL emits both and this averages
+// the number. The EODR tab formats it back to HH:MM.
+const AVG_COLS = ['Avg. Talk Time', 'Avg. Handling Time', 'First Call Min'];
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -562,6 +573,8 @@ export default async function handler(req, res) {
       'Agent Id', 'City', 'TL Name',
       'Call Count', 'Connected Calls',
       'Total Talk Time', 'Avg. Talk Time',
+      'First Call Min', 'Ring Time', 'Wrap Time', 'Total Time (T+R+W)',
+      'Ring Filled', 'Wrap Filled',
       'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'Meeting Done',
       'Calls <1min', 'Calls 1-2min', 'Calls >2min',
       'MS on Calls <1min', 'MS on Calls 1-2min', 'MS on Calls >2min', 'MS - No Tracked Call',
