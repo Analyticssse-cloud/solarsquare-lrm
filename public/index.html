@@ -183,6 +183,39 @@
     .ms-actions .ms-none { color: var(--red); }
     .ms-actions button:hover { background: var(--surface); }
 
+    /* ── EODR ──────────────────────────────────────────────────────────────
+       .panel is a flex ROW, so the three blocks live inside ONE scrolling
+       stack child; returning them as siblings lays them out side by side and
+       collapses the panel to the tallest. */
+    .eodr-stack { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 8px; }
+    .eodr-head { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--muted); }
+    .eodr-head b { color: var(--text); }
+    .eodr-btn { margin-left: auto; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; }
+    .eodr-btn:hover { background: var(--bg); border-color: var(--blue-mid); }
+    .eodr-btn:focus-visible { outline: 2px solid var(--blue-mid); outline-offset: 2px; }
+    .eodr-warn { background: rgba(255,184,28,0.12); border: 1px solid rgba(255,184,28,0.45); color: #7a5c00; padding: 6px 10px; border-radius: 4px; font-size: 11px; }
+    .eodr-box { flex: 0 0 auto; }
+    .eodr-box .fh-hd { display: flex; align-items: center; gap: 10px; }
+    .eodr-sub { padding: 0 0 6px; font-size: 11px; }
+    .eodr-foot { font-size: 10.5px; line-height: 1.45; color: var(--muted); padding-top: 6px; }
+    .eodr-pick { margin-left: auto; background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; max-width: 260px; }
+    .eodr-hdnote { margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--muted); text-align: right; max-width: 60%; }
+    .eodr-pick:focus-visible { outline: 2px solid var(--blue-mid); outline-offset: 1px; }
+    .eodr-tbl-wrap { overflow-x: auto; }
+    table.eodr-tbl { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+    table.eodr-tbl th, table.eodr-tbl td { border: 1px solid var(--border); padding: 4px 8px; }
+    table.eodr-tbl thead th { background: #fbf3dd; font-weight: 700; font-size: 11px; text-align: left; color: var(--text); }
+    table.eodr-tbl thead th span { float: right; font-weight: 600; color: var(--muted); font-size: 9.5px; }
+    table.eodr-tbl th.eodr-rowhd { width: 34%; background: #fbe8c0; }
+    table.eodr-tbl tbody th { text-align: left; font-weight: 600; font-style: italic; color: var(--text); background: var(--surface); }
+    table.eodr-tbl tbody th em { font-style: normal; font-weight: 700; color: var(--muted); font-size: 10px; float: right; }
+    table.eodr-tbl tbody th i { font-style: normal; display: block; font-weight: 400; color: var(--muted); font-size: 9.5px; }
+    table.eodr-tbl td { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    table.eodr-tbl td.eodr-hit  { background: rgba(26,158,92,0.13);  color: #0f6b3c; }
+    table.eodr-tbl td.eodr-near { background: rgba(255,184,28,0.16); color: #7a5c00; }
+    table.eodr-tbl td.eodr-miss { background: rgba(217,48,37,0.10);  color: #a52318; }
+    table.eodr-tbl td.eodr-na   { color: var(--muted); font-weight: 400; background: repeating-linear-gradient(135deg, transparent 0 5px, rgba(106,116,148,0.08) 5px 10px); }
+
     .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
     .tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }
     table  { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -623,6 +656,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabZSM">🧭 ZSM View</div>
   <div class="tab"        id="tabTL">🧑‍🤝‍🧑 TL View</div>
   <div class="tab"        id="tabAction">⚡ Action Center</div>
+  <div class="tab"        id="tabEODR">📋 EODR</div>
   <div class="tab"        id="tabBehav">🎧 Calling Behaviour</div>
   <div class="tab"        id="tabHealth">🛠 Call Health</div>
   <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
@@ -660,6 +694,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="zsmPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="tlPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="actionPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="eodrPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="behavPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="healthPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="speedPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
@@ -787,6 +822,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabZSM').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('zsm'); });
   document.getElementById('tabTL').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('tl'); });
   document.getElementById('tabAction').addEventListener('click', function(){ switchTab('action'); });
+  document.getElementById('tabEODR').addEventListener('click', function(){ switchTab('eodr'); });
   document.getElementById('tabBehav').addEventListener('click', function(){ switchTab('behav'); });
   document.getElementById('tabHealth').addEventListener('click', function(){ switchTab('health'); });
   document.getElementById('tabSpeed').addEventListener('click', function(){ switchTab('speed'); });
@@ -917,8 +953,8 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', behav:'tabBehav', health:'tabHealth', speed:'tabSpeed' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', behav:'behavPanel', health:'healthPanel', speed:'speedPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', behav:'tabBehav', health:'tabHealth', speed:'tabSpeed' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', behav:'behavPanel', health:'healthPanel', speed:'speedPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -939,6 +975,7 @@ var PANEL_RENDERERS = {
   zsm:     function(){ renderRollup('zsm'); },
   tl:      function(){ renderRollup('tl'); },
   action:  function(){ renderAction(); },
+  eodr:    function(){ if(typeof renderEODR==='function') renderEODR(); },
   behav:   function(){ if(typeof renderBehaviour==='function') renderBehaviour(); },
   health:  function(){ if(typeof renderCallHealth==='function') renderCallHealth(); },
   speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); }
@@ -2221,5 +2258,6 @@ function downloadPDF(){
 <script src="conncharts.js?v=20260913d"></script>
 <script src="connectivity.js?v=20260913d"></script>
 <script src="callhealth.js?v=20260913d"></script>
+<script src="eodr.js?v=20260915b"></script>
 </body>
 </html>
