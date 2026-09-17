@@ -194,27 +194,123 @@
     .eodr-btn:hover { background: var(--bg); border-color: var(--blue-mid); }
     .eodr-btn:focus-visible { outline: 2px solid var(--blue-mid); outline-offset: 2px; }
     .eodr-warn { background: rgba(255,184,28,0.12); border: 1px solid rgba(255,184,28,0.45); color: #7a5c00; padding: 6px 10px; border-radius: 4px; font-size: 11px; }
-    .eodr-box { flex: 0 0 auto; }
-    .eodr-box .fh-hd { display: flex; align-items: center; gap: 10px; }
-    .eodr-sub { padding: 0 0 6px; font-size: 11px; }
-    .eodr-foot { font-size: 10.5px; line-height: 1.45; color: var(--muted); padding-top: 6px; }
+    /* The card is a blueprint object with fixed column widths: the metric column
+       is 230px and each window 80px, so the table stops stretching to the screen
+       width. The per-day baseline has its own column instead of being floated
+       into the row label, which is what used to force a 34% label column. */
+    .eodr-box { flex: 0 0 auto; align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; width: max-content; max-width: 100%; box-shadow: 0 1px 2px rgba(24,35,63,0.05); }
+    .eodr-box .fh-hd { display: flex; align-items: baseline; gap: 12px; margin: 0; padding: 11px 16px 10px; border-bottom: 1px solid var(--border); }
+    .eodr-box .fh-hd h4 { font-size: 12.5px; letter-spacing: 0.4px; color: var(--text); }
+    .eodr-mode { font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--blue-mid); background: var(--blue-soft); border: 1px solid #dbe3f7; border-radius: 3px; padding: 2px 7px; }
+    /* THE CARD'S WIDTH MUST COME FROM THE TABLE, NOT THE PROSE. .eodr-box is
+       width:max-content, and a footnote with a ch-based max-width was the widest
+       child, so the card sized to the paragraph (839px) and left the 614px table
+       floating in whitespace. width:0 removes these blocks from the max-content
+       calculation; min-width:100% then stretches them to the card the table set. */
+    .eodr-sub { padding: 8px 16px 0; font-size: 11px; width: 0; min-width: 100%; }
+    .eodr-foot { font-size: 10.5px; line-height: 1.5; color: var(--muted); padding: 9px 16px 12px; border-top: 1px solid var(--border); width: 0; min-width: 100%; }
+    .eodr-legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 10px; color: var(--muted); width: 0; min-width: 100%; }
+    .eodr-legend i { font-style: normal; display: inline-flex; align-items: center; gap: 5px; }
+    .eodr-legend i::before { content: ''; width: 9px; height: 9px; border-radius: 2px; }
+    .eodr-legend i.lg-hit::before  { background: rgba(26,158,92,0.35); }
+    .eodr-legend i.lg-near::before { background: rgba(255,184,28,0.45); }
+    .eodr-legend i.lg-miss::before { background: rgba(217,48,37,0.30); }
+    .eodr-legend span { margin-left: auto; }
     .eodr-pick { margin-left: auto; background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; max-width: 260px; }
-    .eodr-hdnote { margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--muted); text-align: right; max-width: 60%; }
+    .eodr-hdnote { margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--muted); text-align: right; max-width: 46ch; }
     .eodr-pick:focus-visible { outline: 2px solid var(--blue-mid); outline-offset: 1px; }
     .eodr-tbl-wrap { overflow-x: auto; }
-    table.eodr-tbl { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
-    table.eodr-tbl th, table.eodr-tbl td { border: 1px solid var(--border); padding: 4px 8px; }
-    table.eodr-tbl thead th { background: #fbf3dd; font-weight: 700; font-size: 11px; text-align: left; color: var(--text); }
-    table.eodr-tbl thead th span { float: right; font-weight: 600; color: var(--muted); font-size: 9.5px; }
-    table.eodr-tbl th.eodr-rowhd { width: 34%; background: #fbe8c0; }
-    table.eodr-tbl tbody th { text-align: left; font-weight: 600; font-style: italic; color: var(--text); background: var(--surface); }
-    table.eodr-tbl tbody th em { font-style: normal; font-weight: 700; color: var(--muted); font-size: 10px; float: right; }
-    table.eodr-tbl tbody th i { font-style: normal; display: block; font-weight: 400; color: var(--muted); font-size: 9.5px; }
-    table.eodr-tbl td { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-    table.eodr-tbl td.eodr-hit  { background: rgba(26,158,92,0.13);  color: #0f6b3c; }
-    table.eodr-tbl td.eodr-near { background: rgba(255,184,28,0.16); color: #7a5c00; }
-    table.eodr-tbl td.eodr-miss { background: rgba(217,48,37,0.10);  color: #a52318; }
-    table.eodr-tbl td.eodr-na   { color: var(--muted); font-weight: 400; background: repeating-linear-gradient(135deg, transparent 0 5px, rgba(106,116,148,0.08) 5px 10px); }
+    table.eodr-tbl { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: auto; font-size: 12px; }
+    table.eodr-tbl col.c-metric { width: 230px; }
+    table.eodr-tbl col.c-target { width: 64px; }
+    table.eodr-tbl col.c-win { width: 80px; }
+    table.eodr-tbl thead th { padding: 7px 10px 6px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--muted); text-align: right; vertical-align: bottom; border-bottom: 1px solid #cfd8ee; white-space: nowrap; background: none; }
+    table.eodr-tbl thead th.eodr-rowhd { text-align: left; }
+    table.eodr-tbl thead th span { display: block; font-size: 9px; font-weight: 600; letter-spacing: 0.2px; text-transform: none; color: #98a1bd; margin-top: 2px; }
+    table.eodr-tbl thead th.is-now { color: var(--blue); border-bottom: 2px solid var(--blue); }
+    table.eodr-tbl thead th.is-now span { color: var(--blue-mid); }
+    table.eodr-tbl tbody th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--text); padding: 6px 10px; border-bottom: 1px solid var(--border); border-left: 3px solid transparent; }
+    table.eodr-tbl tbody th i { font-style: normal; display: block; font-weight: 400; color: var(--muted); font-size: 9.5px; margin-top: 1px; }
+    table.eodr-tbl tbody th.s-hit  { border-left-color: var(--green); }
+    table.eodr-tbl tbody th.s-near { border-left-color: var(--gold); }
+    table.eodr-tbl tbody th.s-miss { border-left-color: var(--red); }
+    table.eodr-tbl td { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    table.eodr-tbl td.eodr-tgt { color: var(--muted); font-weight: 600; font-size: 10.5px; }
+    table.eodr-tbl tbody tr:hover th, table.eodr-tbl tbody tr:hover td { background: #fafbfe; }
+    table.eodr-tbl td.eodr-hit  { color: #0f6b3c; }
+    table.eodr-tbl td.eodr-near { color: #7a5c00; }
+    table.eodr-tbl td.eodr-miss { color: #a52318; }
+    table.eodr-tbl td.eodr-na   { color: #a8b0c8; font-weight: 400; }
+    /* Today is the emphasised column: a chip fill carries the status, the other
+       three windows carry it as a coloured figure only. */
+    table.eodr-tbl td.is-now { font-weight: 700; font-size: 12.5px; background: #fcfdff; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+    table.eodr-tbl td.is-now b { display: inline-block; min-width: 100%; border-radius: 3px; padding: 1px 6px; margin: -1px -6px; font-weight: 700; }
+    table.eodr-tbl td.is-now.eodr-hit b  { background: rgba(26,158,92,0.12); }
+    table.eodr-tbl td.is-now.eodr-near b { background: rgba(255,184,28,0.18); }
+    table.eodr-tbl td.is-now.eodr-miss b { background: rgba(217,48,37,0.10); }
+    table.eodr-tbl tr.eodr-grp th { background: var(--blue-soft); color: var(--blue); font-size: 9px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; padding: 5px 10px 4px; border-bottom: 1px solid #dbe3f7; border-left: 3px solid transparent; }
+    table.eodr-tbl tr.eodr-grp td { background: var(--blue-soft); border-bottom: 1px solid #dbe3f7; }
+    table.eodr-tbl tbody tr.eodr-grp:hover th, table.eodr-tbl tbody tr.eodr-grp:hover td { background: var(--blue-soft); }
+    table.eodr-tbl tbody tr:last-child th, table.eodr-tbl tbody tr:last-child td { border-bottom: none; }
+
+    /* ── CEO table layer (17 Sep 2026) ─────────────────────────────────────
+       ONE treatment for every data table: columns hug their content, a light
+       header band with navy uppercase labels replaces the solid navy bar and
+       the pastel dist heads, figures are right-aligned and tabular, rules are
+       hairlines, and status lives on the figure rather than the cell fill.
+       THE GUARD CHAIN IS ON EVERY SELECTOR, NOT JUST THE FIRST. A bare
+       `tbody td` rule scores (0,1,3) and outranks `table.fb-lb td` (0,1,2), so
+       an unguarded rule silently restyles the Floor Board and the Top/Bottom
+       performer cards — the two families the user excluded. `table.mtd` is
+       rendered as class="dist mtd" (distribution.js), so every table.dist rule
+       needs :not(.mtd) as well. .eodr-tbl is excluded because it carries its
+       own fixed geometry above. */
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) { width: max-content; min-width: 100%; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) thead tr { background: #f5f7fc; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) thead th { background: #f5f7fc; color: var(--blue); font-size: 9.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; padding: 7px 11px; border-bottom: 1px solid #cfd8ee; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) thead th:hover { background: #e7ecf9; color: var(--blue-dk); }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) thead th.sort-asc::after,
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) thead th.sort-desc::after { color: var(--blue-mid); }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) thead th.num { text-align: right; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) tbody tr { border-bottom: 1px solid #eef1f7; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) tbody td { padding: 6px 11px; font-variant-numeric: tabular-nums; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) tbody td.num { text-align: right; font-weight: 600; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) tbody tr:hover { background: #fafbfe; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) td.sep,
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) th.sep,
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) td.sl-sep,
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) th.sl-sep { border-left: 1px solid #e7ebf5; }
+    /* the name column stays put while the metrics scroll sideways */
+    .tbl-wrap table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) thead th:first-child,
+    .tbl-wrap table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) tbody td:first-child { position: sticky; left: 0; z-index: 3; box-shadow: 1px 0 0 var(--border); }
+    .tbl-wrap table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) tbody td:first-child { background: var(--surface); max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+    .tbl-wrap table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) tbody tr:hover td:first-child { background: #fafbfe; }
+    .tbl-wrap table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) thead th:first-child { z-index: 4; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) .cell-agent { color: var(--text); font-size: 11.5px; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) .cell-city { color: var(--muted); font-weight: 600; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) .badge { background: none; padding: 0; font-weight: 700; font-size: 12px; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) .badge-high { color: #0f6b3c; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) .badge-mid  { color: #8a6400; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) .badge-low  { color: #a52318; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) .score-bar { display: none; }
+    table:not(.fb-lb):not(.mtd):not(.hl):not(.eodr-tbl) .score-num { font-size: 12px; color: var(--text); }
+    /* dist: one header ground; the g1/g2/g3 pastel column tints are replaced by
+       an uppercase band row (tr.grp), so column groups are named not colour-coded */
+    table.dist:not(.mtd) { border-radius: 6px; }
+    table.dist:not(.mtd) th,
+    table.dist:not(.mtd) th.g1, table.dist:not(.mtd) th.g2, table.dist:not(.mtd) th.g3 { background: #f5f7fc; color: var(--blue); font-weight: 700; font-size: 9.5px; letter-spacing: 0.6px; }
+    table.dist:not(.mtd) tr.grp th { background: var(--blue-soft); color: var(--blue); font-size: 9px; letter-spacing: 0.8px; border-bottom: 1px solid #dbe3f7; text-align: left; padding: 5px 10px; }
+    table.dist:not(.mtd) td { border-bottom: 1px solid #eef1f7; padding: 6px 10px; }
+    table.dist:not(.mtd) td.nm { color: var(--text); font-weight: 600; font-size: 11.5px; }
+    table.dist:not(.mtd) tr.dist-total td { background: #f4f7ff; font-weight: 700; border-top: 1px solid #cfd8ee; }
+    table.dist:not(.mtd) td.bad { font-weight: 700; color: #a52318; }
+    table.dist:not(.mtd) td.ok { color: #0f6b3c; }
+    /* speed grid: its group row becomes the band, which also fixes a contrast
+       defect — the row was muted grey text on the inherited navy head */
+    table.sl-grid thead tr { background: #f5f7fc; }
+    table.sl-grid thead th { color: var(--blue); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.6px; border-bottom: 1px solid #cfd8ee; }
+    table.sl-grid tr.sl-hgrp th { background: var(--blue-soft); color: var(--blue); font-size: 9px; letter-spacing: 0.8px; border-bottom: 1px solid #dbe3f7; }
+    table.sl-grid td { border-bottom: 1px solid #eef1f7; padding: 6px 9px; }
 
     .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
     .tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }
@@ -659,6 +755,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabEODR">📋 EODR</div>
   <div class="tab"        id="tabBehav">🎧 Calling Behaviour</div>
   <div class="tab"        id="tabHealth">🛠 Call Health</div>
+  <div class="tab"        id="tabInbound">📞 Inbound</div>
   <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
@@ -697,6 +794,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="eodrPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="behavPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="healthPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="inboundPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="speedPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
@@ -825,6 +923,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabEODR').addEventListener('click', function(){ switchTab('eodr'); });
   document.getElementById('tabBehav').addEventListener('click', function(){ switchTab('behav'); });
   document.getElementById('tabHealth').addEventListener('click', function(){ switchTab('health'); });
+  document.getElementById('tabInbound').addEventListener('click', function(){ switchTab('inbound'); });
   document.getElementById('tabSpeed').addEventListener('click', function(){ switchTab('speed'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
@@ -953,8 +1052,8 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', behav:'tabBehav', health:'tabHealth', speed:'tabSpeed' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', behav:'behavPanel', health:'healthPanel', speed:'speedPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', behav:'tabBehav', health:'tabHealth', inbound:'tabInbound', speed:'tabSpeed' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', behav:'behavPanel', health:'healthPanel', inbound:'inboundPanel', speed:'speedPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -978,6 +1077,7 @@ var PANEL_RENDERERS = {
   eodr:    function(){ if(typeof renderEODR==='function') renderEODR(); },
   behav:   function(){ if(typeof renderBehaviour==='function') renderBehaviour(); },
   health:  function(){ if(typeof renderCallHealth==='function') renderCallHealth(); },
+  inbound: function(){ if(typeof renderInbound==='function') renderInbound(); },
   speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); }
 };
 function renderActive() {
@@ -1875,10 +1975,11 @@ function renderCity() {
   var maxCalls=Math.max.apply(null,rows.map(function(r){return r.callsPerLRM||0;}))||1;
   var panel=document.getElementById('cityPanel');
   if(!rows.length){panel.innerHTML='<div class="empty">No cities match the current filters.</div>';return;}
+  var NUM=numCols(rows,CITY_COLS,function(c){return c.k;});
   var html='<div class="tbl-wrap"><table><thead><tr>';
-  CITY_COLS.forEach(function(c){ var cls=citySort.col===c.k?(citySort.dir===1?'sort-asc':'sort-desc'):''; html+='<th class="'+cls+'" data-sort="'+esc(c.k)+'">'+c.l+'</th>'; });
+  CITY_COLS.forEach(function(c){ var cls=(citySort.col===c.k?(citySort.dir===1?'sort-asc':'sort-desc'):'')+(NUM[c.k]?' num':''); html+='<th class="'+cls+'" data-sort="'+esc(c.k)+'">'+c.l+'</th>'; });
   html+='</tr></thead><tbody>';
-  rows.forEach(function(r){ html+='<tr>'; CITY_COLS.forEach(function(c){html+='<td>'+cityCell(c.k,r[c.k],maxCalls)+'</td>';}); html+='</tr>'; });
+  rows.forEach(function(r){ html+='<tr>'; CITY_COLS.forEach(function(c){html+='<td'+numAttr(NUM,c.k)+'>'+cityCell(c.k,r[c.k],maxCalls)+'</td>';}); html+='</tr>'; });
   panel.innerHTML=html+'</tbody></table></div>';
   panel.querySelectorAll('thead th').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-sort'); citySort.dir=(citySort.col===k)?citySort.dir*-1:-1; citySort.col=k; renderCity(); }); });
 }
@@ -1892,10 +1993,11 @@ function renderAgent() {
   var COLS=D.agentCols||[];
   var panel=document.getElementById('agentPanel');
   if(!rows.length){panel.innerHTML='<div class="empty">No LRMs match the current filters.</div>';return;}
+  var NUM=numCols(rows,COLS);
   var html='<div class="tbl-wrap"><table><thead><tr>';
-  COLS.forEach(function(c){ var cls=agentSort.col===c?(agentSort.dir===1?'sort-asc':'sort-desc'):''; html+='<th class="'+cls+'" data-sort="'+esc(c)+'">'+esc(colLabel(c))+'</th>'; });
+  COLS.forEach(function(c){ var cls=(agentSort.col===c?(agentSort.dir===1?'sort-asc':'sort-desc'):'')+(NUM[c]?' num':''); html+='<th class="'+cls+'" data-sort="'+esc(c)+'">'+esc(colLabel(c))+'</th>'; });
   html+='</tr></thead><tbody>';
-  rows.forEach(function(r){ html+='<tr>'; COLS.forEach(function(c){html+='<td>'+agentCell(c,r,maxScore)+'</td>';}); html+='</tr>'; });
+  rows.forEach(function(r){ html+='<tr>'; COLS.forEach(function(c){html+='<td'+numAttr(NUM,c)+'>'+agentCell(c,r,maxScore)+'</td>';}); html+='</tr>'; });
   panel.innerHTML=html+'</tbody></table></div>';
   panel.querySelectorAll('thead th').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-sort'); agentSort.dir=(agentSort.col===k)?agentSort.dir*-1:1; agentSort.col=k; renderAgent(); }); });
 }
@@ -1926,10 +2028,11 @@ function renderAcademy(){
   var COLS=academyCols();
   var panel=document.getElementById('academyPanel');
   if(!rows.length){panel.innerHTML='<div class="empty">No Training Academy LRMs match the current filters / date range.</div>';return;}
+  var NUM=numCols(rows,COLS);
   var html='<div class="tbl-wrap"><table><thead><tr>';
-  COLS.forEach(function(c){ var cls=academySort.col===c?(academySort.dir===1?'sort-asc':'sort-desc'):''; html+='<th class="'+cls+'" data-sort="'+esc(c)+'">'+esc(colLabel(c))+'</th>'; });
+  COLS.forEach(function(c){ var cls=(academySort.col===c?(academySort.dir===1?'sort-asc':'sort-desc'):'')+(NUM[c]?' num':''); html+='<th class="'+cls+'" data-sort="'+esc(c)+'">'+esc(colLabel(c))+'</th>'; });
   html+='</tr></thead><tbody>';
-  rows.forEach(function(r){ html+='<tr>'; COLS.forEach(function(c){html+='<td>'+academyCell(c,r,maxScore)+'</td>';}); html+='</tr>'; });
+  rows.forEach(function(r){ html+='<tr>'; COLS.forEach(function(c){html+='<td'+numAttr(NUM,c)+'>'+academyCell(c,r,maxScore)+'</td>';}); html+='</tr>'; });
   panel.innerHTML=html+'</tbody></table></div>';
   panel.querySelectorAll('thead th').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-sort'); academySort.dir=(academySort.col===k)?academySort.dir*-1:-1; academySort.col=k; renderAcademy(); }); });
 }
@@ -1938,6 +2041,18 @@ function academyCell(col,r,maxScore){
   return agentCell(col,r,maxScore);
 }
 
+/* Numeric cells get class="num" so the CEO table layer can right-align them.
+   Decided per COLUMN, not per cell: a column with one blank row must not have
+   half its figures left-aligned. A column counts as numeric when at least one
+   row parses as a number and no row carries non-numeric text. */
+function isNumVal(v){ if(v===undefined||v===null||v==='') return null;
+  var s=String(v).replace(/[,%\s]/g,''); return s!=='' && isFinite(Number(s)); }
+function numCols(rows,cols,keyOf){ var out={};
+  (cols||[]).forEach(function(c){ var k=keyOf?keyOf(c):c, any=false, bad=false;
+    (rows||[]).forEach(function(r){ var t=isNumVal(r[k]); if(t===true)any=true; else if(t===false)bad=true; });
+    out[k]=any&&!bad; });
+  return out; }
+function numAttr(map,k){ return map[k]?' class="num"':''; }
 function cityCell(k,v,maxCalls){
   if(k==='city')       return '<span class="cell-city">'+esc(String(v||''))+'</span>';
   if(k==='delta')      return deltaCell(v);
@@ -2258,6 +2373,7 @@ function downloadPDF(){
 <script src="conncharts.js?v=20260913d"></script>
 <script src="connectivity.js?v=20260913d"></script>
 <script src="callhealth.js?v=20260913d"></script>
+<script src="inbound.js?v=20260917a"></script>
 <script src="eodr.js?v=20260915b"></script>
 </body>
 </html>
