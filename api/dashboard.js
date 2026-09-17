@@ -893,10 +893,20 @@ export default async function handler(req, res) {
        Durations may arrive as hh:mm:ss text or as a number — NOT coerced here.
        The frontend parses both (dur() in inbound.js), because which one it is
        depends on the cell format and guessing wrong scales talk time by 60. */
-    const inboundPerf = await passThrough('Inbound_perf', {
+    const inboundPerfAll = await passThrough('Inbound_perf', {
       emailCol: ['LRM email', 'LRM Email', 'Agent Id'],
       numeric: ['Total Calls', 'Answered Calls', 'Connected %', 'Unanswered Calls',
                 'Unanswred Calls %', 'Unanswered Calls %', 'Customer Disconnect'],
+    });
+    /* DATE-SCOPED like every other view (user, 17 Sep). Without this the tab read
+       the whole tab's history against whatever day was picked, which looked like
+       inflation. rowDate() is the same parser the Ozontel rows use, so a Sheets
+       date cell and a yyyy-MM-dd string both land. Rows with no parseable date
+       are DROPPED rather than kept — an undated row cannot honour the picker,
+       and keeping it is what made the totals unexplainable. */
+    const inboundPerf = inboundPerfAll.filter(r => {
+      const d = rowDate(r['Date']);
+      return d && d >= effFrom && d <= effTo;
     });
 
     const useLive = !!String(process.env.CONN_SHEET_ID || '').trim();
