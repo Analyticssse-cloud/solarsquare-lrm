@@ -40,6 +40,7 @@ export const TTL = {
   'speed': 120000,
   'speed_leads': 120000,
   'LRM_TL_MAP': 600000,
+  'Inbound_perf': 75000,
   'MS Schedule Inventory': 300000,
   _default: 90000,
 };

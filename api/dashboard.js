@@ -875,6 +875,30 @@ export default async function handler(req, res) {
        dashboard request already spends six on the main sheet, and five
        speculative reads for tabs that do not exist is what tipped it over on
        13 Sep. Unset the env var and the legacy path returns unchanged. */
+    /* ── Inbound_perf (new tab in the Ozontel sheet, 17 Sep 2026) ────────────
+       PER-LRM PER-DAY inbound, a different grain from `inbound_route` (which is
+       floor-wide routing and has no agent column) — so it is a separate feed,
+       not a replacement, and it is NOT gated by CONN_SHEET_ID: it lives in the
+       main sheet and has nothing to do with the live connectivity file.
+
+       This is the first inbound feed that can carry talk time. Per the 4 Sep
+       finding, inbound talk only exists in the DB since Ozonetel fixed the
+       call-end leg, and per-agent coverage was uneven — so the view states
+       coverage rather than presenting talk as complete.
+
+       Header spellings are the sheet's own, typo included ('Unanswred Calls %');
+       findCol matches tolerantly, and the corrected spelling is listed too so a
+       later fix to the sheet does not blank the column.
+
+       Durations may arrive as hh:mm:ss text or as a number — NOT coerced here.
+       The frontend parses both (dur() in inbound.js), because which one it is
+       depends on the cell format and guessing wrong scales talk time by 60. */
+    const inboundPerf = await passThrough('Inbound_perf', {
+      emailCol: ['LRM email', 'LRM Email', 'Agent Id'],
+      numeric: ['Total Calls', 'Answered Calls', 'Connected %', 'Unanswered Calls',
+                'Unanswred Calls %', 'Unanswered Calls %', 'Customer Disconnect'],
+    });
+
     const useLive = !!String(process.env.CONN_SHEET_ID || '').trim();
     const [connDaily, connHourly, connAnomaly, didRows, inboundRows] = useLive
       ? [[], [], [], [], []]
@@ -962,11 +986,12 @@ export default async function handler(req, res) {
       rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
       totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows, hourlyHasMS,
       speedRows, speedLeads, speedHas, speedBuckets: SPEED_BUCKETS, msScheduleRows,
-      connDaily, connHourly, connAnomaly, didRows, inboundRows, connFloor,
+      connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, connFloor,
       connHas: {
         daily: connDaily.length > 0, hourly: connHourly.length > 0,
         anomaly: connAnomaly.length > 0, did: didRows.length > 0,
-        inbound: inboundRows.length > 0, floor: connFloor.length > 0,
+        inbound: inboundRows.length > 0, inboundPerf: inboundPerf.length > 0,
+        floor: connFloor.length > 0,
         source: connSource, today: todayISO, error: connError, diag: connDiag,
       },
       agentCols, agentRows: agentRowsSlim,
@@ -994,7 +1019,9 @@ function emptyPayload(from, to, viewerEmail) {
     cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [], hourlyHasMS: false,
     speedRows: [], speedLeads: [], speedHas: false, speedBuckets: [], msScheduleRows: [],
     connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
-    connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false },
+    inboundPerf: [],
+    connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false,
+               inboundPerf: false },
     agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
