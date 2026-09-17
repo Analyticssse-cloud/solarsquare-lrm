@@ -1846,6 +1846,47 @@ function tvRotate(){
   }, 20000);
 }
 
+/* ── Cascading filter options (17 Sep 2026) ────────────────────────────────
+   The five pickers used to list every value in the estate regardless of what
+   else was picked, so choosing an ADOS still offered ZSMs, TLs and LRMs from
+   outside their downline — five independent filters that only intersected at
+   the end. Now each picker's OPTIONS are computed from the agent roster
+   narrowed by every OTHER picker (classic cross-filter: a dimension never
+   narrows itself, or you could not widen your own selection again).
+   Selections live in F, not in the option list, so re-listing cannot drop a
+   pick — and because a dimension skips itself, a chosen value is always still
+   in its own list. */
+function fPassExcept(r, skip){
+  if(skip!=='ados'   && F.ados.length   && F.ados.indexOf(String(r['ADOS Name']||''))<0) return false;
+  if(skip!=='zsms'   && F.zsms.length   && F.zsms.indexOf(String(r['ZSM Name']||''))<0) return false;
+  if(skip!=='cities' && F.cities.length && F.cities.indexOf(String(r['City']||''))<0) return false;
+  if(skip!=='tls'    && F.tls.length    && F.tls.indexOf(String(r['TL Name']||''))<0) return false;
+  if(skip!=='agents' && F.agents.length && F.agents.indexOf(String(r['Agent Id']||''))<0) return false;
+  if(!fMatchQ(r)) return false;
+  return true;
+}
+function cascadeFilterOptions(){
+  if(!D || !MS || !MS.city) return;
+  var rowsFor=function(skip){ return (D.agentRows||[]).filter(function(r){ return fPassExcept(r,skip); }); };
+  var uniq=function(rows,key){
+    var seen={}, out=[];
+    rows.forEach(function(r){ var v=String(r[key]||'').trim(); if(v&&!seen[v]){seen[v]=1;out.push({value:v,label:v});} });
+    return out.sort(function(a,b){return a.label.localeCompare(b.label);});
+  };
+  MS.ados.setOptions(uniq(rowsFor('ados'),'ADOS Name'));
+  MS.zsm.setOptions(uniq(rowsFor('zsms'),'ZSM Name'));
+  MS.city.setOptions(uniq(rowsFor('cities'),'City'));
+  MS.tl.setOptions(uniq(rowsFor('tls'),'TL Name'));
+  var seenL={}, lrm=[];
+  rowsFor('agents').forEach(function(r){
+    var id=String(r['Agent Id']||'').trim();
+    if(!id||seenL[id]) return; seenL[id]=1;
+    lrm.push({value:id, label:r['LRM Name']||id, sub:r['City']||''});
+  });
+  MS.lrm.setOptions(lrm.sort(function(a,b){return a.label.localeCompare(b.label);}));
+}
+function onFilterChange(){ cascadeFilterOptions(); renderActive(); }
+
 function syncFilterBar() {
   var bar = document.getElementById('filterbar');
   if (!bar) return;
@@ -1866,23 +1907,21 @@ function buildFilterBar() {
 
   if (!MS.city) {
     MS.ados = new MultiSelect('msADOS', { unit:'ADOS', options:adosOpts,
-      get:function(){return F.ados;}, set:function(a){F.ados=a;}, onChange:renderActive });
+      get:function(){return F.ados;}, set:function(a){F.ados=a;}, onChange:onFilterChange });
     MS.zsm = new MultiSelect('msZSM', { unit:'ZSMs', options:zsmOpts,
-      get:function(){return F.zsms;}, set:function(a){F.zsms=a;}, onChange:renderActive });
+      get:function(){return F.zsms;}, set:function(a){F.zsms=a;}, onChange:onFilterChange });
     MS.city = new MultiSelect('msCity', { unit:'cities', options:cityOpts,
-      get:function(){return F.cities;}, set:function(a){F.cities=a;}, onChange:renderActive });
+      get:function(){return F.cities;}, set:function(a){F.cities=a;}, onChange:onFilterChange });
     MS.tl = new MultiSelect('msTL', { unit:'TLs', options:tlOpts,
-      get:function(){return F.tls;}, set:function(a){F.tls=a;}, onChange:renderActive });
+      get:function(){return F.tls;}, set:function(a){F.tls=a;}, onChange:onFilterChange });
     MS.lrm = new MultiSelect('msLRM', { unit:'LRMs', options:lrmOpts,
-      get:function(){return F.agents;}, set:function(a){F.agents=a;}, onChange:renderActive });
-  } else {
-    MS.ados.setOptions(adosOpts); MS.zsm.setOptions(zsmOpts);
-    MS.city.setOptions(cityOpts); MS.tl.setOptions(tlOpts); MS.lrm.setOptions(lrmOpts);
+      get:function(){return F.agents;}, set:function(a){F.agents=a;}, onChange:onFilterChange });
   }
+  cascadeFilterOptions();
 
   if (bar.getAttribute('data-wired')) return;
   bar.setAttribute('data-wired','1');
-  document.getElementById('fSearch').addEventListener('input', function(){ F.q=this.value.toLowerCase(); renderActive(); });
+  document.getElementById('fSearch').addEventListener('input', function(){ F.q=this.value.toLowerCase(); onFilterChange(); });
   bar.querySelectorAll('.pill').forEach(function(btn){
     btn.addEventListener('click', function(){
       F.band=btn.getAttribute('data-band');
@@ -1906,7 +1945,7 @@ function buildFilterBar() {
     bar.querySelectorAll('.chip').forEach(function(b){b.classList.remove('active-chip');});
     MS.ados.syncBtn(); MS.zsm.syncBtn(); MS.city.syncBtn(); MS.tl.syncBtn(); MS.lrm.syncBtn();
     MS.city.close(); MS.tl.close(); MS.lrm.close();
-    renderActive();
+    onFilterChange();   // Clear all must widen every list back out again
   });
 }
 

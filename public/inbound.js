@@ -81,8 +81,20 @@ function inbRows() {
     if (!raw) return;
     meta[raw] = r; meta[normEm(raw)] = r;
   });
+  /* Date scope, client side as well as server side. The API already narrows
+     Inbound_perf to the picked window, but the preview harness and any stale
+     payload do not — and a tab that silently sums the sheet's whole history
+     against one selected day is the defect this guard exists for. */
+  var from = String((D && D.fromDate) || ''), to = String((D && D.toDate) || '');
+  var inWindow = function(v){
+    if (!from || !to) return true;
+    var d = String(v || '').trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+    return d >= from && d <= to;
+  };
   var acc = {}, order = [];
   D.inboundPerf.forEach(function(r){
+    if (!inWindow(r['Date'])) return;
     var e = normEm(r._email || inbPick(r, ['LRM email','LRM Email','Agent Id']));
     if (!e || !meta[e]) return;
     var a = acc[e];
