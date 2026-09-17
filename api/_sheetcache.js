@@ -41,6 +41,16 @@ export const TTL = {
   'speed_leads': 120000,
   'LRM_TL_MAP': 600000,
   'Inbound_perf': 75000,
+  /* The tab's REAL name (lowercase, space). resolveTab tries several spellings,
+     so every one it may land on needs a TTL or it silently falls to _default. */
+  'inbound perf': 75000,
+  'inbound_perf': 75000,
+  /* DID: did_overall is a parameterless snapshot refreshed every 15 min;
+     did_day_on_day moves every 5 min but only for today. */
+  'did_overall': 75000,
+  'did_day_on_day': 75000,
+  'Inbound Perf': 75000,
+  'inbound_perf': 75000,
   'MS Schedule Inventory': 300000,
   _default: 90000,
 };

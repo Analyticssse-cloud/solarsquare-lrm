@@ -101,6 +101,87 @@ function findCol(headers, candidates) {
   }
   return -1;
 }
+/* Header KEY: lowercase, alphanumerics only. 'Unanswred Calls %', 'unanswered
+   calls %' and 'Unanswered_Calls_%' all collapse to one key, so a tab whose
+   headers were retyped by hand cannot silently blank a column — which is the
+   failure mode findCol's exact-then-substring match keeps producing.
+   NOTE the '%' is dropped, so a percentage column must be NAMED apart from its
+   count: 'Connected %' -> connected, 'Connected Calls' -> connectedcalls. */
+const hkey = (h) => String(h == null ? '' : h).toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+/* A percentage cell can arrive three ways from one sheet: '71.4%' (text),
+   71.4 (number) or 0.714 (a real Sheets percent format read unformatted).
+   Guess ONLY on the last: a bare fraction <= 1 with no '%' in the text is
+   scaled, everything else is taken as already being in points. A column that
+   genuinely reads 0.8% is the one case this gets wrong, and on this feed that
+   value does not occur. */
+function pct(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const s = String(v).trim();
+  const hadSign = s.indexOf('%') >= 0;
+  const n = Number(s.replace(/[%,\s]/g, ''));
+  if (!isFinite(n)) return null;
+  return (!hadSign && n > 0 && n <= 1) ? n * 100 : n;
+}
+
+/* Durations -> MINUTES, server side, so the frontend never has to guess.
+   hh:mm:ss and mm:ss are parsed by position; a bare number is MINUTES (the
+   documented reading — hours would scale talk time by 60); a Sheets duration
+   cell read unformatted arrives as a fraction of a day and is detected by
+   being < 1 with decimals. */
+function durMin(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  const s = String(v).trim();
+  if (s.indexOf(':') >= 0) {
+    const p = s.split(':').map(x => Number(x) || 0);
+    if (p.length === 3) return p[0] * 60 + p[1] + p[2] / 60;
+    if (p.length === 2) return p[0] + p[1] / 60;
+  }
+  const n = Number(s.replace(/,/g, ''));
+  if (!isFinite(n)) return 0;
+  return (n > 0 && n < 1) ? n * 1440 : n;
+}
+
+/* SECONDS -> minutes. A separate coercion from durMin because the unit is a
+   PROPERTY OF THE FEED, not something to sniff per value: the `inbound_perf`
+   card emits Total/Avg Talk, Wrapup and Hold in SECONDS (Code.gs says so in
+   terms), while the Ozontel tab's 'Total Talk Time' is HOURS. Reading one as
+   the other is a 60x error in either direction and has already bitten this
+   codebase twice. hh:mm:ss text is still honoured in case the card's formatting
+   changes. */
+function durSec(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  const s = String(v).trim();
+  if (s.indexOf(':') >= 0) return durMin(s);
+  const n = Number(s.replace(/,/g, ''));
+  return isFinite(n) ? n / 60 : 0;
+}
+
+/* ── Tab-name resolution ─────────────────────────────────────────────────────
+   Tab names are typed by a HUMAN and the code asks for a LITERAL, so the two
+   drift. `readSheet` then throws "Unable to parse range", the caller swallows
+   it, and the view reads "tab not in the sheet yet" — a NAME typo presenting
+   as missing data. This is the second time it has cost a debugging round (the
+   first was `meeting tracker`), so the fix is structural: a feed declares the
+   spellings it answers to and the first one that reads wins.
+   Resolution is remembered per warm instance, so the failed attempts are paid
+   once, not per request. A resolved name is re-checked only when the instance
+   recycles — renaming a tab needs a redeploy or a cold start to be picked up,
+   which is the right trade against spending quota on guesses every load. */
+const tabResolved = new Map();
+async function resolveTab(cands) {
+  const k = cands.join('|');
+  if (tabResolved.has(k)) return tabResolved.get(k);
+  for (const t of cands) {
+    try {
+      const v = await cachedRead(readSheet, t);
+      if (v && v.length) { tabResolved.set(k, t); return t; }
+    } catch (e) { /* wrong spelling — try the next */ }
+  }
+  tabResolved.set(k, null);
+  return null;
+}
+
 // Read a metric from a sheet row object, accepting either header spelling.
 function pick(obj, names) {
   for (const n of names) if (obj[n] !== undefined && obj[n] !== '') return obj[n];
@@ -826,21 +907,48 @@ export default async function handler(req, res) {
        silently blanks columns when it drifts out of step with the SQL.
 
        Excluded LRMs are filtered here, exactly as everywhere else, via norm().
-       The DID and inbound feeds have no agent column, so nothing to filter. */
+       The DID and inbound-routing feeds have no agent column, so nothing to
+       filter.
+
+       THREE ADDITIONS (18 Sep 2026), all optional — the five legacy callers
+       below pass none of them and behave exactly as before:
+         o.tabs   — candidate tab SPELLINGS, tried in order (see resolveTab).
+         o.fields — canonical field map; adds row._c without touching row keys.
+         o.diag   — an object this fills in, so a view can say WHY it is empty.
+       Reads now go through cachedRead rather than readSheet: these tabs were
+       the only ones still spending an uncached quota read per request. */
     const passThrough = async (tab, opts) => {
       const o = opts || {};
+      const dg = o.diag || {};
+      const name = o.tabs ? await resolveTab(o.tabs) : tab;
+      dg.tab = name || null;
+      if (!name) { dg.error = 'no tab under any known spelling: ' + (o.tabs || [tab]).join(', '); return []; }
       try {
-        const raw = await readSheet(tab);
+        const raw = await cachedRead(readSheet, name);
+        dg.rows = Math.max(0, raw.length - 1);
         if (raw.length < 2) return [];
         const hdr = raw[0].map(h => String(h).trim());
+        dg.headers = hdr.filter(Boolean);
         const emailIdx = o.emailCol ? findCol(hdr, o.emailCol) : -1;
+        /* Canonical index: first header whose KEY is listed for the field.
+           Unmatched fields are simply absent from _c — never 0, because a
+           column the sheet does not have and a column that reads zero are
+           different facts and the card states them differently. */
+        const cIdx = {}, cMiss = [];
+        if (o.fields) Object.keys(o.fields).forEach(f => {
+          const spec = o.fields[f], keys = spec.keys || spec;
+          const i = hdr.findIndex(h => keys.indexOf(hkey(h)) >= 0);
+          if (i >= 0) cIdx[f] = { i, kind: spec.kind || 'text', header: hdr[i] }; else cMiss.push(f);
+        });
+        if (o.fields) { dg.mapped = Object.keys(cIdx).map(f => f + ' ← ' + cIdx[f].header); dg.unmapped = cMiss; }
         const out = [];
+        let dropped = 0;
         for (let i = 1; i < raw.length; i++) {
           const r = raw[i];
           if (!r || !r.length) continue;
           if (emailIdx >= 0) {
             const em = norm(r[emailIdx]);
-            if (!em || isExcluded(em)) continue;
+            if (!em || isExcluded(em)) { dropped++; continue; }
           }
           const obj = {};
           hdr.forEach((h, j) => {
@@ -851,12 +959,25 @@ export default async function handler(req, res) {
             obj[h] = (o.numeric && o.numeric.indexOf(h) >= 0) ? num(v)
                    : (typeof v === 'string' ? v.trim() : v);
           });
+          if (o.fields) {
+            const c = {};
+            Object.keys(cIdx).forEach(f => {
+              const m = cIdx[f], v = r[m.i];
+              c[f] = m.kind === 'num' ? num(v) : m.kind === 'pct' ? pct(v)
+                   : m.kind === 'dur' ? durMin(v) : m.kind === 'sec' ? durSec(v)
+                   : (typeof v === 'string' ? v.trim() : v);
+            });
+            obj._c = c;
+          }
           if (emailIdx >= 0) obj._email = norm(r[emailIdx]);
           out.push(obj);
         }
+        dg.excluded = dropped;
+        dg.kept = out.length;
         return out;
       } catch (e) {
-        console.warn('No ' + tab + ' tab: ' + e.message);
+        dg.error = e.message;
+        console.warn('No ' + name + ' tab: ' + e.message);
         return [];
       }
     };
@@ -875,39 +996,178 @@ export default async function handler(req, res) {
        dashboard request already spends six on the main sheet, and five
        speculative reads for tabs that do not exist is what tipped it over on
        13 Sep. Unset the env var and the legacy path returns unchanged. */
-    /* ── Inbound_perf (new tab in the Ozontel sheet, 17 Sep 2026) ────────────
-       PER-LRM PER-DAY inbound, a different grain from `inbound_route` (which is
-       floor-wide routing and has no agent column) — so it is a separate feed,
-       not a replacement, and it is NOT gated by CONN_SHEET_ID: it lives in the
-       main sheet and has nothing to do with the live connectivity file.
+    /* ── inbound perf — REBUILT 18 Sep 2026 ──────────────────────────────────
+       PER-LRM PER-DAY inbound handling, a different grain from `inbound_route`
+       (floor-wide routing, no agent column) — a separate feed, not a
+       replacement, and NOT gated by CONN_SHEET_ID: it lives in the main Ozonetel
+       sheet and has nothing to do with the live connectivity file.
 
-       This is the first inbound feed that can carry talk time. Per the 4 Sep
-       finding, inbound talk only exists in the DB since Ozonetel fixed the
-       call-end leg, and per-agent coverage was uneven — so the view states
-       coverage rather than presenting talk as complete.
+       WHY THIS WAS REBUILT: the tab is called `inbound_perf` — lowercase, an
+       UNDERSCORE (confirmed against Code.gs's INBOUND_PERF_SHEET_NAME, card
+       3301). The code originally asked for `Inbound_perf` with a capital I, so
+       every read threw, the error was swallowed, and the card said "No
+       Inbound_perf tab in the sheet yet" while the data sat there. Nothing about
+       the numbers was wrong; the tab was never opened. Hence resolveTab + the
+       canonical field map: neither the tab's name nor a header's spelling can
+       take the view down again, and inboundDiag reports which name answered and
+       which columns bound, so the next mismatch is visible instead of silent.
 
-       Header spellings are the sheet's own, typo included ('Unanswred Calls %');
-       findCol matches tolerantly, and the corrected spelling is listed too so a
-       later fix to the sheet does not blank the column.
+       THE UNIT, WHICH IS NOT GUESSABLE AND WAS GOT WRONG ONCE: Total Talk Time,
+       Avg. Talk Time, Avg. Wrapup Time and Avg. Hold Time are SECONDS on this
+       card (Code.gs states it, and warns not to cross-reconcile with the Ozontel
+       tab's 'Total Talk Time', which is HOURS). They are coerced with durSec,
+       not durMin. Reading seconds as minutes inflates talk time 60x.
 
-       Durations may arrive as hh:mm:ss text or as a number — NOT coerced here.
-       The frontend parses both (dur() in inbound.js), because which one it is
-       depends on the cell format and guessing wrong scales talk time by 60. */
-    const inboundPerfAll = await passThrough('Inbound_perf', {
+       The feed writes one row per Date × LRM on its own 1-minute trigger, and
+       previous days are hard-pasted by the backfill — so a day's row is stable
+       once written, and only today moves.
+
+       Three caveats travel with every figure here and are printed on the card,
+       not just in this comment: the per-LRM answer rate is "of calls that RANG
+       me" (~35.5% of inbound legs reach no agent and have no owner); the dialler
+       posts RETRY LEGS, so a call count can be inflated by a dialler /
+       availability defect, never LRM behaviour; and inbound talk time only
+       exists since Ozonetel fixed the call-end leg on 4 Sep, at 41% floor-wide
+       coverage — a floor, not a total. */
+    /* Real name first: resolveTab tries these in order and a wrong name costs a
+       failed read, so the spelling Code.gs actually writes leads. */
+    const INBOUND_TABS = ['inbound_perf', 'inbound perf', 'Inbound_perf', 'Inbound Perf',
+                          'Inbound perf', 'InboundPerf', 'inbound-perf'];
+    /* Canonical fields. Keys are HEADER KEYS (hkey: lowercase, alphanumerics
+       only), so casing, spacing, underscores and a trailing % are all irrelevant
+       and the sheet's own typos sit beside the corrected spelling.
+       kind drives coercion: num | pct | dur (-> MINUTES) | text. */
+    const INBOUND_FIELDS = {
+      date:       { kind: 'text', keys: ['date', 'calldate', 'day'] },
+      email:      { kind: 'text', keys: ['lrmemail', 'lrmemailid', 'agentid', 'agentemail', 'email', 'emailid'] },
+      name:       { kind: 'text', keys: ['agentname', 'lrmname', 'name', 'employeename'] },
+      calls:      { kind: 'num',  keys: ['totalcalls', 'calls', 'callsrung', 'inboundcalls', 'callcount'] },
+      answered:   { kind: 'num',  keys: ['answeredcalls', 'answered', 'connectedcalls'] },
+      answerPct:  { kind: 'pct',  keys: ['connected', 'answer', 'answerrate', 'connectedpercentage'] },
+      unanswered: { kind: 'num',  keys: ['unansweredcalls', 'unanswredcalls', 'notansweredcalls', 'missedcalls', 'missed'] },
+      unansPct:   { kind: 'pct',  keys: ['unansweredcallspct', 'unanswredcallspct', 'unanswered', 'unanswred', 'missedpct'] },
+      talk:       { kind: 'sec',  keys: ['totaltalktime', 'talktime', 'totaltalk'] },
+      avgTalk:    { kind: 'sec',  keys: ['avgtalktime', 'averagetalktime', 'avgtalk'] },
+      wrap:       { kind: 'sec',  keys: ['avgwrapuptime', 'averagewrapuptime', 'avgwrapup', 'wrapuptime'] },
+      hold:       { kind: 'sec',  keys: ['avgholdtime', 'averageholdtime', 'avghold', 'holdtime'] },
+      custDisc:   { kind: 'num',  keys: ['customerdisconnect', 'customerdisconnects', 'custdisconnect', 'customerhungup'] },
+      agentDisc:  { kind: 'num',  keys: ['agentdisconnect', 'agentdisconnects', 'lrmdisconnect', 'agenthungup'] },
+      ring:       { kind: 'dur',  keys: ['avgringtime', 'ringtime', 'avgtimetoanswer', 'timetoanswer'] },
+      queue:      { kind: 'dur',  keys: ['avgqueuetime', 'queuetime', 'avgwaittime', 'waittime'] },
+      did:        { kind: 'text', keys: ['did', 'didnumber', 'publishednumber'] },
+      legs:       { kind: 'num',  keys: ['diallegs', 'legs', 'totallegs'] },
+    };
+    const inboundDiag = {};
+    const inboundPerfAll = await passThrough('inbound_perf', {
+      tabs: INBOUND_TABS,
+      fields: INBOUND_FIELDS,
+      diag: inboundDiag,
       emailCol: ['LRM email', 'LRM Email', 'Agent Id'],
+      /* Kept for the raw header names the frontend still reads directly. The
+         canonical _c block is authoritative; this is the compatibility layer. */
       numeric: ['Total Calls', 'Answered Calls', 'Connected %', 'Unanswered Calls',
                 'Unanswred Calls %', 'Unanswered Calls %', 'Customer Disconnect'],
     });
     /* DATE-SCOPED like every other view (user, 17 Sep). Without this the tab read
-       the whole tab's history against whatever day was picked, which looked like
+       its whole history against whatever day was picked, which looked like
        inflation. rowDate() is the same parser the Ozontel rows use, so a Sheets
-       date cell and a yyyy-MM-dd string both land. Rows with no parseable date
-       are DROPPED rather than kept — an undated row cannot honour the picker,
-       and keeping it is what made the totals unexplainable. */
+       date cell and a yyyy-MM-dd string both land. Undated rows are DROPPED — a
+       row with no date cannot honour the picker — but now COUNTED, because
+       dropping them silently is what made the totals unexplainable. */
+    let inbUndated = 0;
     const inboundPerf = inboundPerfAll.filter(r => {
-      const d = rowDate(r['Date']);
-      return d && d >= effFrom && d <= effTo;
+      const d = rowDate((r._c && r._c.date) || r['Date']);
+      if (!d) { inbUndated++; return false; }
+      return d >= effFrom && d <= effTo;
     });
+    inboundDiag.undated = inbUndated;
+    inboundDiag.inWindow = inboundPerf.length;
+    inboundDiag.window = effFrom + ' → ' + effTo;
+
+    /* ── DID connectivity by lead type — two feeds, added 18 Sep 2026 ────────
+       Both are written by Code.gs and NEITHER was being read. They are the live
+       DID data; `did_rep` (the reputation-index card, DID_REP_QUESTION_ID) is
+       still an EMPTY STRING in Code.gs, so the DID view's original feed never
+       arrives and the tab renders its "no source" note against a sheet that has
+       two populated DID tabs. That is what this fixes.
+
+       They are different SHAPES and must not be merged:
+
+       `did_overall` (card 3305) is PARAMETERLESS — it computes its own today /
+       7d / 15d / overall windows inside the SQL via NOW(), has no Date column,
+       and is full-replaced every 15 minutes. So it does NOT and CANNOT honour
+       the dashboard's date picker, and the view must say so rather than imply
+       the figures moved with the window. Five lead types × four windows.
+
+       `did_day_on_day` (card 3304) is one row per Date × DID on a 5-minute
+       trigger, history hard-pasted by its backfill. This one IS date-scoped
+       here, like every other per-day feed.
+
+       Every value in both is a connect PERCENTAGE. There are no denominators —
+       no dials, no connects — which bounds what can honestly be built: a rate
+       with no volume behind it cannot be ranked without gating, and 14 Sep in
+       this feed is a Sunday-shaped day of 0.0s and 100.0s off tiny
+       denominators. The view therefore leads with the ESTATE-WIDE movement and
+       treats per-DID rows as a watch list, not a league table. */
+    const DID_PCT = { kind: 'pct' };
+    const didOverallDiag = {};
+    const didOverall = await passThrough('did_overall', {
+      tabs: ['did_overall', 'DID Overall', 'did overall'],
+      diag: didOverallDiag,
+      fields: {
+        did:  { kind: 'text', keys: ['did', 'didnumber', 'publishednumber'] },
+        /* Header keys drop the underscores, so fresh_lead_connect_pct_today
+           collapses to freshleadconnectpcttoday. */
+        freshToday:   { kind: 'pct', keys: ['freshleadconnectpcttoday'] },
+        fresh7d:      { kind: 'pct', keys: ['freshleadconnectpct7d'] },
+        fresh15d:     { kind: 'pct', keys: ['freshleadconnectpct15d'] },
+        freshAll:     { kind: 'pct', keys: ['freshleadconnectpctoverall'] },
+        retToday:     { kind: 'pct', keys: ['retargetingconnectpcttoday'] },
+        ret7d:        { kind: 'pct', keys: ['retargetingconnectpct7d'] },
+        ret15d:       { kind: 'pct', keys: ['retargetingconnectpct15d'] },
+        retAll:       { kind: 'pct', keys: ['retargetingconnectpctoverall'] },
+        confToday:    { kind: 'pct', keys: ['confirmationcallconnectpcttoday'] },
+        conf7d:       { kind: 'pct', keys: ['confirmationcallconnectpct7d'] },
+        conf15d:      { kind: 'pct', keys: ['confirmationcallconnectpct15d'] },
+        confAll:      { kind: 'pct', keys: ['confirmationcallconnectpctoverall'] },
+        lostToday:    { kind: 'pct', keys: ['lostleadsconnectpcttoday'] },
+        lost7d:       { kind: 'pct', keys: ['lostleadsconnectpct7d'] },
+        lost15d:      { kind: 'pct', keys: ['lostleadsconnectpct15d'] },
+        lostAll:      { kind: 'pct', keys: ['lostleadsconnectpctoverall'] },
+        totalToday:   { kind: 'pct', keys: ['totalconnectpcttoday'] },
+        total7d:      { kind: 'pct', keys: ['totalconnectpct7d'] },
+        total15d:     { kind: 'pct', keys: ['totalconnectpct15d'] },
+        totalAll:     { kind: 'pct', keys: ['totalconnectpctoverall'] },
+      },
+    });
+
+    const didDodDiag = {};
+    const didDodAll = await passThrough('did_day_on_day', {
+      tabs: ['did_day_on_day', 'DID Day on Day', 'did day on day', 'did_dod'],
+      diag: didDodDiag,
+      fields: {
+        date:  { kind: 'text', keys: ['date'] },
+        did:   { kind: 'text', keys: ['did'] },
+        fresh: { kind: 'pct',  keys: ['freshleadconnectpct'] },
+        ret:   { kind: 'pct',  keys: ['retargetingconnectpct'] },
+        conf:  { kind: 'pct',  keys: ['confirmationcallconnectpct'] },
+        lost:  { kind: 'pct',  keys: ['lostleadsconnectpct'] },
+        total: { kind: 'pct',  keys: ['totalconnectpct'] },
+      },
+    });
+    let dodUndated = 0;
+    const didDod = didDodAll.filter(r => {
+      const d = rowDate((r._c && r._c.date) || r['Date']);
+      if (!d) { dodUndated++; return false; }
+      return d >= effFrom && d <= effTo;
+    });
+    didDodDiag.undated = dodUndated;
+    didDodDiag.inWindow = didDod.length;
+    didDodDiag.window = effFrom + ' → ' + effTo;
+    /* The trend card needs more than the picked window to show a curve, so the
+       unscoped rows ride along too — explicitly named, never silently summed
+       against a picked day. */
+    const didDodAllDays = didDodAll;
 
     const useLive = !!String(process.env.CONN_SHEET_ID || '').trim();
     const [connDaily, connHourly, connAnomaly, didRows, inboundRows] = useLive
@@ -996,11 +1256,13 @@ export default async function handler(req, res) {
       rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
       totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows, hourlyHasMS,
       speedRows, speedLeads, speedHas, speedBuckets: SPEED_BUCKETS, msScheduleRows,
-      connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, connFloor,
+      connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
+      didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor,
       connHas: {
         daily: connDaily.length > 0, hourly: connHourly.length > 0,
         anomaly: connAnomaly.length > 0, did: didRows.length > 0,
         inbound: inboundRows.length > 0, inboundPerf: inboundPerf.length > 0,
+        didOverall: didOverall.length > 0, didDod: didDodAll.length > 0,
         floor: connFloor.length > 0,
         source: connSource, today: todayISO, error: connError, diag: connDiag,
       },
@@ -1029,9 +1291,10 @@ function emptyPayload(from, to, viewerEmail) {
     cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [], hourlyHasMS: false,
     speedRows: [], speedLeads: [], speedHas: false, speedBuckets: [], msScheduleRows: [],
     connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
-    inboundPerf: [],
+    inboundPerf: [], inboundDiag: {},
+    didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
     connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false,
-               inboundPerf: false },
+               inboundPerf: false, didOverall: false, didDod: false },
     agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
