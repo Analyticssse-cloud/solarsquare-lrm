@@ -1,7 +1,20 @@
 /* ════════════════════════════════════════════════════════════════════════════
-   callhealth.js — the Call Health tab: the DID estate and inbound routing.
+   callhealth.js — the DID estate (its own tab since 18 Sep 2026), plus the
+   inbound-routing section it hands to the Inbound tab.
 
-   WHY THIS IS ONE TAB AND NOT TWO
+   WAS ONE TAB, NOW SPLIT
+   ----------------------
+   This file used to render one "Call Health" tab holding both halves, on the
+   argument below — which still holds, but the user retired the combined tab:
+   the DID estate is the live piece of work and needed its own room, and the
+   routing half is inbound, so it now sits under Inbound. Nothing about the
+   figures changed, only where they are drawn.
+     renderDID()          -> #didPanel, the DID estate
+     inbRoutingSection()  -> an HTML string, appended by inbound.js
+   chNoSource() here is called by inbound.js, so this file stays loaded even
+   though the old tab is gone.
+
+   WHY IT WAS ONE TAB AND NOT TWO
    -------------------------------
    Both halves answer the same question — "is the phone system costing us
    conversations?" — and both have the same owner, which is NOT the floor. The
@@ -362,47 +375,38 @@ function inbFixList() {
     + '</div>';
 }
 
-function renderCallHealth() {
-  var panel = document.getElementById('healthPanel');
-  if (!panel || !D) return;
-  var hasDid = D.connHas && D.connHas.did && D.didRows && D.didRows.length;
-  var hasInb = D.connHas && D.connHas.inbound && D.inboundRows && D.inboundRows.length;
-  if (activeTab === 'health') {
-    setCount((hasDid ? D.didRows.length + ' DIDs' : 'no DID feed')
-      + (hasInb ? ' · inbound live' : ''));
-  }
-  if (!hasDid && !hasInb) {
-    panel.innerHTML = connStack(chNoSource('Call health',
-      (D.connHas && D.connHas.error)
-        ? D.connHas.error
-        : 'No DID or inbound feed in the sheet yet. This view appears once those tabs are landing — '
-          + 'deliberately blank rather than showing zeroes.'));
-    return;
-  }
+/* Inbound ROUTING section — moved off the old Call Health tab (18 Sep 2026).
+   It is inbound, so it now renders under the Inbound tab, below the per-LRM
+   handling table. inbound.js calls this; nothing else does. */
+function inbRoutingSection() {
+  var hasInb = D && D.connHas && D.connHas.inbound && D.inboundRows && D.inboundRows.length;
+  if (!hasInb) return '';
+  var t = inbTotals(D.inboundRows);
+  return connStripCells([
+    ['Inbound calls', fmt(t.calls), 'demand arriving, not dials'],
+    ['Answered', fmt(t.answered) + ' <u>' + (t.calls ? (t.answered / t.calls * 100).toFixed(0) : '0') + '%</u>', 'of calls that arrived'],
+    ['Platform dropped', fmt(t.platform), 'ended by the system, not the caller'],
+    ['Never offered', fmt(t.never) + ' <u>' + (t.missed ? (t.never / t.missed * 100).toFixed(0) : '0') + '%</u>', 'of misses, no agent ever rang'],
+    ['Reached no agent', fmt(t.noAgent), 'cannot enter any LRM&rsquo;s denominator'],
+    ['Talk time', fmt(Math.round(t.talk)) + ' <u>min</u>', 'end leg lands since 4 Sep']
+  ]) + inbPathCard(D.inboundRows) + inbFixList();
+}
 
-  var html = '';
+/* The did_rep (reputation-index) cards, as an HTML string.
 
-  if (hasInb) {
-    var t = inbTotals(D.inboundRows);
-    html += connStripCells([
-      ['Inbound calls', fmt(t.calls), 'demand arriving, not dials'],
-      ['Answered', fmt(t.answered) + ' <u>' + (t.calls ? (t.answered / t.calls * 100).toFixed(0) : '0') + '%</u>', 'of calls that arrived'],
-      ['Platform dropped', fmt(t.platform), 'ended by the system, not the caller'],
-      ['Never offered', fmt(t.never) + ' <u>' + (t.missed ? (t.never / t.missed * 100).toFixed(0) : '0') + '%</u>', 'of misses, no agent ever rang'],
-      ['Reached no agent', fmt(t.noAgent), 'cannot enter any LRM&rsquo;s denominator'],
-      ['Talk time', fmt(Math.round(t.talk)) + ' <u>min</u>', 'end leg lands since 4 Sep']
-    ]);
-    html += inbPathCard(D.inboundRows) + inbFixList();
-  } else {
-    html += chNoSource('Inbound routing', 'No inbound routing feed in the sheet. The live tabs cover outbound '
-      + 'calling and the DID estate only, so the routing findings are not shown rather than shown stale.');
-  }
+   THIS FEED IS NOT LIVE. `DID_REP_QUESTION_ID` is still an empty string in
+   Code.gs, so the tab is never written and this returns ''. It is kept wired
+   because the index is the only depth-adjusted DID measure we have, and the day
+   the card id is set it appears under the lead-type cards with no further work.
+   The live DID data is did_overall + did_day_on_day — see didview.js. */
+function didRepCards() {
+  var hasDid = D && D.connHas && D.connHas.did && D.didRows && D.didRows.length;
+  if (!hasDid) return '';
 
-  if (hasDid) {
-    window.__ccDidTable = didTable(D.didRows);
-    window.__ccBlockTable = didBlockCard(D.didRows);
-    var blockChart = didBlockChart(D.didRows);
-    html += didCohortCard(D.didRows)
+  window.__ccDidTable = didTable(D.didRows);
+  window.__ccBlockTable = didBlockCard(D.didRows);
+  var blockChart = didBlockChart(D.didRows);
+  return didCohortCard(D.didRows)
       + (blockChart ? ccCard({
           title: 'By number block',
           note: 'floor-wide',
@@ -436,17 +440,19 @@ function renderCallHealth() {
               + 'the TCCCPR Second Amendment of 12 February 2025 promotional calls must originate from the 140 '
               + 'series. Get that answered by legal before provisioning more numbers.'
         });
-  }
+}
 
-  panel.innerHTML = connStack(html);
-  ccWireTables(panel, 'Call health · full table', window.__ccDidTable || '');
-
+/* Sort/metric wiring for the did_rep table above. Called by didview.js after it
+   writes the panel, because the cards are now one section of a bigger view. */
+function didRepWire(panel) {
+  if (!panel) return;
+  ccWireTables(panel, 'DID estate · full table', window.__ccDidTable || '');
   panel.querySelectorAll('.dist-lvl button[data-didmet]').forEach(function (btn) {
     btn.addEventListener('click', function (e) {
       e.stopPropagation();
       didMetric = btn.getAttribute('data-didmet');
       try { localStorage.setItem('lrmDidMetric', didMetric); } catch (err) {}
-      renderCallHealth();
+      renderDID();
     });
   });
   panel.querySelectorAll('table.dist th[data-did]').forEach(function (th) {
@@ -454,9 +460,10 @@ function renderCallHealth() {
       var k = th.getAttribute('data-did');
       didSort.dir = (didSort.col === k) ? didSort.dir * -1 : (k === 'Index' || k === 'Shortfall' ? 1 : -1);
       didSort.col = k;
-      renderCallHealth();
+      renderDID();
     });
   });
 }
 
-Object.assign(window, { renderCallHealth: renderCallHealth });
+Object.assign(window, { didRepCards: didRepCards, didRepWire: didRepWire,
+                        inbRoutingSection: inbRoutingSection });

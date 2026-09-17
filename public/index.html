@@ -753,9 +753,8 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabTL">🧑‍🤝‍🧑 TL View</div>
   <div class="tab"        id="tabAction">⚡ Action Center</div>
   <div class="tab"        id="tabEODR">📋 EODR</div>
-  <div class="tab"        id="tabBehav">🎧 Calling Behaviour</div>
-  <div class="tab"        id="tabHealth">🛠 Call Health</div>
   <div class="tab"        id="tabInbound">📞 Inbound</div>
+  <div class="tab"        id="tabDID">☎️ DID estate</div>
   <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
@@ -792,9 +791,8 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="tlPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="actionPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="eodrPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
-  <div class="panel" id="behavPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
-  <div class="panel" id="healthPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="inboundPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="didPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="speedPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
@@ -921,9 +919,8 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabTL').addEventListener('click', function(){ if(!this.classList.contains('locked')) switchTab('tl'); });
   document.getElementById('tabAction').addEventListener('click', function(){ switchTab('action'); });
   document.getElementById('tabEODR').addEventListener('click', function(){ switchTab('eodr'); });
-  document.getElementById('tabBehav').addEventListener('click', function(){ switchTab('behav'); });
-  document.getElementById('tabHealth').addEventListener('click', function(){ switchTab('health'); });
   document.getElementById('tabInbound').addEventListener('click', function(){ switchTab('inbound'); });
+  document.getElementById('tabDID').addEventListener('click', function(){ switchTab('did'); });
   document.getElementById('tabSpeed').addEventListener('click', function(){ switchTab('speed'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
@@ -1052,8 +1049,8 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', behav:'tabBehav', health:'tabHealth', inbound:'tabInbound', speed:'tabSpeed' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', behav:'behavPanel', health:'healthPanel', inbound:'inboundPanel', speed:'speedPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', inbound:'tabInbound', did:'tabDID', speed:'tabSpeed' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', inbound:'inboundPanel', did:'didPanel', speed:'speedPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -1075,9 +1072,8 @@ var PANEL_RENDERERS = {
   tl:      function(){ renderRollup('tl'); },
   action:  function(){ renderAction(); },
   eodr:    function(){ if(typeof renderEODR==='function') renderEODR(); },
-  behav:   function(){ if(typeof renderBehaviour==='function') renderBehaviour(); },
-  health:  function(){ if(typeof renderCallHealth==='function') renderCallHealth(); },
   inbound: function(){ if(typeof renderInbound==='function') renderInbound(); },
+  did:     function(){ if(typeof renderDID==='function') renderDID(); },
   speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); }
 };
 function renderActive() {
@@ -2410,9 +2406,14 @@ function downloadPDF(){
 <script src="msdriver.js?v=20260907a"></script>
 <script src="msplan.js?v=20260907b"></script>
 <script src="conncharts.js?v=20260913d"></script>
-<script src="connectivity.js?v=20260913d"></script>
-<script src="callhealth.js?v=20260913d"></script>
-<script src="inbound.js?v=20260917a"></script>
+<!-- connectivity.js and callhealth.js stay loaded after the Calling Behaviour and
+     Call Health tabs were retired (18 Sep 2026): connStack/connStripCells live in
+     the first and chNoSource/the DID estate/the inbound-routing section in the
+     second, and Inbound, DID and the shell all call them. -->
+<script src="connectivity.js?v=20260918a"></script>
+<script src="callhealth.js?v=20260918a"></script>
+<script src="didview.js?v=20260918a"></script>
+<script src="inbound.js?v=20260918a"></script>
 <script src="eodr.js?v=20260915b"></script>
 </body>
 </html>
