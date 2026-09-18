@@ -425,7 +425,10 @@ function credentials() {
   return { email, key: '', from: '', present };
 }
 
-async function sheetsApi() {
+/* Exported so `_msscore.js` can reuse this exact credential resolution — it
+   reads a THIRD spreadsheet (MS_SHEET_ID) and duplicating the key-parsing
+   above is how the two would drift. */
+export async function sheetsApi() {
   const c = credentials();
   if (!c.key || !c.email) {
     const e = new Error('CREDS: no usable service-account key. Variables present: '

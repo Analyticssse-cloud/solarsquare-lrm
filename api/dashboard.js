@@ -26,6 +26,7 @@
 import { readSheet } from './_sheets.js';
 import { requireUser, deny } from './_auth.js';
 import { readLiveConnectivity } from './_connlive.js';
+import { readMSScores } from './_msscore.js';
 import { cachedRead, anyStale } from './_sheetcache.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase().replace('@homes.solarsquare.in', '@solarsquare.in');
@@ -550,6 +551,25 @@ export default async function handler(req, res) {
       r._inScope = inScope(key);
     });
 
+    /* ── 3b. MS Score (LRM_View, a separate spreadsheet) ─────────────────────
+       A RATE, so it is the MEAN of that LRM's scored days in the window — it
+       must NOT join SUM_COLS or the totals block, and a missing day must stay
+       MISSING: an empty string, never 0. A scoring row of zeroes reads as
+       universal failure rather than a gap in the feed, which is why the EODR
+       card draws '' as "no score" with a reason.
+       An LRM scored in the sheet but absent from the Ozontel window has no row
+       here to carry the score, so `scored` is reported against the headcount
+       rather than averaged silently. */
+    let msScore = { byEmail: {}, error: '', diag: {}, external: false };
+    try { msScore = await readMSScores(read, effFrom, effTo); }
+    catch (e) { msScore = { byEmail: {}, error: 'MS Score read failed: ' + String(e.message || e), diag: {}, external: false }; }
+    let msScored = 0;
+    agentRows.forEach(r => {
+      const s = msScore.byEmail[canon(r['Agent Id'])] || msScore.byEmail[norm(r['Agent Id'])];
+      if (s && s.n) { r['MS Score'] = Math.round(s.mean * 10) / 10; msScored++; }
+      else r['MS Score'] = '';
+    });
+
     // ── 4. Generic rollup, reused for City / ZSM / TL ─────────────────────────
     function rollup(rows, keyOf, labelOf, childOf) {
       const agg = {};
@@ -656,7 +676,7 @@ export default async function handler(req, res) {
       'Total Talk Time', 'Avg. Talk Time',
       'First Call Min', 'Ring Time', 'Wrap Time', 'Total Time (T+R+W)',
       'Ring Filled', 'Wrap Filled',
-      'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'Meeting Done',
+      'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'Meeting Done', 'MS Score',
       'Calls <1min', 'Calls 1-2min', 'Calls >2min',
       'MS on Calls <1min', 'MS on Calls 1-2min', 'MS on Calls >2min', 'MS - No Tracked Call',
       'Unique Leads Dialed', 'Unique Numbers Dialed',
@@ -1315,6 +1335,9 @@ export default async function handler(req, res) {
         floor: connFloor.length > 0,
         source: connSource, today: todayISO, error: connError, diag: connDiag,
       },
+      msScore: { error: msScore.error || '', external: !!msScore.external, diag: msScore.diag || {},
+                 scored: msScored, lrms: agentRows.length,
+                 inSheet: Object.keys(msScore.byEmail || {}).length },
       agentCols, agentRows: agentRowsSlim,
       dupRowsDropped, stale: anyStale(),
       cityList: Object.keys(citySet).sort(),
@@ -1344,6 +1367,7 @@ function emptyPayload(from, to, viewerEmail) {
     didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
     connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false,
                inboundPerf: false, didOverall: false, didDod: false },
+    msScore: { error: '', external: false, diag: {}, scored: 0, lrms: 0, inSheet: 0 },
     agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };

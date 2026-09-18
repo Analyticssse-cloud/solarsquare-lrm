@@ -52,6 +52,11 @@ export const TTL = {
   'Inbound Perf': 75000,
   'inbound_perf': 75000,
   'MS Schedule Inventory': 300000,
+  /* The MS Score matrix changes at most daily (and normally comes from its own
+     spreadsheet via MS_SHEET_ID, which _msscore.js caches itself). */
+  'LRM_View': 300000,
+  'LRM View': 300000,
+  'MS Score': 300000,
   _default: 90000,
 };
 const ttlFor = (tab) => TTL[tab] || TTL._default;
