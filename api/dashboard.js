@@ -774,6 +774,16 @@ export default async function handler(req, res) {
         const siCluster = si(['Cluster']), siLeadCity = si(['City']);
         const siMed = si(['Median TAT (min)']), siAvg = si(['Avg TAT (min)']);
         const siLag = si(['Avg Assign Lag (min)']);
+        /* v8 (18 Sep 2026) columns. Read ADDITIVELY and tolerated as absent: a
+           sheet still holding pre-v8 rows returns -1 here and the two counters
+           stay 0, so the tab renders exactly as before rather than blanking.
+           `entryOther` is how many of the row's leads reached the LRM at a stage
+           other than 'Assigned' — under v6 those leads were not in the feed at
+           all, so a high value explains a grown denominator. `stale` is leads
+           dropped for an impossible Assign Lag (thin audit history, NOT a
+           performance signal) — never folded into `assigned`. */
+        const siEntryOther = si(['Entered at Other Stage']);
+        const siStale = si(['Leads Dropped - Stale']);
         const siB = SPEED_BUCKETS.map(b => sHdr.findIndex(h => h.toLowerCase() === b.toLowerCase()));
         const known = new Set(rosterAll.map(r => norm(r['Agent Id'])));
         const acc = {};
@@ -795,6 +805,7 @@ export default async function handler(req, res) {
           const a = acc[key] || (acc[key] = {
             agent: email, cluster, leadCity, assigned: 0, called: 0, never: 0,
             buckets: SPEED_BUCKETS.map(() => 0), tatSum: 0, lagSum: 0, days: 0, medianDay: null,
+            entryOther: 0, stale: 0,
           });
           const called = num(r[siCalled]);
           a.assigned += num(r[siAsg]);
@@ -805,6 +816,8 @@ export default async function handler(req, res) {
           a.tatSum   += num(r[siAvg]) * called;
           // assign lag is per ASSIGNED lead (it exists even when never called)
           if (siLag >= 0) a.lagSum += num(r[siLag]) * num(r[siAsg]);
+          if (siEntryOther >= 0) a.entryOther += num(r[siEntryOther]);
+          if (siStale >= 0) a.stale += num(r[siStale]);
           a.days++;
           if (effFrom === effTo && siMed >= 0) a.medianDay = num(r[siMed]);
         }
@@ -838,6 +851,11 @@ export default async function handler(req, res) {
           created: li(['Lead Created At']), asg: li(['Assigned At']), clock: li(['Clock Start']),
           call: li(['First Call At']), lag: li(['Assign Lag (min)']),
           tat: li(['TAT (min)']), flag: li(['Flag']),
+          /* v8, appended LAST in the SQL so Code.gs's sortCol (13 = TAT) does not
+             shift. Tolerated as absent: a pre-v8 speed_leads tab returns -1 and
+             every row carries '', which the drill reads as "do not show the
+             column at all" rather than a row of blanks. */
+          entry: li(['Entry Stage']),
         };
         for (let i = 1; i < lRaw.length; i++) {
           const r = lRaw[i];
@@ -861,6 +879,7 @@ export default async function handler(req, res) {
             lag: c.lag < 0 || r[c.lag] === '' ? null : num(r[c.lag]),
             tat: c.tat < 0 || r[c.tat] === '' ? null : num(r[c.tat]),
             flag: c.flag < 0 ? '' : String(r[c.flag] || '').trim(),
+            entryStage: c.entry < 0 ? '' : String(r[c.entry] || '').trim(),
           });
         }
         // never-called first, then slowest — the drill reads top-down as a worklist
