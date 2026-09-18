@@ -387,9 +387,9 @@ function inbRoutingSection() {
     ['Answered', fmt(t.answered) + ' <u>' + (t.calls ? (t.answered / t.calls * 100).toFixed(0) : '0') + '%</u>', 'of calls that arrived'],
     ['Platform dropped', fmt(t.platform), 'ended by the system, not the caller'],
     ['Never offered', fmt(t.never) + ' <u>' + (t.missed ? (t.never / t.missed * 100).toFixed(0) : '0') + '%</u>', 'of misses, no agent ever rang'],
-    ['Reached no agent', fmt(t.noAgent), 'cannot enter any LRM&rsquo;s denominator'],
+    ['Reached no agent', fmt(t.noAgent), 'cannot enter any LRM’s denominator'],
     ['Talk time', fmt(Math.round(t.talk)) + ' <u>min</u>', 'end leg lands since 4 Sep']
-  ]) + inbPathCard(D.inboundRows) + inbFixList();
+  ]) + inbPathCard(D.inboundRows);
 }
 
 /* The did_rep (reputation-index) cards, as an HTML string.

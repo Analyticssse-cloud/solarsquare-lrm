@@ -2025,7 +2025,11 @@ function renderAgent() {
   rows.sort(function(a,b){ var av=a[agentSort.col],bv=b[agentSort.col]; if(typeof av==='string') return av.localeCompare(bv)*agentSort.dir; var an=Number(av)||0,bn=Number(bv)||0; if(agentSort.col==='Final Rank'){if(an===0&&bn!==0)return 1;if(bn===0&&an!==0)return -1;} return (an-bn)*agentSort.dir; });
   if(activeTab==='agent') setCount(rows.length+' LRMs');
   var maxScore=Math.max.apply(null,rows.map(function(r){return Number(r['Score'])||0;}))||1;
-  var COLS=D.agentCols||[];
+  /* City and Team Lead are dropped from the LRM table (user, 18 Sep): they are
+     filter-bar dimensions, not metrics, and they pushed the figures sideways.
+     Filtered at the render, not in the payload, so the filter bar, the rollups
+     and the exports that read agentCols are untouched. */
+  var COLS=(D.agentCols||[]).filter(function(c){ return c!=='City' && c!=='TL Name'; });
   var panel=document.getElementById('agentPanel');
   if(!rows.length){panel.innerHTML='<div class="empty">No LRMs match the current filters.</div>';return;}
   var NUM=numCols(rows,COLS);
@@ -2411,9 +2415,9 @@ function downloadPDF(){
      the first and chNoSource/the DID estate/the inbound-routing section in the
      second, and Inbound, DID and the shell all call them. -->
 <script src="connectivity.js?v=20260918a"></script>
-<script src="callhealth.js?v=20260918a"></script>
+<script src="callhealth.js?v=20260918c"></script>
 <script src="didview.js?v=20260918a"></script>
-<script src="inbound.js?v=20260918a"></script>
+<script src="inbound.js?v=20260918c"></script>
 <script src="eodr.js?v=20260915b"></script>
 </body>
 </html>
