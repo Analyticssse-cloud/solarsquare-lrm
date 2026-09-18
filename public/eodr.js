@@ -66,9 +66,13 @@
      supports. It is never dressed up as exact, and the A/B/C/D split the paper
      sheet asks for (ring / conversation / voicemail / one-sided cut) is NOT
      here: voicemail is not a field in the Ozonetel tables at all.
-   · MS Score comes from a sheet column of the same name. Until it exists the
-     row reads "no column" rather than 0 — a scoring row showing zero for
-     everyone looks like universal failure, not a missing feed.
+   · MS Score comes from the LRM_View matrix in its OWN spreadsheet (MS_SHEET_ID),
+     unpivoted per LRM/day in api/_msscore.js. A window is the MEAN of that LRM's
+     scored days, never a sum; a blank day stays blank rather than scoring 0 and
+     is never carried forward from the previous day (user, 18 Sep 2026) — a
+     scoring row showing zero for everyone looks like universal failure, not a
+     missing feed. Coverage is partial by nature (~78 of ~190 LRMs), so the
+     footnote states how many were scored.
    ════════════════════════════════════════════════════════════════════════════ */
 
 var eodrCache = null;        // { key, windows: {today,mtd,r7,r30} }
@@ -187,22 +191,25 @@ var EODR_FMT = {
 /* The check-in baseline is a DEADLINE, not a target to exceed: earlier is better, so
    the tint inverts and the window length never scales it. 600 = 10:00. */
 var EODR_CHECKIN_BY = 600;
+/* `g` is the band the row sits under. Fifteen undifferentiated rows read as a
+   spreadsheet dump; four named groups read as a review sheet. The band is drawn
+   whenever `g` changes, so the order of this list IS the grouping. */
 var EODR_ROWS = [
-  { id: 'checkin', label: 'Checkin time', get: function (a) { return a.firstCall; }, f: 'clock', deadline: EODR_CHECKIN_BY, baseTxt: '10:00', note: 'first dial \u2014 work started' },
-  { id: 'late',    label: 'Latest Checkin time', get: function (a) { return a.lastCheck; }, f: 'clock', deadline: EODR_CHECKIN_BY, baseTxt: '10:00', note: 'slowest starter in scope', multiOnly: true },
-  { id: 'shrink',  label: 'Shrinkage', get: function (a) { return a.shrinkage; }, f: 'pct', flat: true, goodLow: true, note: 'no dials all day', multiOnly: true },
-  { id: 'leads',   label: 'Unique Leads', get: function (a) { return a.leads; }, f: 'int', base: 175, per: true },
-  { id: 'eff',     label: 'Effective Talk time minute', get: function (a) { return a.effTalk; }, f: 'int', base: 120, per: true, note: 'actual talk' },
-  { id: 'talk',    label: 'Total talk time minute', get: function (a) { return a.totalTime; }, f: 'int', base: 240, per: true, note: 'ring + talk + wrap', feedIf: 'trw' },
-  { id: 'msTod',   label: 'Meeting Schedule for Today', get: function (a) { return a.msToday; }, f: 'one', base: 10, per: true },
-  { id: 't0',      label: 'MS created for Today', get: function (a) { return a.t0; }, f: 'one', base: 10, per: true },
-  { id: 't1',      label: 'MS created for Tomorrow', get: function (a) { return a.t1; }, f: 'one', base: 10, per: true },
-  { id: 't2',      label: 'MS created for Today+2', get: function (a) { return a.t2; }, f: 'one', base: 10, per: true },
-  { id: 'msTot',   label: 'MS created Total', get: function (a) { return a.msTotal; }, f: 'one', base: 12, per: true },
-  { id: 'md',      label: 'Meeting Done', get: function (a) { return a.md; }, f: 'one', base: 6, per: true },
-  { id: 'score',   label: 'MS Score', get: function (a) { return a.msScore; }, f: 'one', base: 75, flat: true, feedIf: 'score' },
-  { id: 'msmd',    label: 'MS \u2192 MD %', get: function (a) { return a.msTotal ? a.md / a.msTotal * 100 : null; }, f: 'pct', flat: true, note: 'MD \u00f7 MS' },
-  { id: 'leadmd',  label: 'MD / Lead %', get: function (a) { return a.leads ? a.md / a.leads * 100 : null; }, f: 'pct', flat: true }
+  { id: 'checkin', g: 'Floor time', label: 'Work start (first dial)', get: function (a) { return a.firstCall; }, f: 'clock', deadline: EODR_CHECKIN_BY, baseTxt: '10:00', note: 'when dialling began' },
+  { id: 'late',    g: 'Floor time', label: 'Latest start in scope', get: function (a) { return a.lastCheck; }, f: 'clock', deadline: EODR_CHECKIN_BY, baseTxt: '10:00', note: 'slowest starter', multiOnly: true },
+  { id: 'shrink',  g: 'Floor time', label: 'Shrinkage', get: function (a) { return a.shrinkage; }, f: 'pct', flat: true, goodLow: true, note: 'no dials all day', multiOnly: true },
+  { id: 'leads',   g: 'Activity', label: 'Unique leads dialled', get: function (a) { return a.leads; }, f: 'int', base: 175, per: true },
+  { id: 'eff',     g: 'Activity', label: 'Effective talk', get: function (a) { return a.effTalk; }, f: 'int', base: 120, per: true, note: 'actual talk, minutes' },
+  { id: 'talk',    g: 'Activity', label: 'Total talk', get: function (a) { return a.totalTime; }, f: 'int', base: 240, per: true, note: 'ring + talk + wrap, minutes', feedIf: 'trw' },
+  { id: 'msTod',   g: 'Meetings created', label: 'MS scheduled for today', get: function (a) { return a.msToday; }, f: 'one', base: 10, per: true },
+  { id: 't0',      g: 'Meetings created', label: 'MS created for today', get: function (a) { return a.t0; }, f: 'one', base: 10, per: true },
+  { id: 't1',      g: 'Meetings created', label: 'MS created for tomorrow', get: function (a) { return a.t1; }, f: 'one', base: 10, per: true },
+  { id: 't2',      g: 'Meetings created', label: 'MS created for T+2', get: function (a) { return a.t2; }, f: 'one', base: 10, per: true },
+  { id: 'msTot',   g: 'Meetings created', label: 'MS created \u2014 total', get: function (a) { return a.msTotal; }, f: 'one', base: 12, per: true },
+  { id: 'md',      g: 'Outcomes', label: 'Meetings done', get: function (a) { return a.md; }, f: 'one', base: 6, per: true },
+  { id: 'score',   g: 'Outcomes', label: 'MS score', get: function (a) { return a.msScore; }, f: 'one', base: 75, flat: true, feedIf: 'score', note: 'mean of scored days' },
+  { id: 'msmd',    g: 'Outcomes', label: 'MS \u2192 MD %', get: function (a) { return a.msTotal ? a.md / a.msTotal * 100 : null; }, f: 'pct', flat: true, note: 'MD \u00f7 MS' },
+  { id: 'leadmd',  g: 'Outcomes', label: 'MD / lead %', get: function (a) { return a.leads ? a.md / a.leads * 100 : null; }, f: 'pct', flat: true }
 ];
 /* ── Scope: the dashboard's own filter bar ───────────────────────────────────
    The SAME tests as filterAgents(), applied to the rows of a fetched window
@@ -298,64 +305,133 @@ function eodrMockWindows(W) {
    The baseline is a COLOUR CUE on the cell (the user's choice over a baseline
    column), with the scaled target in the title attribute so the number behind
    the colour is one hover away rather than invisible. */
-function eodrCell(row, agg, win, headcount) {
+/* The status rule, extracted so the cell tint and the row-label spine cannot
+   disagree: the spine reads TODAY's status and must use the same thresholds. */
+function eodrStatus(row, v, win, headcount) {
+  if (v === null || v === undefined) return '';
+  if (row.per && !row.flat && !row.deadline) v = headcount ? v / headcount : null;
+  if (v === null) return '';
+  if (row.deadline) return v <= row.deadline ? 'hit' : (v <= row.deadline + 30 ? 'near' : 'miss');
+  if (row.goodLow) return v <= 5 ? 'hit' : (v <= 15 ? 'near' : 'miss');
+  if (row.base) {
+    var t = row.flat ? row.base : row.base * win.days;
+    var r = t > 0 ? v / t : 0;
+    return r >= 1 ? 'hit' : (r >= 0.8 ? 'near' : 'miss');
+  }
+  return '';
+}
+/* What the Target column prints. The baseline used to be floated into the row
+   label, which is what forced a 34%-wide label column. */
+function eodrTgtTxt(row) {
+  if (row.baseTxt) return row.baseTxt;
+  if (row.goodLow) return '\u22645%';
+  if (row.base) return row.flat ? String(row.base) : row.base + '/day';
+  return '\u2014';
+}
+/* Why the MS score row is blank. THREE different causes and the fix differs for
+   each, so the cell names the one that applies instead of a generic dash: the
+   feed is unreachable (sharing / MS_SHEET_ID), the feed is fine but nobody in
+   this window was scored, or the matrix simply has no cells for these days (the
+   user's rule: a blank day shows blank, never the previous day's score). */
+function eodrScoreWhy() {
+  var m = (D && D.msScore) || {};
+  if (m.error) return m.error;
+  if (m.inSheet) return 'No MS score for the LRMs in view on this window \u2014 ' + m.inSheet
+    + ' LRM(s) are scored in the sheet, but not these people or not these days';
+  return 'The LRM_View matrix returned no scores for ' + ((m.diag && m.diag.window) || 'this window');
+}
+/* Coverage sentence for the MS score. Stated rather than implied: the matrix
+   scores ~78 people against a floor of ~190, so an unqualified average would
+   read as the whole floor's score. */
+function eodrScoreFoot() {
+  var m = (D && D.msScore) || {};
+  if (m.error) return 'MS score is not loading: ' + m.error;
+  if (!m.inSheet) return '';
+  return 'MS score is the mean of each LRM\u2019s scored days in the window, read from the LRM_View '
+    + 'matrix \u2014 blank days are skipped, not counted as 0, and never carried forward. '
+    + (m.scored || 0) + ' of ' + (m.lrms || 0) + ' LRMs in the current feed carry a score ('
+    + m.inSheet + ' scored in the sheet for this window).';
+}
+function eodrCell(row, agg, win, headcount, isNow) {
+  var now = isNow ? ' is-now' : '';
   if (row.feed === 'attendance') {
-    return '<td class="eodr-na" title="Not in the dashboard feed">—</td>';
+    return '<td class="eodr-na' + now + '" title="Not in the dashboard feed">—</td>';
   }
   var v = row.get(agg);
   if (row.per && v !== null && !row.flat && !row.deadline) v = headcount ? v / headcount : null;
   if (v === null) {
-    var why = row.feedIf === 'score' ? 'No "MS Score" column in the sheet yet'
+    var why = row.feedIf === 'score' ? eodrScoreWhy()
             : row.feedIf === 'trw'   ? 'Needs the "Total Time (T+R+W)" column — paste the v15 query into Metabase'
             : row.id === 'checkin'   ? 'No day in this window with at least ' + EODR_CHECKIN_MIN_CALLS + ' dials, so there is no usable first-call time'
             : 'No data in this window';
-    return '<td class="eodr-na" title="' + esc(why) + '">—</td>';
+    return '<td class="eodr-na' + now + '" title="' + esc(why) + '">—</td>';
   }
   var txt = (EODR_FMT[row.f] || EODR_FMT.int)(v);
-  var cls = '', title = '';
+  // `v` is already per-LRM here, so the status is computed with `per` dropped
+  // rather than dividing by the headcount twice.
+  var st = eodrStatus({ deadline: row.deadline, goodLow: row.goodLow, base: row.base, flat: row.flat }, v, win, 1);
+  var cls = st ? 'eodr-' + st : '', title = '';
   if (row.deadline) {
     // A deadline inverts the scale: at or before the hour is a hit, and it is never
     // scaled by window length (10:00 is 10:00 whether the column is a day or a month).
-    cls = v <= row.deadline ? 'eodr-hit' : (v <= row.deadline + 30 ? 'eodr-near' : 'eodr-miss');
     title = 'Target ' + EODR_FMT.clock(row.deadline) + ' or earlier · over the '
           + agg.firstMinN + ' day/LRM row(s) with at least ' + EODR_CHECKIN_MIN_CALLS + ' dials';
   } else if (row.base) {
     var target = row.flat ? row.base : row.base * win.days;
     var ratio = target > 0 ? v / target : 0;
-    cls = ratio >= 1 ? 'eodr-hit' : (ratio >= 0.8 ? 'eodr-near' : 'eodr-miss');
     title = 'Baseline ' + (Math.round(target * 10) / 10).toLocaleString('en-IN')
           + (row.flat ? '' : ' (' + row.base + ' \u00d7 ' + win.days + 'd)')
           + ' \u00b7 at ' + Math.round(ratio * 100) + '%';
-  } else if (row.goodLow && v !== null) {
-    cls = v <= 5 ? 'eodr-hit' : (v <= 15 ? 'eodr-near' : 'eodr-miss');
+  } else if (row.goodLow) {
     title = 'Lower is better \u00b7 5% or less reads as healthy';
   }
-  return '<td class="' + cls + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + txt + '</td>';
+  return '<td class="' + cls + now + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>'
+       + (isNow ? '<b>' + txt + '</b>' : txt) + '</td>';
 }
 
 function eodrBlock(o) {
   var W = eodrWindows();
   var order = ['today', 'mtd', 'r7', 'r30'];
-  var h = '<div class="fb-box eodr-box"><div class="fh-hd"><h4>' + esc(o.title) + '</h4>'
+  var h = '<div class="fb-box eodr-box"><div class="fh-hd"><h4>EODR</h4>'
+        + '<span class="eodr-mode">' + esc(o.mode) + '</span>'
         + (o.hdNote ? '<span class="eodr-hdnote">' + esc(o.hdNote) + '</span>' : '') + '</div>';
   if (o.sub) h += '<div class="fb-sub eodr-sub">' + o.sub + '</div>';
-  h += '<div class="eodr-tbl-wrap"><table class="eodr-tbl"><thead><tr><th class="eodr-rowhd">'
-     + esc(o.rowHead) + '</th>'
-     + order.map(function (k) {
-         return '<th title="' + esc(W[k].from + ' \u2192 ' + W[k].to) + '">' + W[k].label
+  // Fixed column widths live in the colgroup: 230px metric, 64 target, 80 per
+  // window. The table is width:auto, so it hugs that instead of stretching
+  // every cell across the screen.
+  h += '<div class="eodr-tbl-wrap"><table class="eodr-tbl"><colgroup><col class="c-metric"><col class="c-target">'
+     + order.map(function () { return '<col class="c-win">'; }).join('') + '</colgroup>'
+     + '<thead><tr><th class="eodr-rowhd">' + esc(o.rowHead) + '</th><th>Target</th>'
+     + order.map(function (k, i) {
+         return '<th class="' + (i === 0 ? 'is-now' : '') + '" title="'
+              + esc(W[k].from + ' \u2192 ' + W[k].to) + '">' + W[k].label
               + '<span>' + W[k].days + 'd</span></th>';
        }).join('') + '</tr></thead><tbody>';
+  var tds = new Array(order.length + 2).join('<td></td>');
+  var lastG = null;
   o.rows.forEach(function (row) {
-    h += '<tr><th>' + esc(row.label)
-       + (row.baseTxt ? '<em>' + esc(row.baseTxt) + '</em>' : (row.base && !row.flat ? '<em>' + row.base + '/day</em>' : (row.base ? '<em>' + row.base + '</em>' : '')))
-       + (row.note ? '<i>' + esc(row.note) + '</i>' : '') + '</th>';
-    order.forEach(function (k) {
+    if (row.g && row.g !== lastG) {
+      lastG = row.g;
+      h += '<tr class="eodr-grp"><th>' + esc(row.g) + '</th>' + tds + '</tr>';
+    }
+    // The spine on the row label carries TODAY's status, so the left edge is
+    // scannable without reading four columns.
+    var aNow = o.aggs.today;
+    var sNow = aNow ? eodrStatus(row, row.get(aNow), W.today, o.heads.today) : '';
+    h += '<tr><th class="' + (sNow ? 's-' + sNow : '') + '">' + esc(row.label)
+       + (row.note ? '<i>' + esc(row.note) + '</i>' : '') + '</th>'
+       + '<td class="eodr-tgt">' + esc(eodrTgtTxt(row)) + '</td>';
+    order.forEach(function (k, i) {
       var a = o.aggs[k];
-      h += a ? eodrCell(row, a, W[k], o.heads[k]) : '<td class="eodr-na">\u2014</td>';
+      h += a ? eodrCell(row, a, W[k], o.heads[k], i === 0)
+             : '<td class="eodr-na' + (i === 0 ? ' is-now' : '') + '">\u2014</td>';
     });
     h += '</tr>';
   });
-  h += '</tbody></table></div>';
+  h += '</tbody></table></div>'
+     + '<div class="eodr-legend"><i class="lg-hit">At or above target</i>'
+     + '<i class="lg-near">Within 20%</i><i class="lg-miss">Below</i>'
+     + '<span>Count targets scale by window length; rates and times do not.</span></div>';
   if (o.foot) h += '<div class="fb-foot eodr-foot">' + o.foot + '</div>';
   return h + '</div>';
 }
@@ -400,7 +476,7 @@ function renderEODR() {
       + '</div>' + mockNote + errNote + emptyNote
 
       + eodrBlock({
-          title: single ? 'EODR \u2014 absolute' : 'EODR \u2014 per LRM',
+          mode: single ? 'Absolute' : 'Per LRM',
           rowHead: 'Metric',
           hdNote: eodrScopeLabel(),
           rows: rows, aggs: aggs, heads: heads,
@@ -419,7 +495,7 @@ function renderEODR() {
                   + 'a row for is invisible to it. ')
               + 'Effective talk is the actual talk time already being captured; total talk adds ring and '
               + 'after-call work on top of it. MS \u2192 MD will not reconcile within one day \u2014 Meeting Done is '
-              + 'dated by the DONE date.'
+              + 'dated by the DONE date. ' + eodrScoreFoot()
         })
       + '</div>';
 
