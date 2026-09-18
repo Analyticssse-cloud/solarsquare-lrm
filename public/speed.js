@@ -25,7 +25,7 @@
      D.speedRows    [{agent,name,city,tl,tlName,zsm,zsmName,ados,adosName,
                       assigned,called,never,buckets[7],avgTat,avgLag,medianDay,_inScope}]
      D.speedLeads   [{date,agent,lead,city,cluster,stage,status,createdAt,
-                      assignedAt,clockStart,firstCallAt,lag,tat,flag}]
+                      assignedAt,clockStart,firstCallAt,lag,tat,flag,entryStage}]
                     — the actionable tail only
      D.speedHas     false when the 'speed' sheet tab does not exist yet
    Depends on globals from index.html: D, F, esc, fmt, agentName, setCount,
@@ -149,9 +149,25 @@ function filterSpeed() {
 }
 /* On-time = called within the SLA edge. Never-called is a breach, so the
    denominator is leads ASSIGNED, never leads called. */
+/* v8 provenance, stated only when there is something to state. Two separate
+   facts that must not be blended: leads that entered at a non-'Assigned' stage
+   are ADDITIONS the old definition missed, and stale leads are EXCLUSIONS. */
+function speedEntryNote(t) {
+  var p = [];
+  if (t.entryOther > 0) {
+    p.push(' <b>' + fmt(t.entryOther) + '</b> of these leads reached their LRM at a stage other than ' +
+           '\u201cAssigned\u201d (Speed Order, Meeting Scheduled (BD)) \u2014 before 18 Sep they were not in this feed at all.');
+  }
+  if (t.stale > 0) {
+    p.push(' <b>' + fmt(t.stale) + '</b> more were dropped for an impossible created\u2192assigned lag ' +
+           '(over 7 days): thin audit history, not slow work. They are not in any figure above.');
+  }
+  return p.join('');
+}
 function speedStats(rows) {
   var k = speedSlaIndex(), n = SPEED_LABELS.length;
-  var t = { assigned: 0, called: 0, never: 0, onTime: 0, buckets: [], tatSum: 0, lagSum: 0 };
+  var t = { assigned: 0, called: 0, never: 0, onTime: 0, buckets: [], tatSum: 0, lagSum: 0,
+            entryOther: 0, stale: 0 };
   for (var i = 0; i < n; i++) t.buckets.push(0);
   rows.forEach(function (r) {
     t.assigned += r.assigned || 0;
@@ -159,6 +175,12 @@ function speedStats(rows) {
     t.never += r.never || 0;
     t.tatSum += (r.avgTat || 0) * (r.called || 0);
     t.lagSum += (r.avgLag || 0) * (r.assigned || 0);
+    /* v8 columns, 0 on a pre-v8 sheet. entryOther = leads that reached the LRM at
+       a stage other than 'Assigned' — invisible to the feed before v8, so this is
+       what explains a grown denominator. stale = leads dropped for an impossible
+       Assign Lag; NOT part of `assigned`, so never show it as a rate of it. */
+    t.entryOther += r.entryOther || 0;
+    t.stale += r.stale || 0;
     (r.buckets || []).forEach(function (v, i) { t.buckets[i] += v || 0; });
   });
   for (var j = 0; j <= k; j++) t.onTime += t.buckets[j];
@@ -244,7 +266,8 @@ function renderSpeed() {
     '<div class="sl-sub">A lead counts against the day it was assigned. Leads never called are counted as breaches, ' +
     'so the denominator is leads <b>assigned</b>. The clock runs on floor hours: a lead landing at or after ' +
     '19:00 starts at <b>10:30 the next day</b>, one landing before 10:30 starts at 10:30 the same day. ' +
-    'First calls before the assignment instant are ignored (they belong to the previous owner).</div></div>' +
+    'First calls before the assignment instant are ignored (they belong to the previous owner).' +
+    speedEntryNote(t) + '</div></div>' +
     '<div class="sl-sla"><span class="sl-sla-lbl">SLA</span>' +
     SPEED_SLA_CHOICES.map(function (m) {
       return '<button class="sl-chip' + (m === speedSLA ? ' on' : '') + '" data-sla="' + m + '">' + m + ' min</button>';
@@ -425,9 +448,15 @@ function speedDrill(agent) {
       'called inside an hour, or the <code>speed_leads</code> tab has not been filled yet.</div></div>';
   }
   var shown = rows.slice(0, 40);
+  /* v8 'Entry Stage' — the column appears ONLY when the feed actually carries it,
+     so a pre-v8 speed_leads tab renders the original nine columns unchanged
+     rather than a blank tenth. It says WHY the lead is in the population at all:
+     under v6 only 'Assigned' entries were here. */
+  var hasEntry = shown.some(function (r) { return r.entryStage; });
   var out = '<div class="sl-drill-in"><h4>Leads behind this row — ' + rows.length +
     ' never-called or slower than 60 min' + (rows.length > shown.length ? ' (first 40)' : '') + '</h4>' +
     '<table class="sl-mini"><thead><tr><th>Lead</th><th>City / cluster</th><th>Stage</th>' +
+    (hasEntry ? '<th>Entered as</th>' : '') +
     '<th>Lead created</th><th>Assigned</th><th>Clock start</th><th>First call</th>' +
     '<th class="num">Assign lag</th><th class="num">TAT</th><th></th></tr></thead><tbody>';
   shown.forEach(function (r) {
@@ -435,6 +464,9 @@ function speedDrill(agent) {
     var geo = r.cluster || r.city || '';
     var shifted = r.clockStart && r.assignedAt && r.clockStart !== r.assignedAt;
     out += '<tr><td><b>' + esc(r.lead) + '</b></td><td>' + esc(geo) + '</td><td>' + esc(r.stage) + '</td>' +
+      (hasEntry ? '<td' + (r.entryStage && r.entryStage !== 'Assigned'
+        ? ' style="color:#8a5a17" title="Reached the LRM at a stage other than Assigned — not in this feed before 18 Sep"' : '') +
+        '>' + esc(r.entryStage || '—') + '</td>' : '') +
       '<td>' + esc(slWhen(r.createdAt)) + '</td>' +
       '<td>' + esc(slWhen(r.assignedAt)) + '</td>' +
       '<td' + (shifted ? ' style="color:#8a5a17" title="Off-hours arrival — clock moved to floor open"' : '') + '>' +
