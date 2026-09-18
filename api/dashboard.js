@@ -934,10 +934,18 @@ export default async function handler(req, res) {
            Unmatched fields are simply absent from _c — never 0, because a
            column the sheet does not have and a column that reads zero are
            different facts and the card states them differently. */
+        /* KEY ORDER WINS, not header order (18 Sep 2026). The old form scanned
+           the HEADERS and took the first one whose key was listed anywhere, so a
+           field could never state a preference: `inbound_perf` carries BOTH
+           'Talk Time' and 'Talk Time (s)' and the earlier column won, which is
+           how a seconds field got read as whatever the other column happened to
+           be. Now each field's key list is a priority order. */
         const cIdx = {}, cMiss = [];
         if (o.fields) Object.keys(o.fields).forEach(f => {
           const spec = o.fields[f], keys = spec.keys || spec;
-          const i = hdr.findIndex(h => keys.indexOf(hkey(h)) >= 0);
+          let i = -1;
+          for (const k of keys) { i = hdr.findIndex(h => hkey(h) === k); if (i >= 0) break; }
+          if (i < 0) i = hdr.findIndex(h => keys.indexOf(hkey(h)) >= 0);
           if (i >= 0) cIdx[f] = { i, kind: spec.kind || 'text', header: hdr[i] }; else cMiss.push(f);
         });
         if (o.fields) { dg.mapped = Object.keys(cIdx).map(f => f + ' ← ' + cIdx[f].header); dg.unmapped = cMiss; }
@@ -1037,23 +1045,43 @@ export default async function handler(req, res) {
        only), so casing, spacing, underscores and a trailing % are all irrelevant
        and the sheet's own typos sit beside the corrected spelling.
        kind drives coercion: num | pct | dur (-> MINUTES) | text. */
+/* KEYS ARE A PRIORITY ORDER (see passThrough). The real header row, read off
+       the live tab on 18 Sep 2026, is:
+         Date · LRM email · Total Calls Received · Answered Calls ·
+         Not Answered Calls · Talk Time · Not Answered Reasons · Agent Name ·
+         Rang & Missed · Not Routed - Owner Busy · Not Routed - Other ·
+         Pickup % (when rang) · Answered % (overall) · Talk Time (s) ·
+         Avg. Talk Time (s) · Avg. Wrapup Time (s) · Avg. Hold Time (s) ·
+         Customer Disconnect
+       Two things that cost a round each: 'Total Calls Received' was bound by
+       nothing (the map only knew 'Total Calls'), so the whole tab read as
+       call-less; and the tab carries BOTH 'Talk Time' and 'Talk Time (s)', so
+       the (s) spellings must lead their key lists — they are the ones the card
+       documents as seconds. The routing counts (Rang & Missed, Not Routed …)
+       are the per-LRM view of the losses that used to be visible only
+       floor-wide on the routing feed. */
     const INBOUND_FIELDS = {
       date:       { kind: 'text', keys: ['date', 'calldate', 'day'] },
       email:      { kind: 'text', keys: ['lrmemail', 'lrmemailid', 'agentid', 'agentemail', 'email', 'emailid'] },
       name:       { kind: 'text', keys: ['agentname', 'lrmname', 'name', 'employeename'] },
-      calls:      { kind: 'num',  keys: ['totalcalls', 'calls', 'callsrung', 'inboundcalls', 'callcount'] },
+      calls:      { kind: 'num',  keys: ['totalcallsreceived', 'callsreceived', 'totalcalls', 'calls', 'callsrung', 'inboundcalls', 'callcount'] },
       answered:   { kind: 'num',  keys: ['answeredcalls', 'answered', 'connectedcalls'] },
-      answerPct:  { kind: 'pct',  keys: ['connected', 'answer', 'answerrate', 'connectedpercentage'] },
-      unanswered: { kind: 'num',  keys: ['unansweredcalls', 'unanswredcalls', 'notansweredcalls', 'missedcalls', 'missed'] },
-      unansPct:   { kind: 'pct',  keys: ['unansweredcallspct', 'unanswredcallspct', 'unanswered', 'unanswred', 'missedpct'] },
-      talk:       { kind: 'sec',  keys: ['totaltalktime', 'talktime', 'totaltalk'] },
-      avgTalk:    { kind: 'sec',  keys: ['avgtalktime', 'averagetalktime', 'avgtalk'] },
-      wrap:       { kind: 'sec',  keys: ['avgwrapuptime', 'averagewrapuptime', 'avgwrapup', 'wrapuptime'] },
-      hold:       { kind: 'sec',  keys: ['avgholdtime', 'averageholdtime', 'avghold', 'holdtime'] },
+      answerPct:  { kind: 'pct',  keys: ['answeredoverall', 'answeredpctoverall', 'answeredpct', 'connected', 'answerrate', 'connectedpercentage'] },
+      pickupPct:  { kind: 'pct',  keys: ['pickupwhenrang', 'pickuppctwhenrang', 'pickup', 'pickuprate'] },
+      unanswered: { kind: 'num',  keys: ['notansweredcalls', 'unansweredcalls', 'unanswredcalls', 'missedcalls', 'missed'] },
+      unansPct:   { kind: 'pct',  keys: ['notansweredoverall', 'unansweredcallspct', 'unanswredcallspct', 'unanswered', 'unanswred', 'missedpct'] },
+      rangMissed: { kind: 'num',  keys: ['rangmissed', 'rangandmissed', 'rungmissed'] },
+      nrBusy:     { kind: 'num',  keys: ['notroutedownerbusy', 'ownerbusy', 'notroutedbusy'] },
+      nrOther:    { kind: 'num',  keys: ['notroutedother', 'notroutedothers', 'notroutedrest'] },
+      reasons:    { kind: 'text', keys: ['notansweredreasons', 'notansweredreason', 'unansweredreasons'] },
+      talk:       { kind: 'sec',  keys: ['talktimes', 'totaltalktimes', 'totaltalktime', 'talktime', 'totaltalk'] },
+      avgTalk:    { kind: 'sec',  keys: ['avgtalktimes', 'averagetalktimes', 'avgtalktime', 'averagetalktime', 'avgtalk'] },
+      wrap:       { kind: 'sec',  keys: ['avgwrapuptimes', 'averagewrapuptimes', 'avgwrapuptime', 'averagewrapuptime', 'avgwrapup', 'wrapuptime'] },
+      hold:       { kind: 'sec',  keys: ['avgholdtimes', 'averageholdtimes', 'avgholdtime', 'averageholdtime', 'avghold', 'holdtime'] },
       custDisc:   { kind: 'num',  keys: ['customerdisconnect', 'customerdisconnects', 'custdisconnect', 'customerhungup'] },
       agentDisc:  { kind: 'num',  keys: ['agentdisconnect', 'agentdisconnects', 'lrmdisconnect', 'agenthungup'] },
-      ring:       { kind: 'dur',  keys: ['avgringtime', 'ringtime', 'avgtimetoanswer', 'timetoanswer'] },
-      queue:      { kind: 'dur',  keys: ['avgqueuetime', 'queuetime', 'avgwaittime', 'waittime'] },
+      ring:       { kind: 'sec',  keys: ['avgringtimes', 'avgringtime', 'ringtime', 'avgtimetoanswer', 'timetoanswer'] },
+      queue:      { kind: 'sec',  keys: ['avgqueuetimes', 'avgqueuetime', 'queuetime', 'avgwaittime', 'waittime'] },
       did:        { kind: 'text', keys: ['did', 'didnumber', 'publishednumber'] },
       legs:       { kind: 'num',  keys: ['diallegs', 'legs', 'totallegs'] },
     };
@@ -1065,8 +1093,11 @@ export default async function handler(req, res) {
       emailCol: ['LRM email', 'LRM Email', 'Agent Id'],
       /* Kept for the raw header names the frontend still reads directly. The
          canonical _c block is authoritative; this is the compatibility layer. */
-      numeric: ['Total Calls', 'Answered Calls', 'Connected %', 'Unanswered Calls',
-                'Unanswred Calls %', 'Unanswered Calls %', 'Customer Disconnect'],
+      numeric: ['Total Calls Received', 'Total Calls', 'Answered Calls', 'Not Answered Calls',
+                'Rang & Missed', 'Not Routed - Owner Busy', 'Not Routed - Other',
+                'Pickup % (when rang)', 'Answered % (overall)', 'Talk Time (s)',
+                'Avg. Talk Time (s)', 'Avg. Wrapup Time (s)', 'Avg. Hold Time (s)',
+                'Customer Disconnect'],
     });
     /* DATE-SCOPED like every other view (user, 17 Sep). Without this the tab read
        its whole history against whatever day was picked, which looked like
@@ -1075,12 +1106,30 @@ export default async function handler(req, res) {
        row with no date cannot honour the picker — but now COUNTED, because
        dropping them silently is what made the totals unexplainable. */
     let inbUndated = 0;
-    const inboundPerf = inboundPerfAll.filter(r => {
-      const d = rowDate((r._c && r._c.date) || r['Date']);
+    const inbDay = r => rowDate((r._c && r._c.date) || r['Date']);
+    let inboundPerf = inboundPerfAll.filter(r => {
+      const d = inbDay(r);
       if (!d) { inbUndated++; return false; }
       return d >= effFrom && d <= effTo;
     });
     inboundDiag.undated = inbUndated;
+    inboundDiag.inWindowStrict = inboundPerf.length;
+    /* MOST-RECENT-DAY FALLBACK (18 Sep 2026). The Ozonetel card is written on
+       its own schedule, so a tab holding 2,202 rows can hold none for the day
+       the picker happens to sit on — and the tab then reported "in the picked
+       window: 0" over a full feed, which reads as a broken view rather than a
+       feed that has not caught up. When the window is empty the LATEST day at
+       or before the window end is served instead and the date is reported, so
+       the substitution is stated on the card and never silent. */
+    if (!inboundPerf.length && inboundPerfAll.length) {
+      let best = '';
+      for (const r of inboundPerfAll) { const d = inbDay(r); if (d && d <= effTo && d > best) best = d; }
+      if (!best) for (const r of inboundPerfAll) { const d = inbDay(r); if (d && d > best) best = d; }
+      if (best) {
+        inboundPerf = inboundPerfAll.filter(r => inbDay(r) === best);
+        inboundDiag.fallbackDate = best;
+      }
+    }
     inboundDiag.inWindow = inboundPerf.length;
     inboundDiag.window = effFrom + ' → ' + effTo;
 
