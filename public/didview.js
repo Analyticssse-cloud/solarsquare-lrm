@@ -85,6 +85,110 @@ function dvSigned(v) {
   return '<span class="' + (v <= -3 ? 'bad' : v >= 3 ? 'ok' : '') + '">' + s + '</span>';
 }
 
+/* ── RANGE-SCOPED ESTATE, from did_day_on_day ──────────────────────────────
+   WHY THIS EXISTS (19 Sep 2026): the tab used to lead with `did_overall`,
+   whose four windows are computed inside the card via NOW(). Nothing on the
+   tab moved when the date picker moved — reported as "the numbers are not
+   changing when applying date filter". It was not a bug in the picker: that
+   feed has no Date column and CANNOT be scoped. The date-aware feed was
+   already arriving (`D.didDod`, one row per Date × DID, filtered to the
+   window server-side) and was only being used for the all-days trend.
+   So the picked window now leads, and did_overall is demoted to a labelled
+   reference band below it. Same caveat as everywhere on this tab: these are
+   rates with no denominators, so every figure is an UNWEIGHTED MEAN over the
+   Date × DID rows present — a DID that took twelve dials counts as much as
+   one that took nine hundred. */
+function dvWinRows() { return (D && D.didDod) || []; }
+function dvAllDayRows() { return (D && (D.didDodAllDays || D.didDod)) || []; }
+function dvShape(rows) {
+  var days = {}, dids = {};
+  rows.forEach(function(r){
+    var c = r._c || {}, d = String(c.date || r['Date'] || '').trim().slice(0, 10);
+    if (d) days[d] = 1;
+    if (c.did) dids[String(c.did)] = 1;
+  });
+  var dl = Object.keys(days).sort();
+  return { days: dl.length, first: dl[0] || '', last: dl[dl.length - 1] || '', dids: Object.keys(dids).length };
+}
+function dvWinLabel() {
+  var s = dvShape(dvWinRows());
+  if (!s.days) return ((D && D.didDodDiag && D.didDodDiag.window) || 'selected range');
+  return s.first === s.last ? s.first : s.first + ' \u2192 ' + s.last;
+}
+
+/* Lead type × (picked range | every day in the tab | the gap). The second
+   column is the honest baseline available from this feed — it is NOT the
+   15-day line from did_overall, which is computed differently. */
+function dvRangeMatrix() {
+  var win = dvWinRows(), all = dvAllDayRows();
+  var body = DID_TYPES.map(function(t){
+    var isTotal = t.pre === 'total';
+    var tdStyle = isTotal ? ' style="background:var(--blue-soft,#eef1f7);font-weight:600"' : '';
+    var w = dvMean(win, t.dod), a = dvMean(all, t.dod);
+    var gap = (w === null || a === null) ? null : w - a;
+    return '<tr><td style="text-align:left"' + (isTotal ? ' class="nm"' : '') + tdStyle + '>'
+      + esc(t.label) + ' <span class="fb-sub" style="font-weight:400">' + esc(t.note) + '</span></td>'
+      + '<td num="1" class="sep"' + tdStyle + '>' + dvPct(w) + '</td>'
+      + '<td num="1"' + tdStyle + '>' + dvPct(a) + '</td>'
+      + '<td num="1" class="sep"' + tdStyle + '>' + dvSigned(gap) + '</td></tr>';
+  }).join('');
+  return '<div class="tbl-wrap"><table class="dist"><thead><tr>'
+    + '<th style="text-align:left">Lead type</th>'
+    + '<th class="sep">Selected range</th><th>Every day in tab</th>'
+    + '<th class="sep">Range vs all days</th>'
+    + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+}
+
+/* Per-DID, inside the picked range, against that DID's own all-days line.
+   Movement, not level — a rate with no denominator cannot be ranked. */
+function dvRangeTable() {
+  var byDid = {}, allByDid = {};
+  var push = function(bag, rows){
+    rows.forEach(function(r){
+      var c = r._c || {}, k = String(c.did || '').trim();
+      if (!k) return;
+      if (!bag[k]) bag[k] = { n: 0, s: {} };
+      bag[k].n++;
+      DID_TYPES.forEach(function(t){
+        var v = dvVal(r, t.dod);
+        if (v === null || !isFinite(v)) return;
+        var e = bag[k].s[t.dod] || (bag[k].s[t.dod] = { s: 0, n: 0 });
+        e.s += v; e.n++;
+      });
+    });
+  };
+  push(byDid, dvWinRows());
+  push(allByDid, dvAllDayRows());
+  var mean = function(bag, k, key){
+    var e = bag[k] && bag[k].s[key];
+    return (e && e.n) ? e.s / e.n : null;
+  };
+  var keys = Object.keys(byDid);
+  if (!keys.length) return '';
+  keys.sort(function(x, y){
+    var a = mean(byDid, x, 'total'), b = mean(byDid, y, 'total');
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return a - b;
+  });
+  return '<div class="tbl-wrap"><table class="dist"><thead><tr>'
+    + '<th style="text-align:left">DID</th><th class="sep">Days in range</th>'
+    + DID_TYPES.map(function(t, i){ return '<th' + (i === 0 ? ' class="sep"' : '') + '>' + esc(t.label) + '</th>'; }).join('')
+    + '<th class="sep">All calls, every day</th><th>Range vs all days</th>'
+    + '</tr></thead><tbody>'
+    + keys.map(function(k){
+        var w = mean(byDid, k, 'total'), a = mean(allByDid, k, 'total');
+        return '<tr><td class="nm" style="text-align:left">' + esc(k) + '</td>'
+          + '<td num="1" class="sep">' + (byDid[k].n || 0) + '</td>'
+          + DID_TYPES.map(function(t, i){
+              return '<td num="1"' + (i === 0 ? ' class="sep"' : '') + '>' + dvPct(mean(byDid, k, t.dod)) + '</td>';
+            }).join('')
+          + '<td num="1" class="sep">' + dvPct(a) + '</td>'
+          + '<td num="1">' + dvSigned((w === null || a === null) ? null : w - a) + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div>';
+}
+
 /* ── The headline: connect % by lead type, four windows ────────────────────
    A matrix, not bars. The comparison that matters runs BOTH ways — across
    lead types (fresh vs retargeting, the finding) and across windows (is today
@@ -263,7 +367,56 @@ function renderDID() {
 
   var html = '';
 
+  /* The picked range leads. Built from did_day_on_day, the one DID feed that
+     carries a Date column and is scoped to the picker server-side. */
+  if (hasDod) {
+    var winRows = dvWinRows(), ws = dvShape(winRows), as = dvShape(dvAllDayRows());
+    if (!winRows.length) {
+      html += ccCard({
+        title: 'No DID rows in the selected range',
+        note: esc((D.didDodDiag && D.didDodDiag.window) || ''),
+        sub: 'The day-on-day tab holds <b>' + as.days + ' days</b> (' + esc(as.first) + ' to ' + esc(as.last)
+           + ') and none of them fall inside the picked range. Widen the range \u2014 or read the fixed-window '
+           + 'figures below, which ignore the picker by construction.',
+        body: ''
+      });
+    } else {
+      var wTotal = dvMean(winRows, 'total'), aTotal = dvMean(dvAllDayRows(), 'total');
+      var wFresh = dvMean(winRows, 'fresh'), wRet = dvMean(winRows, 'ret');
+      html += connStripCells([
+        ['Days in range', fmt(ws.days), esc(dvWinLabel())],
+        ['Numbers used', fmt(ws.dids), 'DIDs with a reading in range'],
+        ['All calls, range', dvPct(wTotal, 1), 'unweighted mean across DID-days'],
+        ['Vs every day in tab', (wTotal === null || aTotal === null) ? '&mdash;' : dvSigned(wTotal - aTotal),
+          as.days + '-day line ' + (aTotal === null ? '' : aTotal.toFixed(1) + '%')],
+        ['Fresh, range', dvPct(wFresh, 1), 'first contact'],
+        ['Fresh advantage', (wFresh === null || wRet === null) ? '&mdash;' : (wFresh - wRet).toFixed(1) + ' <u>pp</u>',
+          'over retargeting, same range']
+      ]);
+      window.__dvRangeTable = dvRangeTable();
+      html += ccCard({
+        title: 'The estate over the selected range',
+        note: esc(dvWinLabel()) + ' &middot; ' + ws.days + (ws.days === 1 ? ' day' : ' days') + ' &middot; ' + ws.dids + ' DIDs',
+        sub: 'Connect % by lead type inside the picked range, beside the same figure over every day the tab '
+           + 'holds. <b>This is the only part of the tab that follows the date picker</b> \u2014 it is built from '
+           + '<code>did_day_on_day</code>, the one DID feed with a Date column.',
+        table: true, tableLabel: 'Every number in range', tableSrc: '__dvRangeTable',
+        tableTitle: 'Every DID \u00b7 selected range',
+        body: dvRangeMatrix(),
+        foot: 'Still <b>rates with no denominators</b>: each cell is an unweighted mean over the Date \u00d7 DID '
+            + 'rows present, so a DID that took twelve dials counts as much as one that took nine hundred, and '
+            + 'a one-day range on a weekend is a volume artefact rather than a reading. The baseline column is '
+            + 'this feed\u2019s own all-days mean \u2014 <b>not</b> the 15-day line below, which is computed '
+            + 'differently by a different card.'
+      });
+    }
+  }
+
   if (hasOverall) {
+    html += '<div style="margin-top:18px;padding-top:4px;border-top:1px solid #e4e7f0">'
+          + '<div style="font-weight:600;font-size:11px;line-height:1.2;letter-spacing:.09em;'
+          + 'text-transform:uppercase;color:var(--muted);margin:10px 0 12px">Fixed windows '
+          + '\u00b7 did_overall \u00b7 does not follow the date picker</div></div>';
     html += connStripCells([
       ['Numbers in estate', fmt(rows.length), 'every DID the card returned'],
       ['All calls today', dvPct(dvMean(rows, 'totalToday'), 1), 'unweighted mean across DIDs'],
