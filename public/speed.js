@@ -25,7 +25,8 @@
      D.speedRows    [{agent,name,city,tl,tlName,zsm,zsmName,ados,adosName,
                       assigned,called,never,buckets[7],avgTat,avgLag,medianDay,_inScope}]
      D.speedLeads   [{date,agent,lead,city,cluster,stage,status,createdAt,
-                      assignedAt,clockStart,firstCallAt,lag,tat,flag,entryStage}]
+                      assignedAt,clockStart,firstCallAt,lag,tat,flag,
+                      attribution,heldFrom,tatLead}]
                     — the actionable tail only
      D.speedHas     false when the 'speed' sheet tab does not exist yet
    Depends on globals from index.html: D, F, esc, fmt, agentName, setCount,
@@ -181,38 +182,53 @@ function filterSpeed() {
 }
 /* On-time = called within the SLA edge. Never-called is a breach, so the
    denominator is leads ASSIGNED, never leads called. */
-/* v8 provenance, stated only when there is something to state. Two separate
-   facts that must not be blended: leads that entered at a non-'Assigned' stage
-   are ADDITIONS the old definition missed, and stale leads are EXCLUSIONS. */
+/* v9 provenance (19 Sep 2026), stated only when there is something to state.
+   Two separate facts that must not be blended: HANDOVERS are leads this row
+   inherited between assignment and the first call (the row is credited to
+   whoever held the lead at that call, not the initial assignee), and AGED leads
+   are old leads genuinely assigned that day — v8 dropped those as "stale", v9
+   counts them. Both are INSIDE the denominator; neither is an exclusion. */
 function speedEntryNote(t) {
   var p = [];
-  if (t.entryOther > 0) {
-    p.push(' <b>' + fmt(t.entryOther) + '</b> of these leads reached their LRM at a stage other than ' +
-           '\u201cAssigned\u201d (Speed Order, Meeting Scheduled (BD)) \u2014 before 18 Sep they were not in this feed at all.');
+  if (t.handover > 0) {
+    p.push(' <b>' + fmt(t.handover) + '</b> of these leads changed hands before the first call \u2014 ' +
+           'they are credited to whoever held the lead when it was dialled, and their clock ' +
+           'starts at that handover, not at the original assignment.');
   }
-  if (t.stale > 0) {
-    p.push(' <b>' + fmt(t.stale) + '</b> more were dropped for an impossible created\u2192assigned lag ' +
-           '(over 7 days): thin audit history, not slow work. They are not in any figure above.');
+  if (t.aged > 0) {
+    p.push(' <b>' + fmt(t.aged) + '</b> were created more than a day before they were assigned. ' +
+           'They are counted: an old lead assigned today is a landing today.');
+  }
+  if (t.unresolved > 0) {
+    p.push(' <b>' + fmt(t.unresolved) + '</b> have no assignment record in the audit history, ' +
+           'so they fall back to the lead\u2019s current owner.');
   }
   return p.join('');
 }
 function speedStats(rows) {
   var k = speedSlaIndex(), n = SPEED_LABELS.length;
-  var t = { assigned: 0, called: 0, never: 0, onTime: 0, buckets: [], tatSum: 0, lagSum: 0,
-            entryOther: 0, stale: 0 };
+  var t = { assigned: 0, called: 0, never: 0, onTime: 0, buckets: [], tatSum: 0, tatLeadSum: 0, lagSum: 0,
+            handover: 0, aged: 0, unresolved: 0 };
   for (var i = 0; i < n; i++) t.buckets.push(0);
   rows.forEach(function (r) {
     t.assigned += r.assigned || 0;
     t.called += r.called || 0;
     t.never += r.never || 0;
     t.tatSum += (r.avgTat || 0) * (r.called || 0);
+    /* The SECOND clock (v9). avgTat runs from the CREDITED owner's handover — the
+       person-fair clock; avgTatLead runs from the lead's initial assignment — the
+       customer's wait. Identical on every lead that never changed hands, so they
+       diverge only where a handover happened, by exactly the previous owner's
+       delay. Weighted by `called` for the same reason as tatSum: a multi-day or
+       multi-cluster average must be by LEAD, not by row. */
+    t.tatLeadSum += (r.avgTatLead || r.avgTat || 0) * (r.called || 0);
     t.lagSum += (r.avgLag || 0) * (r.assigned || 0);
-    /* v8 columns, 0 on a pre-v8 sheet. entryOther = leads that reached the LRM at
-       a stage other than 'Assigned' — invisible to the feed before v8, so this is
-       what explains a grown denominator. stale = leads dropped for an impossible
-       Assign Lag; NOT part of `assigned`, so never show it as a rate of it. */
-    t.entryOther += r.entryOther || 0;
-    t.stale += r.stale || 0;
+    /* v9 columns, 0 on a pre-v9 sheet. All three describe leads that ARE in
+       `assigned` — handovers and aged leads are counted, never excluded — so
+       none of them may be presented as a deduction from the denominator. */
+    t.handover += r.handover || 0;
+    t.aged += r.aged || 0;
+    t.unresolved += r.unresolved || 0;
     (r.buckets || []).forEach(function (v, i) { t.buckets[i] += v || 0; });
   });
   for (var j = 0; j <= k; j++) t.onTime += t.buckets[j];
@@ -220,6 +236,7 @@ function speedStats(rows) {
   t.neverPct = t.assigned > 0 ? Math.round((t.never / t.assigned) * 1000) / 10 : 0;
   t.workedPct = t.assigned > 0 ? Math.round((t.called / t.assigned) * 100) : 0;
   t.avgTat = t.called > 0 ? Math.round((t.tatSum / t.called) * 10) / 10 : 0;
+  t.avgTatLead = t.called > 0 ? Math.round((t.tatLeadSum / t.called) * 10) / 10 : 0;
   t.avgLag = t.assigned > 0 ? Math.round((t.lagSum / t.assigned) * 10) / 10 : 0;
   t.band = speedBand(t.buckets, t.never);
   return t;
@@ -246,6 +263,24 @@ function speedLrmCount(rows) {
   var seen = {}, n = 0;
   (rows || []).forEach(function (r) { var a = r.agent; if (a && !seen[a]) { seen[a] = 1; n++; } });
   return n;
+}
+/* WHICH CLOCK A ROW IS JUDGED ON (v9, 19 Sep 2026). Two clocks exist and the
+   grain decides which one is honest:
+     cluster / city  the LEAD clock — from the lead being assigned to the first
+                     call. This is the customer's wait, so it is the SLA figure.
+                     Using the LRM clock here would silently forgive every
+                     handover delay in the cluster.
+     ADOS/ZSM/TL/LRM the LRM clock — from the credited owner receiving the lead.
+                     Judging a person on the lead clock charges them for the
+                     previous owner's delay on a handed-over lead.
+   They are the same number wherever nothing changed hands. The column is
+   LABELLED with the clock it is showing — never print one as if it were the other. */
+function speedClock() {
+  return (speedGrain === 'cluster' || speedGrain === 'city')
+    ? { k: 'avgTatLead', lab: 'Avg TAT (lead)',
+        tip: 'Average minutes from the lead being assigned to the first call \u2014 the customer\u2019s wait. Cluster and city rows use this clock so handover delays are not forgiven.' }
+    : { k: 'avgTat', lab: 'Avg TAT (LRM)',
+        tip: 'Average minutes from this LRM receiving the lead to their first call. A handed-over lead is not charged to them for the previous owner\u2019s delay.' };
 }
 function speedGrainDef(k) {
   for (var i = 0; i < SPEED_GRAINS.length; i++) if (SPEED_GRAINS[i].k === (k || speedGrain)) return SPEED_GRAINS[i];
@@ -303,7 +338,11 @@ function renderSpeed() {
   html += '<div class="sl-kpis">' +
     kpiCell(fmt(t.assigned), 'Leads assigned', speedLrmCount(rows) + ' LRMs in view') +
     kpiCell(t.onTimePct + '%', 'First call within ' + speedSLA + ' min', fmt(t.onTime) + ' of ' + fmt(t.assigned), t.onTimePct < 40) +
-    kpiCell(t.band, 'Median time to first call', t.called ? 'avg ' + fmt(Math.round(t.avgTat)) + ' min (called only)' : '') +
+    kpiCell(t.band, 'Median time to first call',
+      !t.called ? '' :
+      'avg ' + fmt(Math.round(t.avgTat)) + ' min from the LRM receiving it' +
+      (Math.round(t.avgTatLead) !== Math.round(t.avgTat)
+        ? ' \u00b7 ' + fmt(Math.round(t.avgTatLead)) + ' min from assignment' : '')) +
     kpiCell(fmt(t.never), 'Never called', t.neverPct + '% of assigned', t.never > 0) +
     kpiCell(fmt(t.called - t.onTime), 'Called, but late', 'after ' + speedSLA + ' min') +
     kpiCell(t.avgLag ? fmt(Math.round(t.avgLag)) + ' min' : '—', 'Created → assigned', 'system allocation lag, not in TAT') +
@@ -313,7 +352,7 @@ function renderSpeed() {
   // Column blocks mirror the sheet the floor already reads: population, then the
   // five exclusive buckets as COUNTS (they sum to Worked), then the same five as a
   // % of Worked. Only "Touched %" is tinted — tinting all eleven made it unreadable.
-  var G = speedGrainDef();
+  var G = speedGrainDef(), CK = speedClock();
   html += '<div class="sl-grain"><span class="sl-sla-lbl">Rows</span>' +
     SPEED_GRAINS.map(function (g) {
       return '<button class="sl-chip' + (g.k === speedGrain ? ' on' : '') + '" data-grain="' + g.k + '">' + g.lab + '</button>';
@@ -331,13 +370,14 @@ function renderSpeed() {
     (speedGrain === 'lrm' ? 'its slow and never-called leads.' : 'its LRMs.') + '</div>';
 
   html += '<div class="tbl-wrap"><table class="sl-grid"><thead>' +
-    '<tr class="sl-hgrp"><th></th><th class="num" colspan="3">Leads</th>' +
+    '<tr class="sl-hgrp"><th></th><th class="num" colspan="4">Leads</th>' +
       '<th class="num sl-sep" colspan="5">Time to first call — leads</th>' +
       '<th class="num sl-sep" colspan="5">Share of worked</th></tr>' +
     '<tr><th data-sc="key">' + esc(G.head) + '</th>' +
     '<th class="num" data-sc="assigned">Assigned</th>' +
     '<th class="num" data-sc="called">Worked</th>' +
     '<th class="num" data-sc="workedPct">Touched %</th>' +
+    '<th class="num" data-sc="' + CK.k + '" title="' + esc(CK.tip) + '">' + CK.lab + '</th>' +
     SPEED_SHORT.map(function (l, i) { return '<th class="num' + (i === 0 ? ' sl-sep' : '') + '">' + l + '</th>'; }).join('') +
     SPEED_SHORT.map(function (l, i) { return '<th class="num' + (i === 0 ? ' sl-sep' : '') + '">' + l + '</th>'; }).join('') +
     '</tr></thead><tbody>';
@@ -345,7 +385,8 @@ function renderSpeed() {
   function speedCells(s, isTot) {
     var wp = s.workedPct;
     var out = '<td class="num">' + fmt(s.assigned) + '</td><td class="num">' + fmt(s.called) + '</td>' +
-      '<td class="num"' + (isTot ? '' : ' style="background:' + speedTint(wp) + '"') + '>' + wp + '%</td>';
+      '<td class="num"' + (isTot ? '' : ' style="background:' + speedTint(wp) + '"') + '>' + wp + '%</td>' +
+      '<td class="num">' + (s.called ? fmt(Math.round(s[CK.k] || 0)) + ' min' : '') + '</td>';
     s.buckets.forEach(function (v, i) {
       out += '<td class="num' + (i === 0 ? ' sl-sep' : '') + '">' + (v ? fmt(v) : '') + '</td>';
     });
@@ -502,11 +543,13 @@ function speedSubRows(b) {
   var out = '<div class="sl-drill-in"><h4>' + esc(b.key) + ' — ' + per.length + ' LRM' + (per.length === 1 ? '' : 's') +
     ', weakest touch rate first</h4><table class="sl-mini sl-mini-grid"><thead><tr><th>LRM</th>' +
     '<th class="num">Assigned</th><th class="num">Worked</th><th class="num">Touched %</th>' +
+    '<th class="num" title="Average minutes from this LRM receiving the lead to their first call.">Avg TAT (LRM)</th>' +
     SPEED_SHORT.map(function (l) { return '<th class="num">' + l + '</th>'; }).join('') + '</tr></thead><tbody>';
   per.forEach(function (x) {
     out += '<tr><td>' + esc(x.rows[0].name || agentName(x.key)) + '</td>' +
       '<td class="num">' + fmt(x.s.assigned) + '</td><td class="num">' + fmt(x.s.called) + '</td>' +
       '<td class="num" style="background:' + speedTint(x.s.workedPct) + '">' + x.s.workedPct + '%</td>' +
+      '<td class="num">' + (x.s.called ? fmt(Math.round(x.s.avgTat)) + ' min' : '') + '</td>' +
       x.s.buckets.map(function (v) { return '<td class="num">' + (v ? fmt(v) : '') + '</td>'; }).join('') + '</tr>';
   });
   return out + '</tbody></table><div class="sl-subnote">Switch <b>Rows</b> to <b>LRM</b> to open the ' +
@@ -531,25 +574,27 @@ function speedDrill(agent) {
       'called inside an hour, or the <code>speed_leads</code> tab has not been filled yet.</div></div>';
   }
   var shown = rows.slice(0, 40);
-  /* v8 'Entry Stage' — the column appears ONLY when the feed actually carries it,
-     so a pre-v8 speed_leads tab renders the original nine columns unchanged
-     rather than a blank tenth. It says WHY the lead is in the population at all:
-     under v6 only 'Assigned' entries were here. */
-  var hasEntry = shown.some(function (r) { return r.entryStage; });
+  /* v9 'Attribution' — the column appears ONLY when the feed actually carries
+     it, so a pre-v9 speed_leads tab renders the original nine columns unchanged
+     rather than a blank tenth. It says WHO the row is charged to: a handover
+     means this LRM inherited the lead before anyone had called it. */
+  var hasEntry = shown.some(function (r) { return r.attribution; });
   var out = '<div class="sl-drill-in"><h4>Leads behind this row — ' + rows.length +
     ' never-called or slower than 60 min' + (rows.length > shown.length ? ' (first 40)' : '') + '</h4>' +
     '<table class="sl-mini"><thead><tr><th>Lead</th><th>City / cluster</th><th>Stage</th>' +
-    (hasEntry ? '<th>Entered as</th>' : '') +
+    (hasEntry ? '<th>Attribution</th>' : '') +
     '<th>Lead created</th><th>Assigned</th><th>Clock start</th><th>First call</th>' +
-    '<th class="num">Assign lag</th><th class="num">TAT</th><th></th></tr></thead><tbody>';
+    '<th class="num">Assign lag</th><th class="num">TAT</th>' +
+    (hasEntry ? '<th class="num" title="Minutes from the lead being ASSIGNED to this first call — the customer’s wait. Differs from TAT only on a handover.">TAT (lead)</th>' : '') +
+    '<th></th></tr></thead><tbody>';
   shown.forEach(function (r) {
     var never = r.tat === null || r.tat === undefined;
     var geo = r.cluster || r.city || '';
     var shifted = r.clockStart && r.assignedAt && r.clockStart !== r.assignedAt;
     out += '<tr><td><b>' + esc(r.lead) + '</b></td><td>' + esc(geo) + '</td><td>' + esc(r.stage) + '</td>' +
-      (hasEntry ? '<td' + (r.entryStage && r.entryStage !== 'Assigned'
-        ? ' style="color:#8a5a17" title="Reached the LRM at a stage other than Assigned — not in this feed before 18 Sep"' : '') +
-        '>' + esc(r.entryStage || '—') + '</td>' : '') +
+      (hasEntry ? '<td' + (r.attribution && r.attribution !== 'same LRM'
+        ? ' style="color:#8a5a17" title="' + esc(r.heldFrom ? 'Held by this LRM from ' + r.heldFrom : 'No assignment record in the audit history') + '"' : '') +
+        '>' + esc(r.attribution || '—') + '</td>' : '') +
       '<td>' + esc(slWhen(r.createdAt)) + '</td>' +
       '<td>' + esc(slWhen(r.assignedAt)) + '</td>' +
       '<td' + (shifted ? ' style="color:#8a5a17" title="Off-hours arrival — clock moved to floor open"' : '') + '>' +
@@ -557,6 +602,9 @@ function speedDrill(agent) {
       '<td>' + esc(r.firstCallAt ? slWhen(r.firstCallAt) : '—') + '</td>' +
       '<td class="num">' + (r.lag === null || r.lag === undefined ? '—' : fmt(Math.round(r.lag)) + ' min') + '</td>' +
       '<td class="num">' + (never ? '—' : fmt(Math.round(r.tat)) + ' min') + '</td>' +
+      (hasEntry ? '<td class="num"' + (!never && r.tatLead != null && Math.round(r.tatLead) !== Math.round(r.tat)
+        ? ' style="color:#8a5a17" title="Includes the previous owner’s delay before the handover"' : '') + '>' +
+        (never || r.tatLead == null ? '—' : fmt(Math.round(r.tatLead)) + ' min') + '</td>' : '') +
       '<td><span class="sl-flag ' + (never ? 'never' : 'slow') + '">' + (never ? 'Never called' : 'Slow') + '</span></td></tr>';
   });
   return out + '</tbody></table></div>';
