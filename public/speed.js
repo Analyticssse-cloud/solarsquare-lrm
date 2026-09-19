@@ -60,7 +60,16 @@ var speedOpen = null;
 
 (function injectSpeedCss() {
   var css = '' +
-  '.sl-wrap{padding:2px 0 18px}' +
+  /* Before 19 Sep this wrap was a plain block inside .panel (a flex column with
+     min-height:0), so the KPIs + table grew past the viewport with NO scroller and
+     the bottom rows were unreachable. Fixed the same way the Action Center was:
+     THE TAB is the scroll region and the table is not a nested scroller — a
+     scroller inside a squeezed flex box is the bug. The table keeps overflow-x for
+     its eleven columns (overflow-y:hidden only makes it a horizontal scrollport;
+     height is still auto, so nothing is clipped). */
+  '.sl-wrap{padding:2px 0 18px;flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column}' +
+  '.sl-wrap>*{flex:0 0 auto}' +
+  '.sl-wrap>.tbl-wrap{overflow-x:auto;overflow-y:hidden}' +
   '.sl-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;margin:2px 0 14px}' +
   '.sl-title{font-size:15px;font-weight:800;color:var(--ink,#18233f);letter-spacing:-.2px}' +
   '.sl-sub{font-size:11.5px;color:var(--muted,#6a7494);max-width:640px;line-height:1.5;margin-top:3px}' +
@@ -114,7 +123,30 @@ var speedOpen = null;
   '.sl-flag{font-size:9.5px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;padding:2px 6px;border-radius:3px}' +
   '.sl-flag.never{background:#f6e2df;color:#8f2c22}' +
   '.sl-flag.slow{background:#faeed9;color:#8a5a17}' +
-  '.sl-empty{border:1px dashed var(--border,#e3e8f3);padding:26px;text-align:center;color:var(--muted,#6a7494);font-size:12px;line-height:1.6}';
+  '.sl-empty{border:1px dashed var(--border,#e3e8f3);padding:26px;text-align:center;color:var(--muted,#6a7494);font-size:12px;line-height:1.6}' +
+  /* The method note, moved under the table (user, 19 Sep) — it is provenance, read
+     after the numbers, not before them. */
+  '.sl-foot{margin-top:12px;padding-top:10px;border-top:1px solid var(--border,#e3e8f3)}' +
+  '.sl-foot-t{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted,#6a7494);margin-bottom:4px}' +
+  '.sl-foot-b{font-size:11.5px;color:var(--muted,#6a7494);max-width:104ch;line-height:1.55}' +
+  '.sl-foot-b b{color:var(--ink,#18233f)}' +
+  /* Row drill as a pop-up. Keyframed rather than transitioned so it fires on the
+     element's first paint, with no double rAF. */
+  '.sl-modal-bk{position:fixed;inset:0;background:rgba(15,22,45,.46);z-index:300;display:none;align-items:center;justify-content:center;padding:22px}' +
+  '.sl-modal-bk.open{display:flex;animation:slFade .16s ease both}' +
+  '.sl-modal{background:#fff;border-radius:10px;width:min(1080px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 26px 70px rgba(15,22,45,.34);animation:slPop .2s cubic-bezier(.2,.9,.3,1.1) both}' +
+  '@keyframes slFade{from{opacity:0}to{opacity:1}}' +
+  '@keyframes slPop{from{opacity:0;transform:translateY(10px) scale(.965)}to{opacity:1;transform:none}}' +
+  '.sl-modal-bk.closing{animation:slFade .13s ease reverse both}' +
+  '.sl-modal-bk.closing .sl-modal{animation:slPop .13s ease reverse both}' +
+  '.sl-modal-hd{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border,#e3e8f3)}' +
+  '.sl-modal-hd h3{margin:0;font-size:14.5px;font-weight:800;color:var(--ink,#18233f);letter-spacing:-.2px}' +
+  '.sl-modal-hd span{font-size:11px;color:var(--muted,#6a7494)}' +
+  '.sl-modal-x{margin-left:auto;border:1px solid var(--border,#e3e8f3);background:#fff;color:var(--muted,#6a7494);font:700 13px/1 inherit;width:26px;height:26px;border-radius:6px;cursor:pointer}' +
+  '.sl-modal-x:hover{color:var(--ink,#18233f);border-color:#9fb0d8}' +
+  '.sl-modal-bd{overflow:auto;min-height:0}' +
+  '.sl-modal-bd .sl-drill-in{padding:12px 16px 16px}' +
+  '@media (prefers-reduced-motion:reduce){.sl-modal-bk.open,.sl-modal,.sl-modal-bk.closing,.sl-modal-bk.closing .sl-modal{animation:none}}';
   var el = document.createElement('style');
   el.id = 'speedCss';
   el.textContent = css;
@@ -262,12 +294,7 @@ function renderSpeed() {
   var k = speedSlaIndex();
   var html = '<div class="sl-wrap">';
 
-  html += '<div class="sl-head"><div><div class="sl-title">First response time — first call after assignment</div>' +
-    '<div class="sl-sub">A lead counts against the day it was assigned. Leads never called are counted as breaches, ' +
-    'so the denominator is leads <b>assigned</b>. The clock runs on floor hours: a lead landing at or after ' +
-    '19:00 starts at <b>10:30 the next day</b>, one landing before 10:30 starts at 10:30 the same day. ' +
-    'First calls before the assignment instant are ignored (they belong to the previous owner).' +
-    speedEntryNote(t) + '</div></div>' +
+  html += '<div class="sl-head"><div><div class="sl-title">First response time — first call after assignment</div></div>' +
     '<div class="sl-sla"><span class="sl-sla-lbl">SLA</span>' +
     SPEED_SLA_CHOICES.map(function (m) {
       return '<button class="sl-chip' + (m === speedSLA ? ' on' : '') + '" data-sla="' + m + '">' + m + ' min</button>';
@@ -339,11 +366,16 @@ function renderSpeed() {
     html += '<tr class="sl-row' + (open ? ' open' : '') + '" data-open="' + esc(id) + '">' +
       '<td>' + esc(label) + (speedGrain === 'lrm' ? '' : ' <em class="sl-n">' + speedLrmCount(b.rows) + '</em>') + '</td>' +
       speedCells(b.s) + '</tr>';
-    if (open) html += '<tr><td class="sl-drill" colspan="14">' +
-      (speedGrain === 'lrm' ? speedDrill(b.key) : speedSubRows(b)) + '</td></tr>';
   });
   html += '</tbody></table></div>';
   if (!groups.length) html += '<div class="sl-empty">No leads were assigned to anyone in this filter and date range.</div>';
+
+  html += '<div class="sl-foot"><div class="sl-foot-t">First response time — first call after assignment</div>' +
+    '<div class="sl-foot-b">A lead counts against the day it was assigned. Leads never called are counted as breaches, ' +
+    'so the denominator is leads <b>assigned</b>. The clock runs on floor hours: a lead landing at or after ' +
+    '19:00 starts at <b>10:30 the next day</b>, one landing before 10:30 starts at 10:30 the same day. ' +
+    'First calls before the assignment instant are ignored (they belong to the previous owner).' +
+    speedEntryNote(t) + '</div></div>';
   html += '</div>';
   panel.innerHTML = html;
 
@@ -373,10 +405,61 @@ function renderSpeed() {
   panel.querySelectorAll('tr.sl-row').forEach(function (tr) {
     tr.addEventListener('click', function () {
       var a = tr.getAttribute('data-open');
-      speedOpen = (speedOpen === a) ? null : a;
-      renderSpeed();
+      if (speedOpen === a) { speedCloseModal(); return; }
+      panel.querySelectorAll('tr.sl-row.open').forEach(function (o) { o.classList.remove('open'); });
+      tr.classList.add('open');
+      speedOpen = a;
+      speedOpenModal(a, groups);
     });
   });
+  /* A modal left open across a re-render (SLA switch, filter change) would show
+     stale numbers, so it closes with the table it was opened from. */
+  speedCloseModal();
+}
+
+/* ── the drill pop-up ───────────────────────────────────────────────────────
+   Lives on <body>, not in the panel, so renderSpeed() cannot wipe it mid-open.
+   Same two renderers as the old inline row — one set of numbers. */
+function speedModalEl() {
+  var bk = document.getElementById('slModalBk');
+  if (bk) return bk;
+  bk = document.createElement('div');
+  bk.id = 'slModalBk';
+  bk.className = 'sl-modal-bk';
+  bk.innerHTML = '<div class="sl-modal" role="dialog" aria-modal="true">' +
+    '<div class="sl-modal-hd"><h3 id="slModalT"></h3><span id="slModalS"></span>' +
+    '<button class="sl-modal-x" id="slModalX" title="Close (Esc)">\u2715</button></div>' +
+    '<div class="sl-modal-bd" id="slModalBd"></div></div>';
+  document.body.appendChild(bk);
+  bk.addEventListener('click', function (e) { if (e.target === bk) speedCloseModal(); });
+  bk.querySelector('#slModalX').addEventListener('click', speedCloseModal);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && bk.classList.contains('open')) speedCloseModal();
+  });
+  return bk;
+}
+function speedOpenModal(id, groups) {
+  var key = id.slice(id.indexOf('::') + 2), b = null;
+  for (var i = 0; i < groups.length; i++) if (String(groups[i].key) === key) { b = groups[i]; break; }
+  if (!b) return;
+  var bk = speedModalEl();
+  var isLrm = speedGrain === 'lrm';
+  var label = isLrm ? (b.rows[0].name || agentName(b.key)) : b.key;
+  bk.querySelector('#slModalT').textContent = label;
+  bk.querySelector('#slModalS').textContent = fmt(b.s.assigned) + ' assigned \u00b7 ' + b.s.workedPct + '% touched \u00b7 ' +
+    b.s.onTimePct + '% within ' + speedSLA + ' min';
+  bk.querySelector('#slModalBd').innerHTML = isLrm ? speedDrill(b.key) : speedSubRows(b);
+  bk.classList.remove('closing');
+  bk.classList.add('open');
+}
+function speedCloseModal() {
+  speedOpen = null;
+  var p = document.getElementById('speedPanel');
+  if (p) p.querySelectorAll('tr.sl-row.open').forEach(function (o) { o.classList.remove('open'); });
+  var bk = document.getElementById('slModalBk');
+  if (!bk || !bk.classList.contains('open')) return;
+  bk.classList.add('closing');
+  setTimeout(function () { bk.classList.remove('open', 'closing'); }, 140);
 }
 
 function kpiCell(v, l, note, bad) {
