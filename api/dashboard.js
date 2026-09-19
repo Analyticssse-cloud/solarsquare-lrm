@@ -25,15 +25,9 @@
 
 import { readSheet } from './_sheets.js';
 import { requireUser, deny } from './_auth.js';
-import { readLiveConnectivity } from './_connlive.js';
-import { readMSScores } from './_msscore.js';
-import { cachedRead, anyStale } from './_sheetcache.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase().replace('@homes.solarsquare.in', '@solarsquare.in');
-// Comma-tolerant: Metabase's CSV export formats values over 999 as '1,146.4', and a
-// bare Number() on that is NaN -> 0. That would read as a 00:00 check-in on 'First Call
-// Min' (i.e. the best possible start) for anyone whose first call is after 16:40.
-const num  = (v) => (typeof v === 'number' ? v : Number(String(v ?? '').replace(/,/g, ''))) || 0;
+const num  = (v) => Number(v) || 0;
 
 /* LRMs suppressed from the ENTIRE dashboard (user, 5 Sep 2026).
    Applied at the two data entry points — the LRM_TL_MAP roster and the Ozontel daily
@@ -54,28 +48,6 @@ const EXCLUDED_LRMS = new Set([
   'saili.banerjee@solarsquare.in',
 ].map(e => norm(e)));
 const isExcluded = (email) => EXCLUDED_LRMS.has(norm(email));
-
-/* ── One person, two email IDs (13 Sep 2026) ───────────────────────────────────
-   Onik S showed 159 dials in the LRM table but 365 on the Floor Board, and the
-   filter reported "2 LRMs" for one search — two Ozontel `Agent Id` values for
-   the same human. `norm()` already folds the @homes alias; this map is for the
-   pairs it cannot know about (a second account, a renamed local part). Both
-   the headcount and every total double for each person listed here, so this is
-   also the first thing to check when a RANGE total reads high.
-
-   Add `'alias@solarsquare.in': 'real@solarsquare.in'` — the alias's rows are
-   then credited to the real address everywhere (totals, rollups, LRM count),
-   exactly as if the sheet had one ID. Deliberately NOT inferred from names: two
-   real people can share a name, and silently merging them would be worse than
-   the bug. Use `/api/dashboard?diag=1` → `possibleDuplicatePeople` to find the
-   pairs, confirm with the user, then list them here. */
-const EMAIL_ALIASES = {
-  // 'onik.sarkar@solarsquare.in': 'onik.s@solarsquare.in',
-};
-const canon = (v) => {
-  const e = norm(v);
-  return EMAIL_ALIASES[e] || e;
-};
 
 function rowDate(cell) {
   if (cell === null || cell === undefined) return '';
@@ -102,87 +74,6 @@ function findCol(headers, candidates) {
   }
   return -1;
 }
-/* Header KEY: lowercase, alphanumerics only. 'Unanswred Calls %', 'unanswered
-   calls %' and 'Unanswered_Calls_%' all collapse to one key, so a tab whose
-   headers were retyped by hand cannot silently blank a column — which is the
-   failure mode findCol's exact-then-substring match keeps producing.
-   NOTE the '%' is dropped, so a percentage column must be NAMED apart from its
-   count: 'Connected %' -> connected, 'Connected Calls' -> connectedcalls. */
-const hkey = (h) => String(h == null ? '' : h).toLowerCase().replace(/[^a-z0-9]+/g, '');
-
-/* A percentage cell can arrive three ways from one sheet: '71.4%' (text),
-   71.4 (number) or 0.714 (a real Sheets percent format read unformatted).
-   Guess ONLY on the last: a bare fraction <= 1 with no '%' in the text is
-   scaled, everything else is taken as already being in points. A column that
-   genuinely reads 0.8% is the one case this gets wrong, and on this feed that
-   value does not occur. */
-function pct(v) {
-  if (v === null || v === undefined || v === '') return null;
-  const s = String(v).trim();
-  const hadSign = s.indexOf('%') >= 0;
-  const n = Number(s.replace(/[%,\s]/g, ''));
-  if (!isFinite(n)) return null;
-  return (!hadSign && n > 0 && n <= 1) ? n * 100 : n;
-}
-
-/* Durations -> MINUTES, server side, so the frontend never has to guess.
-   hh:mm:ss and mm:ss are parsed by position; a bare number is MINUTES (the
-   documented reading — hours would scale talk time by 60); a Sheets duration
-   cell read unformatted arrives as a fraction of a day and is detected by
-   being < 1 with decimals. */
-function durMin(v) {
-  if (v === null || v === undefined || v === '') return 0;
-  const s = String(v).trim();
-  if (s.indexOf(':') >= 0) {
-    const p = s.split(':').map(x => Number(x) || 0);
-    if (p.length === 3) return p[0] * 60 + p[1] + p[2] / 60;
-    if (p.length === 2) return p[0] + p[1] / 60;
-  }
-  const n = Number(s.replace(/,/g, ''));
-  if (!isFinite(n)) return 0;
-  return (n > 0 && n < 1) ? n * 1440 : n;
-}
-
-/* SECONDS -> minutes. A separate coercion from durMin because the unit is a
-   PROPERTY OF THE FEED, not something to sniff per value: the `inbound_perf`
-   card emits Total/Avg Talk, Wrapup and Hold in SECONDS (Code.gs says so in
-   terms), while the Ozontel tab's 'Total Talk Time' is HOURS. Reading one as
-   the other is a 60x error in either direction and has already bitten this
-   codebase twice. hh:mm:ss text is still honoured in case the card's formatting
-   changes. */
-function durSec(v) {
-  if (v === null || v === undefined || v === '') return 0;
-  const s = String(v).trim();
-  if (s.indexOf(':') >= 0) return durMin(s);
-  const n = Number(s.replace(/,/g, ''));
-  return isFinite(n) ? n / 60 : 0;
-}
-
-/* ── Tab-name resolution ─────────────────────────────────────────────────────
-   Tab names are typed by a HUMAN and the code asks for a LITERAL, so the two
-   drift. `readSheet` then throws "Unable to parse range", the caller swallows
-   it, and the view reads "tab not in the sheet yet" — a NAME typo presenting
-   as missing data. This is the second time it has cost a debugging round (the
-   first was `meeting tracker`), so the fix is structural: a feed declares the
-   spellings it answers to and the first one that reads wins.
-   Resolution is remembered per warm instance, so the failed attempts are paid
-   once, not per request. A resolved name is re-checked only when the instance
-   recycles — renaming a tab needs a redeploy or a cold start to be picked up,
-   which is the right trade against spending quota on guesses every load. */
-const tabResolved = new Map();
-async function resolveTab(cands) {
-  const k = cands.join('|');
-  if (tabResolved.has(k)) return tabResolved.get(k);
-  for (const t of cands) {
-    try {
-      const v = await cachedRead(readSheet, t);
-      if (v && v.length) { tabResolved.set(k, t); return t; }
-    } catch (e) { /* wrong spelling — try the next */ }
-  }
-  tabResolved.set(k, null);
-  return null;
-}
-
 // Read a metric from a sheet row object, accepting either header spelling.
 function pick(obj, names) {
   for (const n of names) if (obj[n] !== undefined && obj[n] !== '') return obj[n];
@@ -197,16 +88,8 @@ const SUM_COLS = [
   'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'MS >T+2', 'Meeting Done',
   'MS on Calls <1min', 'MS on Calls 1-2min', 'MS on Calls >2min', 'MS - No Tracked Call',
   'DS Today', 'DS T+1', 'DS T+2',
-  // v15 (EODR). 'Total Talk Time' above is TALK ONLY; this one is ring+talk+wrap and
-  // is therefore the LARGER number despite the humbler name. Ring/Wrap Filled are
-  // fill-rate witnesses — summed so the EODR tab can compare them to Connected Calls.
-  'Ring Time', 'Wrap Time', 'Total Time (T+R+W)', 'Ring Filled', 'Wrap Filled',
 ];
-// Averaged across the days the LRM actually has a row for, not the days in the range.
-// 'First Call Min' is the check-in proxy as minutes-since-midnight: a clock string
-// cannot be averaged over a 30-day window, so the SQL emits both and this averages
-// the number. The EODR tab formats it back to HH:MM.
-const AVG_COLS = ['Avg. Talk Time', 'Avg. Handling Time', 'First Call Min'];
+const AVG_COLS = ['Avg. Talk Time', 'Avg. Handling Time'];
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -227,39 +110,7 @@ export default async function handler(req, res) {
     if (from && to && from > to) { const t = from; from = to; to = t; }
 
     // ── 1. Ozontel ────────────────────────────────────────────────────────────
-    /* ALL SHEET TABS ARE FETCHED IN PARALLEL, THROUGH THE CACHE (13 Sep 2026).
-       They used to be six sequential awaits — six full round-trips to Google,
-       one after another, and the biggest component of load time.
-
-       But parallel alone made the QUOTA worse, not better: "Read requests per
-       minute per user" counts the SERVICE ACCOUNT, so every viewer and the
-       15-minute Apps Script share one 60/min budget, and six simultaneous
-       reads per page load exhausted it. `_sheetcache.js` is what makes this
-       safe — per-tab TTLs, in-flight dedupe, retry on 429, and a stale copy
-       served rather than failing the page. Concurrency is also capped, so a
-       cold instance asks for three tabs at a time instead of six at once.
-
-       Errors are captured per tab and re-thrown at the original call site, so
-       every existing try/catch below behaves exactly as before. */
-    const PRE_TABS = ['Ozontel', 'LRM_TL_MAP', 'hourly', 'speed', 'speed_leads',
-                      'MS Schedule Inventory'];
-    const pre = {};
-    const queue = PRE_TABS.slice();
-    const worker = async () => {
-      while (queue.length) {
-        const t = queue.shift();
-        try { pre[t] = await cachedRead(readSheet, t); }
-        catch (e) { pre[t] = e instanceof Error ? e : new Error(String(e)); }
-      }
-    };
-    await Promise.all([worker(), worker(), worker()]);
-    const read = async (t) => {
-      const v = Object.prototype.hasOwnProperty.call(pre, t) ? pre[t] : await cachedRead(readSheet, t);
-      if (v instanceof Error) throw v;
-      return v;
-    };
-
-    const oRaw = await read('Ozontel');
+    const oRaw = await readSheet('Ozontel');
     if (!oRaw.length) return res.status(200).json(emptyPayload(from, to, viewerEmail));
 
     const oHdr  = oRaw[0].map(h => String(h).trim());
@@ -282,7 +133,7 @@ export default async function handler(req, res) {
     if (!hasInRange) { effFrom = effTo = latestDate; fellBack = true; }
 
     // ── 2. Hierarchy: LRM -> City / TL / ZSM / ADOS ───────────────────────────
-    const mapRaw = await read('LRM_TL_MAP');
+    const mapRaw = await readSheet('LRM_TL_MAP');
     const mHdr   = (mapRaw[0] || []).map(h => String(h).trim());
     const iEmail   = findCol(mHdr, ['Email IDs', 'Email ID', 'LRM Email', 'Agent Id']);
     const iCluster = findCol(mHdr, ['Cluster', 'City']);
@@ -308,7 +159,7 @@ export default async function handler(req, res) {
     for (let i = 1; i < mapRaw.length; i++) {
       const r = mapRaw[i];
       if (!r) continue;
-      const email = canon(r[iEmail]);
+      const email = norm(r[iEmail]);
       if (!email || !email.includes('@')) continue;
       if (isExcluded(email)) continue;   // suppressed LRM — never enters the roster
       const roleCell = iRole >= 0 ? r[iRole] : '';
@@ -368,143 +219,34 @@ export default async function handler(req, res) {
     };
 
     // ── 3. Aggregate Ozontel per agent across the range ──────────────────────
-    /* DEDUP PER (DATE, AGENT) — added 13 Sep 2026 after a month range read
-       roughly DOUBLE the real call count.
-
-       The Ozontel tab is one row per Date x LRM by construction, but two
-       writers touch it (the 15-minute live window and the backfill), so a day
-       can end up present twice. Summing then doubles every column AND inflates
-       `_dayCount`, which silently halves everything derived per day — the same
-       class of bug as the MS Plan divisor. Last row in sheet order wins: rows
-       are appended, so the newest write is the one to trust.
-
-       `dupRowsDropped` is returned in the payload rather than hidden, because a
-       non-zero value means the SHEET still has duplicates and the writer needs
-       fixing — this guard only stops them being counted. */
-    const oiAgent = findCol(oHdr, ['Agent Id', 'LRM Email']);
-    const dedup = new Map();
-    let dupRowsDropped = 0;
+    const bucket = {};
     oData.forEach(row => {
       const d = rowDate(row[0]);
       if (!d || d < effFrom || d > effTo) return;
-      const em = canon(oiAgent >= 0 ? row[oiAgent] : '');
-      if (!em) return;
-      const k = d + '|' + em;
-      if (dedup.has(k)) dupRowsDropped++;
-      dedup.set(k, row);
-    });
-
-    const bucket = {};
-    /* ── ?diag=1 : per-date audit of the Ozontel tab ──────────────────────────
-       Added 13 Sep 2026 because the month total still read high AFTER the
-       (date, agent) dedup, which rules out the obvious duplication and means
-       the shape of the sheet has to be looked at rather than guessed. Costs no
-       extra sheet read (oData is already in memory) and returns instead of
-       building the payload, so it is safe to hit on production. */
-    if (String(req.query.diag || '') === '1') {
-      const byDate = {};
-      let rawRows = 0, rawCalls = 0, badDates = [];
-      const iCall = findCol(oHdr, ['Call Count', 'Total Calls']);
-      oData.forEach(row => {
-        const d = rowDate(row[0]);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
-          if (badDates.length < 8) badDates.push(String(row[0]));
-          return;
-        }
-        if (d < effFrom || d > effTo) return;
-        const em = canon(oiAgent >= 0 ? row[oiAgent] : '');
-        const c = num(iCall >= 0 ? row[iCall] : 0);
-        rawRows++; rawCalls += c;
-        const b = byDate[d] || (byDate[d] = { date: d, rows: 0, calls: 0, agents: new Set(), dupPairs: 0, seen: new Set() });
-        b.rows++; b.calls += c; b.agents.add(em);
-        if (b.seen.has(em)) b.dupPairs++; else b.seen.add(em);
-      });
-      const dedupCalls = [...dedup.values()].reduce((a, row) => a + num(iCall >= 0 ? row[iCall] : 0), 0);
-      // Which agents carry the most rows for a single date — the signature of a
-      // row written more than once under slightly different keys.
-      const perAgent = {};
-      dedup.forEach((row, k) => {
-        const em = k.split('|')[1];
-        const a = perAgent[em] || (perAgent[em] = { email: em, dates: 0, calls: 0 });
-        a.dates++; a.calls += num(iCall >= 0 ? row[iCall] : 0);
-      });
-      const top = Object.values(perAgent).sort((x, y) => y.calls - x.calls).slice(0, 8);
-      /* THE LIKELY CULPRIT: one person under two Agent Ids. Grouped by the
-         sheet's own LRM Name (falling back to the email's local part) and only
-         reported — never merged automatically, because two real people can
-         share a name. Confirmed pairs go in EMAIL_ALIASES at the top. */
-      const iName2 = findCol(oHdr, ['LRM Name', 'Agent Name', 'Name']);
-      const byName = {};
-      dedup.forEach((row, k) => {
-        const em = k.split('|')[1];
-        const nm = (iName2 >= 0 ? String(row[iName2] || '').trim() : '') || em.split('@')[0].split('.')[0];
-        const key2 = nm.toLowerCase().replace(/\s+/g, ' ');
-        const g = byName[key2] || (byName[key2] = { name: nm, emails: {} });
-        g.emails[em] = (g.emails[em] || 0) + num(iCall >= 0 ? row[iCall] : 0);
-      });
-      const dupPeople = Object.values(byName)
-        .filter(g => Object.keys(g.emails).length > 1)
-        .map(g => ({ name: g.name, emails: g.emails,
-                     callsTotal: Object.values(g.emails).reduce((a, b) => a + b, 0) }))
-        .sort((a, b) => b.callsTotal - a.callsTotal);
-      return res.status(200).json({
-        range: { from: effFrom, to: effTo },
-        headerRow: oHdr,
-        callCountColumn: iCall >= 0 ? oHdr[iCall] : '(not found)',
-        agentColumn: oiAgent >= 0 ? oHdr[oiAgent] : '(not found)',
-        totals: {
-          rowsInRange: rawRows,
-          callsRaw: rawCalls,
-          callsAfterDedup: dedupCalls,
-          distinctDateAgentPairs: dedup.size,
-          duplicatePairsFound: dupRowsDropped,
-          distinctAgents: Object.keys(perAgent).length,
-          peopleWithTwoIds: dupPeople.length,
-          callsOnSecondIds: dupPeople.reduce((a, g) => {
-            const vals = Object.values(g.emails).sort((x, y) => y - x);
-            return a + vals.slice(1).reduce((s, v) => s + v, 0);
-          }, 0),
-        },
-        possibleDuplicatePeople: dupPeople,
-        unparseableDateSamples: badDates,
-        perDate: Object.keys(byDate).sort().map(d => ({
-          date: d, rows: byDate[d].rows, agents: byDate[d].agents.size,
-          calls: byDate[d].calls, duplicateAgentRows: byDate[d].dupPairs,
-          callsPerAgent: byDate[d].agents.size ? Math.round(byDate[d].calls / byDate[d].agents.size) : 0,
-        })),
-        topAgentsInRange: top,
-      });
-    }
-    dedup.forEach(row => {
       const obj = {};
       oHdr.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
 
       let agt = String(obj['Agent Id'] || '').trim();
       if (!agt || !agt.includes('@') || agt.includes('->')) return;
       if (isExcluded(agt)) return;   // suppressed LRM — no calls, no totals, no rollup
-      const key = canon(agt);
+      const key = norm(agt);
       /* Only Role = LRM / LRM-pilot counts. A TL or ZSM who dials has call rows in
          Ozontel; letting them through inflates the LRM count and every per-LRM
          target that multiplies by it. Gated only when the roster carries roles. */
       if (hasRoleCol && !lrmSet2.has(key)) return;
 
-      /* Accept the pre-v11 header too, so an un-backfilled sheet still renders.
-         NORMALISE ONTO `obj` AND LET SUM_COLS DO THE ADDING (15 Sep 2026).
-         It used to add `callCount` on a second line, AFTER the SUM_COLS loop
-         had already added `obj['Call Count']` — so every day past the first
-         counted Call Count TWICE. One day looked right, and a 15-day range read
-         1.93x, which is why connectivity showed 14% against the real ~27%:
-         the numerator was correct and only the denominator was inflated.
-         Connected Calls and talk time were never affected. */
-      obj['Call Count'] = num(pick(obj, ['Call Count', 'Total Calls']));
+      // Accept the pre-v11 header too, so an un-backfilled sheet still renders.
+      const callCount = num(pick(obj, ['Call Count', 'Total Calls']));
 
       if (!bucket[key]) {
         bucket[key] = { ...obj, 'Agent Id': agt };
         SUM_COLS.forEach(k => { bucket[key][k] = num(obj[k]); });
+        bucket[key]['Call Count'] = callCount;
         AVG_COLS.forEach(k => { bucket[key]['_sum_' + k] = num(obj[k]); });
         bucket[key]._dayCount = 1;
       } else {
         SUM_COLS.forEach(k => { bucket[key][k] = num(bucket[key][k]) + num(obj[k]); });
+        bucket[key]['Call Count'] = num(bucket[key]['Call Count']) + callCount;
         AVG_COLS.forEach(k => { bucket[key]['_sum_' + k] = num(bucket[key]['_sum_' + k]) + num(obj[k]); });
         bucket[key]._dayCount++;
       }
@@ -549,25 +291,6 @@ export default async function handler(req, res) {
       r._flagNoMeet = msTotal === 0;
       r['Avg Daily Dials'] = days > 0 ? Math.round((calls / days) * 10) / 10 : 0;
       r._inScope = inScope(key);
-    });
-
-    /* ── 3b. MS Score (LRM_View, a separate spreadsheet) ─────────────────────
-       A RATE, so it is the MEAN of that LRM's scored days in the window — it
-       must NOT join SUM_COLS or the totals block, and a missing day must stay
-       MISSING: an empty string, never 0. A scoring row of zeroes reads as
-       universal failure rather than a gap in the feed, which is why the EODR
-       card draws '' as "no score" with a reason.
-       An LRM scored in the sheet but absent from the Ozontel window has no row
-       here to carry the score, so `scored` is reported against the headcount
-       rather than averaged silently. */
-    let msScore = { byEmail: {}, error: '', diag: {}, external: false };
-    try { msScore = await readMSScores(read, effFrom, effTo); }
-    catch (e) { msScore = { byEmail: {}, error: 'MS Score read failed: ' + String(e.message || e), diag: {}, external: false }; }
-    let msScored = 0;
-    agentRows.forEach(r => {
-      const s = msScore.byEmail[canon(r['Agent Id'])] || msScore.byEmail[norm(r['Agent Id'])];
-      if (s && s.n) { r['MS Score'] = Math.round(s.mean * 10) / 10; msScored++; }
-      else r['MS Score'] = '';
     });
 
     // ── 4. Generic rollup, reused for City / ZSM / TL ─────────────────────────
@@ -674,9 +397,7 @@ export default async function handler(req, res) {
       'Agent Id', 'City', 'TL Name',
       'Call Count', 'Connected Calls',
       'Total Talk Time', 'Avg. Talk Time',
-      'First Call Min', 'Ring Time', 'Wrap Time', 'Total Time (T+R+W)',
-      'Ring Filled', 'Wrap Filled',
-      'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'Meeting Done', 'MS Score',
+      'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'Meeting Done',
       'Calls <1min', 'Calls 1-2min', 'Calls >2min',
       'MS on Calls <1min', 'MS on Calls 1-2min', 'MS on Calls >2min', 'MS - No Tracked Call',
       'Unique Leads Dialed', 'Unique Numbers Dialed',
@@ -700,7 +421,7 @@ export default async function handler(req, res) {
     let hourlyRows = [];
     let hourlyHasMS = false;
     try {
-      const hRaw = await read('hourly');
+      const hRaw = await readSheet('hourly');
       if (hRaw.length > 1) {
         const hHdr    = hRaw[0].map(h => String(h).trim());
         const hiDate  = findCol(hHdr, ['Date']);
@@ -764,7 +485,7 @@ export default async function handler(req, res) {
     const SPEED_BUCKETS = ['TAT 0-5', 'TAT 5-10', 'TAT 10-30', 'TAT 30-60', 'TAT >60'];
     let speedRows = [], speedLeads = [], speedHas = false;
     try {
-      const sRaw = await read('speed');
+      const sRaw = await readSheet('speed');
       if (sRaw.length > 1) {
         speedHas = true;
         const sHdr = sRaw[0].map(h => String(h).trim());
@@ -774,16 +495,6 @@ export default async function handler(req, res) {
         const siCluster = si(['Cluster']), siLeadCity = si(['City']);
         const siMed = si(['Median TAT (min)']), siAvg = si(['Avg TAT (min)']);
         const siLag = si(['Avg Assign Lag (min)']);
-        /* v8 (18 Sep 2026) columns. Read ADDITIVELY and tolerated as absent: a
-           sheet still holding pre-v8 rows returns -1 here and the two counters
-           stay 0, so the tab renders exactly as before rather than blanking.
-           `entryOther` is how many of the row's leads reached the LRM at a stage
-           other than 'Assigned' — under v6 those leads were not in the feed at
-           all, so a high value explains a grown denominator. `stale` is leads
-           dropped for an impossible Assign Lag (thin audit history, NOT a
-           performance signal) — never folded into `assigned`. */
-        const siEntryOther = si(['Entered at Other Stage']);
-        const siStale = si(['Leads Dropped - Stale']);
         const siB = SPEED_BUCKETS.map(b => sHdr.findIndex(h => h.toLowerCase() === b.toLowerCase()));
         const known = new Set(rosterAll.map(r => norm(r['Agent Id'])));
         const acc = {};
@@ -805,7 +516,6 @@ export default async function handler(req, res) {
           const a = acc[key] || (acc[key] = {
             agent: email, cluster, leadCity, assigned: 0, called: 0, never: 0,
             buckets: SPEED_BUCKETS.map(() => 0), tatSum: 0, lagSum: 0, days: 0, medianDay: null,
-            entryOther: 0, stale: 0,
           });
           const called = num(r[siCalled]);
           a.assigned += num(r[siAsg]);
@@ -816,8 +526,6 @@ export default async function handler(req, res) {
           a.tatSum   += num(r[siAvg]) * called;
           // assign lag is per ASSIGNED lead (it exists even when never called)
           if (siLag >= 0) a.lagSum += num(r[siLag]) * num(r[siAsg]);
-          if (siEntryOther >= 0) a.entryOther += num(r[siEntryOther]);
-          if (siStale >= 0) a.stale += num(r[siStale]);
           a.days++;
           if (effFrom === effTo && siMed >= 0) a.medianDay = num(r[siMed]);
         }
@@ -841,7 +549,7 @@ export default async function handler(req, res) {
       console.warn('No speed tab: ' + e.message);
     }
     try {
-      const lRaw = await read('speed_leads');
+      const lRaw = await readSheet('speed_leads');
       if (lRaw.length > 1) {
         const lHdr = lRaw[0].map(h => String(h).trim());
         const li = (names) => findCol(lHdr, names);
@@ -851,11 +559,6 @@ export default async function handler(req, res) {
           created: li(['Lead Created At']), asg: li(['Assigned At']), clock: li(['Clock Start']),
           call: li(['First Call At']), lag: li(['Assign Lag (min)']),
           tat: li(['TAT (min)']), flag: li(['Flag']),
-          /* v8, appended LAST in the SQL so Code.gs's sortCol (13 = TAT) does not
-             shift. Tolerated as absent: a pre-v8 speed_leads tab returns -1 and
-             every row carries '', which the drill reads as "do not show the
-             column at all" rather than a row of blanks. */
-          entry: li(['Entry Stage']),
         };
         for (let i = 1; i < lRaw.length; i++) {
           const r = lRaw[i];
@@ -879,7 +582,6 @@ export default async function handler(req, res) {
             lag: c.lag < 0 || r[c.lag] === '' ? null : num(r[c.lag]),
             tat: c.tat < 0 || r[c.tat] === '' ? null : num(r[c.tat]),
             flag: c.flag < 0 ? '' : String(r[c.flag] || '').trim(),
-            entryStage: c.entry < 0 ? '' : String(r[c.entry] || '').trim(),
           });
         }
         // never-called first, then slowest — the drill reads top-down as a worklist
@@ -897,7 +599,7 @@ export default async function handler(req, res) {
        sheet hasn't been wired yet. */
     let msScheduleRows = [];
     try {
-      const iRaw = await read('MS Schedule Inventory');
+      const iRaw = await readSheet('MS Schedule Inventory');
       if (iRaw.length > 1) {
         const iHdr = iRaw[0].map(h => String(h).trim());
         const ii = (names) => findCol(iHdr, names);
@@ -933,389 +635,6 @@ export default async function handler(req, res) {
       console.warn('No MS Schedule Inventory tab: ' + e.message);
     }
 
-    /* ── 6e. Connectivity & anomaly feeds (five optional tabs) ────────────────
-       Written by Code.gs from sql/connectivity-*.sql, sql/did-reputation-v2.sql
-       and sql/inbound-routing-v1.sql. All five are OPTIONAL: an absent tab
-       yields an empty array and the matching view renders a "no source yet"
-       note. Never a floor of honest zeroes — absence is not zero.
-
-       These are read as PASS-THROUGH rows (header name -> value) rather than
-       mapped onto agentCols, because they carry columns the Ozontel tab has no
-       shape for: Baseline Days, Owner, Shape, Cohort, Confidence. Widening the
-       Ozontel tab would have meant touching Code.gs's MASTER_HEADERS, which
-       silently blanks columns when it drifts out of step with the SQL.
-
-       Excluded LRMs are filtered here, exactly as everywhere else, via norm().
-       The DID and inbound-routing feeds have no agent column, so nothing to
-       filter.
-
-       THREE ADDITIONS (18 Sep 2026), all optional — the five legacy callers
-       below pass none of them and behave exactly as before:
-         o.tabs   — candidate tab SPELLINGS, tried in order (see resolveTab).
-         o.fields — canonical field map; adds row._c without touching row keys.
-         o.diag   — an object this fills in, so a view can say WHY it is empty.
-       Reads now go through cachedRead rather than readSheet: these tabs were
-       the only ones still spending an uncached quota read per request. */
-    const passThrough = async (tab, opts) => {
-      const o = opts || {};
-      const dg = o.diag || {};
-      const name = o.tabs ? await resolveTab(o.tabs) : tab;
-      dg.tab = name || null;
-      if (!name) { dg.error = 'no tab under any known spelling: ' + (o.tabs || [tab]).join(', '); return []; }
-      try {
-        const raw = await cachedRead(readSheet, name);
-        dg.rows = Math.max(0, raw.length - 1);
-        if (raw.length < 2) return [];
-        const hdr = raw[0].map(h => String(h).trim());
-        dg.headers = hdr.filter(Boolean);
-        const emailIdx = o.emailCol ? findCol(hdr, o.emailCol) : -1;
-        /* Canonical index: first header whose KEY is listed for the field.
-           Unmatched fields are simply absent from _c — never 0, because a
-           column the sheet does not have and a column that reads zero are
-           different facts and the card states them differently. */
-        /* KEY ORDER WINS, not header order (18 Sep 2026). The old form scanned
-           the HEADERS and took the first one whose key was listed anywhere, so a
-           field could never state a preference: `inbound_perf` carries BOTH
-           'Talk Time' and 'Talk Time (s)' and the earlier column won, which is
-           how a seconds field got read as whatever the other column happened to
-           be. Now each field's key list is a priority order. */
-        const cIdx = {}, cMiss = [];
-        if (o.fields) Object.keys(o.fields).forEach(f => {
-          const spec = o.fields[f], keys = spec.keys || spec;
-          let i = -1;
-          for (const k of keys) { i = hdr.findIndex(h => hkey(h) === k); if (i >= 0) break; }
-          if (i < 0) i = hdr.findIndex(h => keys.indexOf(hkey(h)) >= 0);
-          if (i >= 0) cIdx[f] = { i, kind: spec.kind || 'text', header: hdr[i] }; else cMiss.push(f);
-        });
-        if (o.fields) { dg.mapped = Object.keys(cIdx).map(f => f + ' ← ' + cIdx[f].header); dg.unmapped = cMiss; }
-        const out = [];
-        let dropped = 0;
-        for (let i = 1; i < raw.length; i++) {
-          const r = raw[i];
-          if (!r || !r.length) continue;
-          if (emailIdx >= 0) {
-            const em = norm(r[emailIdx]);
-            if (!em || isExcluded(em)) { dropped++; continue; }
-          }
-          const obj = {};
-          hdr.forEach((h, j) => {
-            if (!h) return;
-            const v = r[j];
-            // numeric columns arrive from Sheets as strings with thousands
-            // separators; num() strips them. Text columns stay text.
-            obj[h] = (o.numeric && o.numeric.indexOf(h) >= 0) ? num(v)
-                   : (typeof v === 'string' ? v.trim() : v);
-          });
-          if (o.fields) {
-            const c = {};
-            Object.keys(cIdx).forEach(f => {
-              const m = cIdx[f], v = r[m.i];
-              c[f] = m.kind === 'num' ? num(v) : m.kind === 'pct' ? pct(v)
-                   : m.kind === 'dur' ? durMin(v) : m.kind === 'sec' ? durSec(v)
-                   : (typeof v === 'string' ? v.trim() : v);
-            });
-            obj._c = c;
-          }
-          if (emailIdx >= 0) obj._email = norm(r[emailIdx]);
-          out.push(obj);
-        }
-        dg.excluded = dropped;
-        dg.kept = out.length;
-        return out;
-      } catch (e) {
-        dg.error = e.message;
-        console.warn('No ' + name + ' tab: ' + e.message);
-        return [];
-      }
-    };
-
-    const CONN_NUM = ['Calls', 'Unique Numbers', 'Fresh Numbers', 'Fresh %', 'Connects',
-      'Connect %', 'Expected Connects', 'Index', 'Shortfall', 'Real Conversations',
-      'Real Conv %', 'Talk Min', 'Median Talk s', 'Agent Cuts', 'Agent Cut %',
-      'Early Hangups', 'Early Hangup %', 'Median Patience s', 'Fair Wait %',
-      'Median Ring s', 'Short Connects', 'Short Connect %', 'Customers Over 3',
-      'Calls Beyond Cap', 'Rapid Redials', 'Rapid Redial %', 'Attempts 1-3',
-      'Attempts 4-10', 'Attempts 11+', 'Avg Attempt Depth', 'Baseline Days'];
-
-    /* When CONN_SHEET_ID is set the live tabs ARE the source, so the five
-       legacy card tabs are not read at all. That is not just tidiness: each
-       read counts against "Sheets read requests per minute per user", one
-       dashboard request already spends six on the main sheet, and five
-       speculative reads for tabs that do not exist is what tipped it over on
-       13 Sep. Unset the env var and the legacy path returns unchanged. */
-    /* ── inbound perf — REBUILT 18 Sep 2026 ──────────────────────────────────
-       PER-LRM PER-DAY inbound handling, a different grain from `inbound_route`
-       (floor-wide routing, no agent column) — a separate feed, not a
-       replacement, and NOT gated by CONN_SHEET_ID: it lives in the main Ozonetel
-       sheet and has nothing to do with the live connectivity file.
-
-       WHY THIS WAS REBUILT: the tab is called `inbound_perf` — lowercase, an
-       UNDERSCORE (confirmed against Code.gs's INBOUND_PERF_SHEET_NAME, card
-       3301). The code originally asked for `Inbound_perf` with a capital I, so
-       every read threw, the error was swallowed, and the card said "No
-       Inbound_perf tab in the sheet yet" while the data sat there. Nothing about
-       the numbers was wrong; the tab was never opened. Hence resolveTab + the
-       canonical field map: neither the tab's name nor a header's spelling can
-       take the view down again, and inboundDiag reports which name answered and
-       which columns bound, so the next mismatch is visible instead of silent.
-
-       THE UNIT, WHICH IS NOT GUESSABLE AND WAS GOT WRONG ONCE: Total Talk Time,
-       Avg. Talk Time, Avg. Wrapup Time and Avg. Hold Time are SECONDS on this
-       card (Code.gs states it, and warns not to cross-reconcile with the Ozontel
-       tab's 'Total Talk Time', which is HOURS). They are coerced with durSec,
-       not durMin. Reading seconds as minutes inflates talk time 60x.
-
-       The feed writes one row per Date × LRM on its own 1-minute trigger, and
-       previous days are hard-pasted by the backfill — so a day's row is stable
-       once written, and only today moves.
-
-       Three caveats travel with every figure here and are printed on the card,
-       not just in this comment: the per-LRM answer rate is "of calls that RANG
-       me" (~35.5% of inbound legs reach no agent and have no owner); the dialler
-       posts RETRY LEGS, so a call count can be inflated by a dialler /
-       availability defect, never LRM behaviour; and inbound talk time only
-       exists since Ozonetel fixed the call-end leg on 4 Sep, at 41% floor-wide
-       coverage — a floor, not a total. */
-    /* Real name first: resolveTab tries these in order and a wrong name costs a
-       failed read, so the spelling Code.gs actually writes leads. */
-    const INBOUND_TABS = ['inbound_perf', 'inbound perf', 'Inbound_perf', 'Inbound Perf',
-                          'Inbound perf', 'InboundPerf', 'inbound-perf'];
-    /* Canonical fields. Keys are HEADER KEYS (hkey: lowercase, alphanumerics
-       only), so casing, spacing, underscores and a trailing % are all irrelevant
-       and the sheet's own typos sit beside the corrected spelling.
-       kind drives coercion: num | pct | dur (-> MINUTES) | text. */
-/* KEYS ARE A PRIORITY ORDER (see passThrough). The real header row, read off
-       the live tab on 18 Sep 2026, is:
-         Date · LRM email · Total Calls Received · Answered Calls ·
-         Not Answered Calls · Talk Time · Not Answered Reasons · Agent Name ·
-         Rang & Missed · Not Routed - Owner Busy · Not Routed - Other ·
-         Pickup % (when rang) · Answered % (overall) · Talk Time (s) ·
-         Avg. Talk Time (s) · Avg. Wrapup Time (s) · Avg. Hold Time (s) ·
-         Customer Disconnect
-       Two things that cost a round each: 'Total Calls Received' was bound by
-       nothing (the map only knew 'Total Calls'), so the whole tab read as
-       call-less; and the tab carries BOTH 'Talk Time' and 'Talk Time (s)', so
-       the (s) spellings must lead their key lists — they are the ones the card
-       documents as seconds. The routing counts (Rang & Missed, Not Routed …)
-       are the per-LRM view of the losses that used to be visible only
-       floor-wide on the routing feed. */
-    const INBOUND_FIELDS = {
-      date:       { kind: 'text', keys: ['date', 'calldate', 'day'] },
-      email:      { kind: 'text', keys: ['lrmemail', 'lrmemailid', 'agentid', 'agentemail', 'email', 'emailid'] },
-      name:       { kind: 'text', keys: ['agentname', 'lrmname', 'name', 'employeename'] },
-      calls:      { kind: 'num',  keys: ['totalcallsreceived', 'callsreceived', 'totalcalls', 'calls', 'callsrung', 'inboundcalls', 'callcount'] },
-      answered:   { kind: 'num',  keys: ['answeredcalls', 'answered', 'connectedcalls'] },
-      answerPct:  { kind: 'pct',  keys: ['answeredoverall', 'answeredpctoverall', 'answeredpct', 'connected', 'answerrate', 'connectedpercentage'] },
-      pickupPct:  { kind: 'pct',  keys: ['pickupwhenrang', 'pickuppctwhenrang', 'pickup', 'pickuprate'] },
-      unanswered: { kind: 'num',  keys: ['notansweredcalls', 'unansweredcalls', 'unanswredcalls', 'missedcalls', 'missed'] },
-      unansPct:   { kind: 'pct',  keys: ['notansweredoverall', 'unansweredcallspct', 'unanswredcallspct', 'unanswered', 'unanswred', 'missedpct'] },
-      rangMissed: { kind: 'num',  keys: ['rangmissed', 'rangandmissed', 'rungmissed'] },
-      nrBusy:     { kind: 'num',  keys: ['notroutedownerbusy', 'ownerbusy', 'notroutedbusy'] },
-      nrOther:    { kind: 'num',  keys: ['notroutedother', 'notroutedothers', 'notroutedrest'] },
-      reasons:    { kind: 'text', keys: ['notansweredreasons', 'notansweredreason', 'unansweredreasons'] },
-      talk:       { kind: 'sec',  keys: ['talktimes', 'totaltalktimes', 'totaltalktime', 'talktime', 'totaltalk'] },
-      avgTalk:    { kind: 'sec',  keys: ['avgtalktimes', 'averagetalktimes', 'avgtalktime', 'averagetalktime', 'avgtalk'] },
-      wrap:       { kind: 'sec',  keys: ['avgwrapuptimes', 'averagewrapuptimes', 'avgwrapuptime', 'averagewrapuptime', 'avgwrapup', 'wrapuptime'] },
-      hold:       { kind: 'sec',  keys: ['avgholdtimes', 'averageholdtimes', 'avgholdtime', 'averageholdtime', 'avghold', 'holdtime'] },
-      custDisc:   { kind: 'num',  keys: ['customerdisconnect', 'customerdisconnects', 'custdisconnect', 'customerhungup'] },
-      agentDisc:  { kind: 'num',  keys: ['agentdisconnect', 'agentdisconnects', 'lrmdisconnect', 'agenthungup'] },
-      ring:       { kind: 'sec',  keys: ['avgringtimes', 'avgringtime', 'ringtime', 'avgtimetoanswer', 'timetoanswer'] },
-      queue:      { kind: 'sec',  keys: ['avgqueuetimes', 'avgqueuetime', 'queuetime', 'avgwaittime', 'waittime'] },
-      did:        { kind: 'text', keys: ['did', 'didnumber', 'publishednumber'] },
-      legs:       { kind: 'num',  keys: ['diallegs', 'legs', 'totallegs'] },
-    };
-    const inboundDiag = {};
-    const inboundPerfAll = await passThrough('inbound_perf', {
-      tabs: INBOUND_TABS,
-      fields: INBOUND_FIELDS,
-      diag: inboundDiag,
-      emailCol: ['LRM email', 'LRM Email', 'Agent Id'],
-      /* Kept for the raw header names the frontend still reads directly. The
-         canonical _c block is authoritative; this is the compatibility layer. */
-      numeric: ['Total Calls Received', 'Total Calls', 'Answered Calls', 'Not Answered Calls',
-                'Rang & Missed', 'Not Routed - Owner Busy', 'Not Routed - Other',
-                'Pickup % (when rang)', 'Answered % (overall)', 'Talk Time (s)',
-                'Avg. Talk Time (s)', 'Avg. Wrapup Time (s)', 'Avg. Hold Time (s)',
-                'Customer Disconnect'],
-    });
-    /* DATE-SCOPED like every other view (user, 17 Sep). Without this the tab read
-       its whole history against whatever day was picked, which looked like
-       inflation. rowDate() is the same parser the Ozontel rows use, so a Sheets
-       date cell and a yyyy-MM-dd string both land. Undated rows are DROPPED — a
-       row with no date cannot honour the picker — but now COUNTED, because
-       dropping them silently is what made the totals unexplainable. */
-    let inbUndated = 0;
-    const inbDay = r => rowDate((r._c && r._c.date) || r['Date']);
-    let inboundPerf = inboundPerfAll.filter(r => {
-      const d = inbDay(r);
-      if (!d) { inbUndated++; return false; }
-      return d >= effFrom && d <= effTo;
-    });
-    inboundDiag.undated = inbUndated;
-    inboundDiag.inWindowStrict = inboundPerf.length;
-    /* MOST-RECENT-DAY FALLBACK (18 Sep 2026). The Ozonetel card is written on
-       its own schedule, so a tab holding 2,202 rows can hold none for the day
-       the picker happens to sit on — and the tab then reported "in the picked
-       window: 0" over a full feed, which reads as a broken view rather than a
-       feed that has not caught up. When the window is empty the LATEST day at
-       or before the window end is served instead and the date is reported, so
-       the substitution is stated on the card and never silent. */
-    if (!inboundPerf.length && inboundPerfAll.length) {
-      let best = '';
-      for (const r of inboundPerfAll) { const d = inbDay(r); if (d && d <= effTo && d > best) best = d; }
-      if (!best) for (const r of inboundPerfAll) { const d = inbDay(r); if (d && d > best) best = d; }
-      if (best) {
-        inboundPerf = inboundPerfAll.filter(r => inbDay(r) === best);
-        inboundDiag.fallbackDate = best;
-      }
-    }
-    inboundDiag.inWindow = inboundPerf.length;
-    inboundDiag.window = effFrom + ' → ' + effTo;
-
-    /* ── DID connectivity by lead type — two feeds, added 18 Sep 2026 ────────
-       Both are written by Code.gs and NEITHER was being read. They are the live
-       DID data; `did_rep` (the reputation-index card, DID_REP_QUESTION_ID) is
-       still an EMPTY STRING in Code.gs, so the DID view's original feed never
-       arrives and the tab renders its "no source" note against a sheet that has
-       two populated DID tabs. That is what this fixes.
-
-       They are different SHAPES and must not be merged:
-
-       `did_overall` (card 3305) is PARAMETERLESS — it computes its own today /
-       7d / 15d / overall windows inside the SQL via NOW(), has no Date column,
-       and is full-replaced every 15 minutes. So it does NOT and CANNOT honour
-       the dashboard's date picker, and the view must say so rather than imply
-       the figures moved with the window. Five lead types × four windows.
-
-       `did_day_on_day` (card 3304) is one row per Date × DID on a 5-minute
-       trigger, history hard-pasted by its backfill. This one IS date-scoped
-       here, like every other per-day feed.
-
-       Every value in both is a connect PERCENTAGE. There are no denominators —
-       no dials, no connects — which bounds what can honestly be built: a rate
-       with no volume behind it cannot be ranked without gating, and 14 Sep in
-       this feed is a Sunday-shaped day of 0.0s and 100.0s off tiny
-       denominators. The view therefore leads with the ESTATE-WIDE movement and
-       treats per-DID rows as a watch list, not a league table. */
-    const DID_PCT = { kind: 'pct' };
-    const didOverallDiag = {};
-    const didOverall = await passThrough('did_overall', {
-      tabs: ['did_overall', 'DID Overall', 'did overall'],
-      diag: didOverallDiag,
-      fields: {
-        did:  { kind: 'text', keys: ['did', 'didnumber', 'publishednumber'] },
-        /* Header keys drop the underscores, so fresh_lead_connect_pct_today
-           collapses to freshleadconnectpcttoday. */
-        freshToday:   { kind: 'pct', keys: ['freshleadconnectpcttoday'] },
-        fresh7d:      { kind: 'pct', keys: ['freshleadconnectpct7d'] },
-        fresh15d:     { kind: 'pct', keys: ['freshleadconnectpct15d'] },
-        freshAll:     { kind: 'pct', keys: ['freshleadconnectpctoverall'] },
-        retToday:     { kind: 'pct', keys: ['retargetingconnectpcttoday'] },
-        ret7d:        { kind: 'pct', keys: ['retargetingconnectpct7d'] },
-        ret15d:       { kind: 'pct', keys: ['retargetingconnectpct15d'] },
-        retAll:       { kind: 'pct', keys: ['retargetingconnectpctoverall'] },
-        confToday:    { kind: 'pct', keys: ['confirmationcallconnectpcttoday'] },
-        conf7d:       { kind: 'pct', keys: ['confirmationcallconnectpct7d'] },
-        conf15d:      { kind: 'pct', keys: ['confirmationcallconnectpct15d'] },
-        confAll:      { kind: 'pct', keys: ['confirmationcallconnectpctoverall'] },
-        lostToday:    { kind: 'pct', keys: ['lostleadsconnectpcttoday'] },
-        lost7d:       { kind: 'pct', keys: ['lostleadsconnectpct7d'] },
-        lost15d:      { kind: 'pct', keys: ['lostleadsconnectpct15d'] },
-        lostAll:      { kind: 'pct', keys: ['lostleadsconnectpctoverall'] },
-        totalToday:   { kind: 'pct', keys: ['totalconnectpcttoday'] },
-        total7d:      { kind: 'pct', keys: ['totalconnectpct7d'] },
-        total15d:     { kind: 'pct', keys: ['totalconnectpct15d'] },
-        totalAll:     { kind: 'pct', keys: ['totalconnectpctoverall'] },
-      },
-    });
-
-    const didDodDiag = {};
-    const didDodAll = await passThrough('did_day_on_day', {
-      tabs: ['did_day_on_day', 'DID Day on Day', 'did day on day', 'did_dod'],
-      diag: didDodDiag,
-      fields: {
-        date:  { kind: 'text', keys: ['date'] },
-        did:   { kind: 'text', keys: ['did'] },
-        fresh: { kind: 'pct',  keys: ['freshleadconnectpct'] },
-        ret:   { kind: 'pct',  keys: ['retargetingconnectpct'] },
-        conf:  { kind: 'pct',  keys: ['confirmationcallconnectpct'] },
-        lost:  { kind: 'pct',  keys: ['lostleadsconnectpct'] },
-        total: { kind: 'pct',  keys: ['totalconnectpct'] },
-      },
-    });
-    let dodUndated = 0;
-    const didDod = didDodAll.filter(r => {
-      const d = rowDate((r._c && r._c.date) || r['Date']);
-      if (!d) { dodUndated++; return false; }
-      return d >= effFrom && d <= effTo;
-    });
-    didDodDiag.undated = dodUndated;
-    didDodDiag.inWindow = didDod.length;
-    didDodDiag.window = effFrom + ' → ' + effTo;
-    /* The trend card needs more than the picked window to show a curve, so the
-       unscoped rows ride along too — explicitly named, never silently summed
-       against a picked day. */
-    const didDodAllDays = didDodAll;
-
-    const useLive = !!String(process.env.CONN_SHEET_ID || '').trim();
-    const [connDaily, connHourly, connAnomaly, didRows, inboundRows] = useLive
-      ? [[], [], [], [], []]
-      : await Promise.all([
-      passThrough('conn_daily',   { emailCol: ['LRM Email', 'Agent Id'], numeric: CONN_NUM }),
-      passThrough('conn_hourly',  { numeric: ['Calls', 'Callers', 'Calls per Caller', 'Share %',
-                                   'Expected Share %', 'Expected Calls', 'Band Low', 'Band High',
-                                   'Expected per Caller', 'Baseline Points', 'Shape Dev %',
-                                   'Connect %', 'Real Conversations', 'Early Hangup %',
-                                   'Agent Cut %', 'Median Patience s', 'Talk Min', 'Baseline Calls'] }),
-      passThrough('conn_anomaly', { emailCol: ['LRM Email'], numeric: ['Today', 'Own Normal',
-                                   'Own SD Used', 'Z', 'Move', 'Breaks', 'Calls That Day',
-                                   'Baseline Days'] }),
-      passThrough('did_rep',      { numeric: ['Calls', 'Active Days', 'Calls per Day',
-                                   'Unique Numbers', 'Connects', 'Connect %', 'Expected Connects',
-                                   'Expected %', 'Index', 'Shortfall', 'Real Conversations',
-                                   'Inbound Calls', 'Inbound per 1000 Out'] }),
-      passThrough('inbound_route',{ numeric: ['Calls', 'Answered', 'Missed', 'Answer %',
-                                   'Platform Dropped', 'Platform Dropped %', 'Caller Hung Up',
-                                   'Never Offered', 'Never Offered %', 'Ended <1s', 'Ended 1-4s',
-                                   'Ended 5-19s', 'Ended 20s+', 'Ended <5s %', 'Talk Min',
-                                   'Legs per Call', 'Worst Retry Storm', 'LRMs Reached',
-                                   'Reached No Agent'] }),
-    ]);
-
-    /* ── 6f. The LIVE tabs (Live_Callers / Live_Hourly / Live_DIDs / Live_Floor)
-       A separate Apps Script already refreshes these every 15 minutes, so they
-       — not the Metabase cards above — are the working source. _connlive.js
-       translates them into the same shapes; see that file for what the live
-       feed can and cannot supply.
-
-       Precedence: a legacy conn_* tab WINS where it exists, so wiring a card
-       later needs no code change. `connSource` tells the frontend which it got,
-       because the two differ in grain — the live feed is a weekly SNAPSHOT with
-       no Date column, and the views must say so instead of letting the date
-       filter look as though it applied. */
-    const todayISO = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-    let connFloor = [], connError = '', connDiag = {};
-    try {
-      const live = await readLiveConnectivity(readSheet, todayISO);
-      connFloor = live.connFloor;
-      connError = live.error || '';
-      connDiag = live.diag || {};
-      if (!connDaily.length && live.connDaily.length) {
-        live.connDaily.forEach(r => {
-          const em = norm(r['LRM Email']);
-          if (!em || isExcluded(em)) return;
-          connDaily.push({ ...r, _email: em });
-        });
-      }
-      if (!connHourly.length) connHourly.push(...live.connHourly);
-      if (!didRows.length)    didRows.push(...live.didRows);
-    } catch (e) {
-      console.warn('Live connectivity tabs unavailable: ' + e.message);
-      connError = e.message;
-    }
-    const connSource = connDaily.length
-      ? (connDaily[0]['Days'] !== undefined ? 'live' : 'cards') : 'none';
-
     // ── 7. Dropdown lists ─────────────────────────────────────────────────────
     const citySet = {}, tlNameSet = {}, lrmSet = {};
     agentRows.forEach(r => {
@@ -1344,21 +663,7 @@ export default async function handler(req, res) {
       rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
       totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows, hourlyHasMS,
       speedRows, speedLeads, speedHas, speedBuckets: SPEED_BUCKETS, msScheduleRows,
-      connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
-      didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor,
-      connHas: {
-        daily: connDaily.length > 0, hourly: connHourly.length > 0,
-        anomaly: connAnomaly.length > 0, did: didRows.length > 0,
-        inbound: inboundRows.length > 0, inboundPerf: inboundPerf.length > 0,
-        didOverall: didOverall.length > 0, didDod: didDodAll.length > 0,
-        floor: connFloor.length > 0,
-        source: connSource, today: todayISO, error: connError, diag: connDiag,
-      },
-      msScore: { error: msScore.error || '', external: !!msScore.external, diag: msScore.diag || {},
-                 scored: msScored, lrms: agentRows.length,
-                 inSheet: Object.keys(msScore.byEmail || {}).length },
       agentCols, agentRows: agentRowsSlim,
-      dupRowsDropped, stale: anyStale(),
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
       lrmList,
@@ -1381,12 +686,6 @@ function emptyPayload(from, to, viewerEmail) {
               meetingDone:0, msNoCall:0, dsToday:0, avgTalkMin:0 },
     cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [], hourlyHasMS: false,
     speedRows: [], speedLeads: [], speedHas: false, speedBuckets: [], msScheduleRows: [],
-    connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
-    inboundPerf: [], inboundDiag: {},
-    didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
-    connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false,
-               inboundPerf: false, didOverall: false, didDod: false },
-    msScore: { error: '', external: false, diag: {}, scored: 0, lrms: 0, inSheet: 0 },
     agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
