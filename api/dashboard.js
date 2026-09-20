@@ -27,6 +27,7 @@ import { readSheet } from './_sheets.js';
 import { requireUser, deny } from './_auth.js';
 import { readLiveConnectivity } from './_connlive.js';
 import { readMSScores } from './_msscore.js';
+import { readCoverage } from './_coverage.js';
 import { cachedRead, anyStale } from './_sheetcache.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase().replace('@homes.solarsquare.in', '@solarsquare.in');
@@ -256,6 +257,7 @@ export default async function handler(req, res) {
        Errors are captured per tab and re-thrown at the original call site, so
        every existing try/catch below behaves exactly as before. */
     const PRE_TABS = ['Ozontel', 'LRM_TL_MAP', 'hourly', 'speed', 'speed_leads',
+                      'coverage', 'coverage_leads',
                       'MS Schedule Inventory'];
     const pre = {};
     const queue = PRE_TABS.slice();
@@ -918,6 +920,164 @@ export default async function handler(req, res) {
       console.warn('No speed_leads tab: ' + e.message);
     }
 
+    /* ── 6d. Coverage (`coverage` + `coverage_leads`, usually an EXTERNAL sheet) ──
+       Per CREATED lead: did we ever get this person on the phone. The only feed
+       here that can see a lead nobody dialled.
+
+       THREE THINGS THAT ARE NOT LIKE THE OTHER FEEDS:
+       1. EVERY ROW IS A COHORT, dated by lead CREATION. A cohort keeps changing
+          after its day ends (a lead created Monday can connect Thursday), so
+          each date carries an AGE and the frontend refuses to score one younger
+          than COVERAGE_MATURE_DAYS. Measured 1-18 Sep: 56% of eventual connects
+          land same-day, 77% by D+1, 90% by D+3 — so a same-day figure is not a
+          low score, it is an unfinished one.
+       2. UNASSIGNED LEADS ARE NOT IN THE FEED (user, 20 Sep). Before the cut,
+          16,275 of 51,226 leads had no LRM and 16,283 of the 19,020 never-dialled
+          leads had nobody to dial them — an allocation problem with a different
+          owner, which dragged the floor's coverage from 83% to 57%.
+       3. The row is credited to the lead's CURRENT owner, deliberately the
+          opposite of First Response Time. FRT scores a past event so it must
+          credit whoever held the lead then; coverage describes a state that is
+          still open, so it must point at whoever has to fix it now.
+
+       `realConnected` (>= 15s of talk) is carried beside `connected` because the
+       dialler marks IVR-busy and ring-through as answered: Chennai reads 87.7%
+       connected but 64.8% really connected. A raw connect rate flatters the floor. */
+    const COVERAGE_MATURE_DAYS = 1;
+    let coverageRows = [], coverageLeads = [], coverageTrend = [], coverageStatus = [];
+    let coverageHas = false, coverageMeta = { error: '', external: false, diag: {} };
+    try {
+      const cov = await readCoverage(read);
+      coverageMeta = { error: cov.error || '', external: !!cov.external, diag: cov.diag || {} };
+      const cRaw = cov.daily || [];
+      if (cRaw.length > 1) {
+        coverageHas = true;
+        const cHdr = cRaw[0].map(h => String(h).trim());
+        const ci = (names) => findCol(cHdr, names);
+        const c = {
+          date: ci(['Date']), agent: ci(['Agent Id', 'LRM Email']),
+          city: ci(['City']), cluster: ci(['Cluster']), status: ci(['Status']),
+          created: ci(['Leads Created']), assigned: ci(['Leads Assigned']),
+          dialled: ci(['Leads Dialled']), connected: ci(['Leads Connected']),
+          real: ci(['Leads Really Connected']),
+          never: ci(['Never Dialled']), noAns: ci(['Dialled Not Connected']),
+          d0: ci(['Connected D+0']), d1: ci(['Connected D+1']), d3: ci(['Connected D+3']),
+          dials: ci(['Total Dials']), geoPin: ci(['Leads Geo From Pincode']),
+        };
+        const known = new Set(rosterAll.map(r => norm(r['Agent Id'])));
+        const acc = {}, byDay = {}, byStatus = {};
+        for (let i = 1; i < cRaw.length; i++) {
+          const r = cRaw[i];
+          if (!r) continue;
+          const day = rowDate(r[c.date]);
+          if (day < effFrom || day > effTo) continue;
+          const email = norm(r[c.agent]);
+          if (!email || !email.includes('@')) continue;
+          if (known.size && !known.has(email)) continue;
+          const cl = c.cluster < 0 ? '' : String(r[c.cluster] || '').trim();
+          const ct = c.city < 0 ? '' : String(r[c.city] || '').trim();
+          const cluster = cl || ct || 'Unmapped', leadCity = ct || cl || 'Unmapped';
+          const v = {
+            assigned: num(r[c.assigned]) || num(r[c.created]),
+            dialled: num(r[c.dialled]), connected: num(r[c.connected]),
+            real: c.real < 0 ? 0 : num(r[c.real]),
+            never: num(r[c.never]), noAns: num(r[c.noAns]),
+            d0: c.d0 < 0 ? 0 : num(r[c.d0]), d1: c.d1 < 0 ? 0 : num(r[c.d1]),
+            d3: c.d3 < 0 ? 0 : num(r[c.d3]),
+            dials: c.dials < 0 ? 0 : num(r[c.dials]),
+            geoPin: c.geoPin < 0 ? 0 : num(r[c.geoPin]),
+          };
+          const key = email + '||' + cluster;
+          const a = acc[key] || (acc[key] = { agent: email, cluster, leadCity,
+            assigned: 0, dialled: 0, connected: 0, real: 0, never: 0, noAns: 0,
+            d0: 0, d1: 0, d3: 0, dials: 0, geoPin: 0 });
+          Object.keys(v).forEach(k => { a[k] += v[k]; });
+
+          /* Floor-wide daily series for the trend. Kept separate from `acc`
+             because a trend must NOT be a rollup of the grain rows — the grain
+             is LRM x cluster and a date has to survive every scope filter. */
+          const d = byDay[day] || (byDay[day] = { date: day, assigned: 0, connected: 0, real: 0, never: 0 });
+          d.assigned += v.assigned; d.connected += v.connected; d.real += v.real; d.never += v.never;
+
+          const st = (c.status < 0 ? '' : String(r[c.status] || '').trim()) || '(blank)';
+          const s = byStatus[st] || (byStatus[st] = { status: st, assigned: 0, connected: 0, real: 0, never: 0 });
+          s.assigned += v.assigned; s.connected += v.connected; s.real += v.real; s.never += v.never;
+        }
+        const meta = {};
+        rosterAll.forEach(r => { meta[norm(r['Agent Id'])] = r; });
+        coverageRows = Object.keys(acc).map(k => {
+          const a = acc[k], m = meta[a.agent] || {};
+          return { ...a,
+            name: m['LRM Name'] || nameFromEmail(a.agent),
+            city: m['City'] || '', tl: m['TL'] || '', tlName: m['TL Name'] || '',
+            zsm: m['ZSM'] || '', zsmName: m['ZSM Name'] || '',
+            ados: m['ADOS'] || '', adosName: m['ADOS Name'] || '',
+            _inScope: inScope(a.agent) };
+        }).sort((x, y) => y.assigned - x.assigned);
+
+        /* Age each cohort day against TODAY, server-side. The browser's clock is
+           the user's, and a laptop an hour behind would mark a mature day as
+           still maturing. */
+        const todayMs = Date.parse(todayISO + 'T00:00:00Z');
+        coverageTrend = Object.keys(byDay).sort().map(d => {
+          const row = byDay[d];
+          row.age = Math.round((todayMs - Date.parse(d + 'T00:00:00Z')) / 86400000);
+          row.maturing = row.age < COVERAGE_MATURE_DAYS;
+          return row;
+        });
+        coverageStatus = Object.keys(byStatus).map(k => byStatus[k])
+          .sort((x, y) => y.assigned - x.assigned);
+      }
+
+      const lRaw = cov.leads || [];
+      if (lRaw.length > 1) {
+        const lHdr = lRaw[0].map(h => String(h).trim());
+        const li = (names) => findCol(lHdr, names);
+        const q = {
+          date: li(['Date']), agent: li(['Agent Id', 'LRM Email']), lead: li(['Lead Id']),
+          city: li(['City']), cluster: li(['Cluster']), stage: li(['Stage']),
+          status: li(['Status']), source: li(['Lead Source']),
+          created: li(['Lead Created At']), asg: li(['Assigned At']),
+          dials: li(['Dial Attempts']), first: li(['First Dial At']), last: li(['Last Dial At']),
+          age: li(['Age (days)']), flag: li(['Flag']),
+        };
+        for (let i = 1; i < lRaw.length; i++) {
+          const r = lRaw[i];
+          if (!r) continue;
+          const day = rowDate(r[q.date]);
+          if (day < effFrom || day > effTo) continue;
+          const email = norm(r[q.agent]);
+          if (!email || !email.includes('@')) continue;
+          if (isExcluded(email)) continue;
+          coverageLeads.push({
+            date: day, agent: email,
+            lead: String(r[q.lead] || '').trim(),
+            cluster: q.cluster < 0 ? '' : String(r[q.cluster] || '').trim(),
+            city: q.city < 0 ? '' : String(r[q.city] || '').trim(),
+            stage: q.stage < 0 ? '' : String(r[q.stage] || '').trim(),
+            status: q.status < 0 ? '' : String(r[q.status] || '').trim(),
+            source: q.source < 0 ? '' : String(r[q.source] || '').trim(),
+            createdAt: q.created < 0 ? '' : String(r[q.created] || '').trim(),
+            assignedAt: q.asg < 0 ? '' : String(r[q.asg] || '').trim(),
+            dials: q.dials < 0 ? 0 : num(r[q.dials]),
+            firstDial: q.first < 0 ? '' : String(r[q.first] || '').trim(),
+            lastDial: q.last < 0 ? '' : String(r[q.last] || '').trim(),
+            age: q.age < 0 ? null : num(r[q.age]),
+            flag: q.flag < 0 ? '' : String(r[q.flag] || '').trim(),
+          });
+        }
+        /* The SQL already ordered this as a QUEUE — never dialled first, then
+           oldest. Re-sorting here would destroy that, so the only thing applied
+           is the same order and the cap truncates the TAIL, never the head. */
+        coverageLeads.sort((a, b) => (a.dials === 0 ? -1 : b.dials === 0 ? 1 : 0)
+                                  || (a.date < b.date ? -1 : a.date > b.date ? 1 : b.dials - a.dials));
+        if (coverageLeads.length > 4000) coverageLeads = coverageLeads.slice(0, 4000);
+      }
+    } catch (e) {
+      console.warn('Coverage feed failed: ' + e.message);
+      coverageMeta = { error: 'Coverage read failed: ' + String(e.message || e), external: false, diag: {} };
+    }
+
     /* MS Schedule Inventory — the burn-down feed for the Action Center MS Plan
        (sql/ms-inventory-lead-snapshot.sql). One row per Cluster x City x
        Assigned LRM for one schedule date (tomorrow, typically). Optional tab —
@@ -1372,6 +1532,8 @@ export default async function handler(req, res) {
       rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
       totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows, hourlyHasMS,
       speedRows, speedLeads, speedHas, speedBuckets: SPEED_BUCKETS, msScheduleRows,
+      coverageRows, coverageLeads, coverageTrend, coverageStatus, coverageHas,
+      coverageMatureDays: COVERAGE_MATURE_DAYS, coverage: coverageMeta,
       connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
       didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor,
       connHas: {
@@ -1409,6 +1571,9 @@ function emptyPayload(from, to, viewerEmail) {
               meetingDone:0, msNoCall:0, dsToday:0, avgTalkMin:0 },
     cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [], hourlyHasMS: false,
     speedRows: [], speedLeads: [], speedHas: false, speedBuckets: [], msScheduleRows: [],
+    coverageRows: [], coverageLeads: [], coverageTrend: [], coverageStatus: [],
+    coverageHas: false, coverageMatureDays: 1,
+    coverage: { error: '', external: false, diag: {} },
     connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
     inboundPerf: [], inboundDiag: {},
     didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
