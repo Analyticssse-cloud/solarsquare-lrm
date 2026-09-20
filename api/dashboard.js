@@ -1017,8 +1017,14 @@ export default async function handler(req, res) {
 
         /* Age each cohort day against TODAY, server-side. The browser's clock is
            the user's, and a laptop an hour behind would mark a mature day as
-           still maturing. */
-        const todayMs = Date.parse(todayISO + 'T00:00:00Z');
+           still maturing.
+           IST is computed HERE rather than read from `todayISO`: that const is
+           declared ~500 lines further down, so referencing it threw a temporal
+           dead-zone error that silently cost the trend and the status panel
+           while leaving the table looking fine. Don't "tidy" this into the
+           shared const unless this block moves below it. */
+        const covTodayISO = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+        const todayMs = Date.parse(covTodayISO + 'T00:00:00Z');
         coverageTrend = Object.keys(byDay).sort().map(d => {
           const row = byDay[d];
           row.age = Math.round((todayMs - Date.parse(d + 'T00:00:00Z')) / 86400000);
