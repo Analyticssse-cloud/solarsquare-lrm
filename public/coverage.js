@@ -117,8 +117,25 @@ var covOpen = null;
   '.cv-meter{position:relative;height:7px;background:#eef1f8;border-radius:4px;overflow:hidden;min-width:56px}' +
   '.cv-meter i{position:absolute;left:0;top:0;bottom:0;background:#6ea866;border-radius:4px}' +
   '.cv-meter.warn i{background:#e8a05c}.cv-meter.bad i{background:#b0382c}' +
-  'tr.cv-row{cursor:pointer}tr.cv-row:hover{background:rgba(24,35,63,.035)}' +
+  'tr.cv-row{cursor:pointer;-webkit-user-select:none;user-select:none}tr.cv-row:hover{background:rgba(24,35,63,.035)}' +
   'tr.cv-row.open{background:rgba(24,35,63,.055)}' +
+  /* Row drill as a POP-UP, same as First Response Time. Keyframed rather than
+     transitioned so it fires on the element's first paint, with no double rAF. */
+  '.cv-modal-bk{position:fixed;inset:0;background:rgba(15,22,45,.46);z-index:300;display:none;align-items:center;justify-content:center;padding:22px}' +
+  '.cv-modal-bk.open{display:flex;animation:cvFade .16s ease both}' +
+  '.cv-modal{background:#fff;border-radius:10px;width:min(1080px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 26px 70px rgba(15,22,45,.34);animation:cvPop .2s cubic-bezier(.2,.8,.3,1) both}' +
+  '@keyframes cvFade{from{opacity:0}to{opacity:1}}' +
+  '@keyframes cvPop{from{opacity:0;transform:translateY(10px) scale(.965)}to{opacity:1;transform:none}}' +
+  '.cv-modal-bk.closing{animation:cvFade .13s ease reverse both}' +
+  '.cv-modal-bk.closing .cv-modal{animation:cvPop .13s ease reverse both}' +
+  '.cv-modal-hd{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border,#e3e8f3)}' +
+  '.cv-modal-hd h3{margin:0;font-size:14.5px;font-weight:800;color:var(--ink,#18233f);letter-spacing:-.2px}' +
+  '.cv-modal-hd span{font-size:11px;color:var(--muted,#6a7494)}' +
+  '.cv-modal-x{margin-left:auto;border:1px solid var(--border,#e3e8f3);background:#fff;color:var(--muted,#6a7494);font:700 13px/1 inherit;width:26px;height:26px;border-radius:6px;cursor:pointer}' +
+  '.cv-modal-x:hover{color:var(--ink,#18233f);border-color:#9fb0d8}' +
+  '.cv-modal-bd{overflow:auto;min-height:0}' +
+  '.cv-modal-bd .cv-drill-in{padding:12px 16px 16px}' +
+  '@media (prefers-reduced-motion:reduce){.cv-modal-bk.open,.cv-modal,.cv-modal-bk.closing,.cv-modal-bk.closing .cv-modal{animation:none}}' +
   'td.cv-drill{padding:0!important;background:#fbfcfe}' +
   '.cv-drill-in{padding:10px 14px 14px;overflow-x:auto}' +
   '.cv-drill-in h4{margin:0 0 7px;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted,#6a7494)}' +
@@ -355,7 +372,6 @@ function renderCoverage() {
       '<td class="num cv-sep">' + g.dialsPer + '</td>' +
       '<td class="num">' + (g.connected ? Math.round(100 * g.d0 / g.connected) + '%' : '—') + '</td>' +
       '</tr>';
-    if (open) html += covDrill(g, rows);
   });
 
   html += '<tr class="cv-tot"><td>All</td><td class="num">' + fmt(t.assigned) + '</td>' +
@@ -431,10 +447,60 @@ function renderCoverage() {
   panel.querySelectorAll('tr.cv-row').forEach(function (tr2) {
     tr2.addEventListener('click', function () {
       var k = tr2.getAttribute('data-ck');
-      covOpen = (covOpen === k) ? null : k;
-      renderCoverage();
+      if (covOpen === k) { covCloseModal(); return; }
+      panel.querySelectorAll('tr.cv-row.open').forEach(function (o) { o.classList.remove('open'); });
+      tr2.classList.add('open');
+      covOpen = k;
+      covOpenModal(k, groups, rows);
     });
   });
+}
+
+/* The drill lives in a pop-up rather than an expanded row: the worklist is a
+   long list read top-down, and pushing the table apart to show it loses the
+   row you clicked. Same shell and the same motion as First Response Time —
+   its own classes, because the two files load independently. */
+function covModalEl() {
+  var bk = document.getElementById('cvModalBk');
+  if (bk) return bk;
+  bk = document.createElement('div');
+  bk.id = 'cvModalBk';
+  bk.className = 'cv-modal-bk';
+  bk.innerHTML = '<div class="cv-modal" role="dialog" aria-modal="true">' +
+    '<div class="cv-modal-hd"><h3 id="cvModalT"></h3><span id="cvModalS"></span>' +
+    '<button class="cv-modal-x" id="cvModalX" title="Close (Esc)">\u2715</button></div>' +
+    '<div class="cv-modal-bd" id="cvModalBd"></div></div>';
+  document.body.appendChild(bk);
+  bk.addEventListener('click', function (e) { if (e.target === bk) covCloseModal(); });
+  bk.querySelector('#cvModalX').addEventListener('click', covCloseModal);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && bk.classList.contains('open')) covCloseModal();
+  });
+  return bk;
+}
+
+function covOpenModal(key, groups, rows) {
+  var g = null;
+  for (var i = 0; i < groups.length; i++) if (String(groups[i].key) === key) { g = groups[i]; break; }
+  if (!g) return;
+  var bk = covModalEl();
+  bk.querySelector('#cvModalT').textContent = g.key;
+  bk.querySelector('#cvModalS').textContent = fmt(g.assigned) + ' leads \u00b7 ' + g.headline +
+    '% ' + (covBasis === 'real' ? 'really covered' : 'covered') + ' \u00b7 ' +
+    fmt(g.never) + ' never dialled';
+  bk.querySelector('#cvModalBd').innerHTML = covDrill(g, rows);
+  bk.classList.remove('closing');
+  bk.classList.add('open');
+}
+
+function covCloseModal() {
+  covOpen = null;
+  var p = document.getElementById('coveragePanel');
+  if (p) p.querySelectorAll('tr.cv-row.open').forEach(function (o) { o.classList.remove('open'); });
+  var bk = document.getElementById('cvModalBk');
+  if (!bk || !bk.classList.contains('open')) return;
+  bk.classList.add('closing');
+  setTimeout(function () { bk.classList.remove('open', 'closing'); }, 140);
 }
 
 /* The drill is the WORKLIST — the uncovered leads themselves, in queue order:
@@ -448,11 +514,15 @@ function covDrill(g, rows) {
   (rows || []).forEach(function (r) { if ((G.of(r) || '—') === g.key) emails[r.agent] = true; });
   var leads = (D.coverageLeads || []).filter(function (l) { return emails[l.agent]; });
 
-  var html = '<tr><td class="cv-drill" colspan="9"><div class="cv-drill-in">';
+  var html = '<div class="cv-drill-in">';
   if (!leads.length) {
-    html += '<h4>Uncovered leads</h4><div class="cv-subnote">None in this window — ' +
-      'or the worklist feed covers a shorter window than the dates above.</div>';
-    return html + '</div></td></tr>';
+    /* NOT an error, and it says so. The worklist is pulled over a SHORTER window
+       than the daily feed (7 days, ~2,300 rows against a 4,000 cap), so a wide
+       date range legitimately has covered rows with no worklist behind them. */
+    html += '<h4>Uncovered leads</h4><div class="cv-subnote">None in the worklist for this group. ' +
+      'The worklist covers the last few days only \u2014 the table above can span a longer range, ' +
+      'so an older cohort has no rows here even though its leads are counted.</div>';
+    return html + '</div>';
   }
   var shown = leads.slice(0, 200);
   html += '<h4>Uncovered leads — ' + fmt(leads.length) + ' in ' + esc(g.key) +
@@ -472,6 +542,6 @@ function covDrill(g, rows) {
       '<td>' + esc(l.source || '—') + '</td>' +
       '<td><span class="cv-flag ' + cls + '">' + esc(l.flag || '—') + '</span></td></tr>';
   });
-  html += '</tbody></table></div></td></tr>';
+  html += '</tbody></table></div>';
   return html;
 }
