@@ -227,8 +227,24 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type');
-  // Never serve a cached snapshot — the point of this endpoint is live sheet data.
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  /* CACHING (23 Sep 2026) — this used to send `no-store, no-cache,
+     must-revalidate, max-age=0` under the comment "the point of this endpoint is
+     live sheet data". That comment was wrong about its own data: the Ozontel tab
+     is rewritten by an Apps Script trigger every 15 MINUTES, so a 4-minute cache
+     is strictly fresher than the source's own cadence and `no-store` bought
+     nothing but bandwidth. It burned 308% of Vercel's 10 GB Fast Origin Transfer
+     allowance and PAUSED the account.
+
+     `private` is deliberate and load-bearing. This payload is SCOPED to the
+     viewer (rosterRows._inScope, viewer.scopeSize, the canSee* flags), so it must
+     never sit in a shared CDN or proxy cache where one ZSM could be served
+     another ZSM's downline. The win is per-viewer anyway: repeat page loads and
+     the auto-refresh timer are the bulk of the requests, and those are all the
+     same browser. DO NOT change `private` to `public` (or add `s-maxage`) unless
+     scoping first moves out of the payload — that is a security decision, not a
+     bandwidth one. */
+  res.setHeader('Cache-Control', 'private, max-age=240, stale-while-revalidate=600');
+  res.setHeader('Vary', 'Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const auth = await requireUser(req);
@@ -239,6 +255,12 @@ export default async function handler(req, res) {
     let { from, to } = req.query;
     from = from || '';
     to   = to   || '';
+    /* The two per-lead drilldown arrays are the biggest things in this response
+       and the least often looked at — `coverage_leads` alone is ~2,300 rows, and
+       most viewers never open a drill at all. They ship only when asked for;
+       ensureLeads() in index.html asks the first time the Coverage or FRT tab is
+       opened. `leadsOmitted` in the response is what tells it to. */
+    const wantLeads = String(req.query.leads || '') === '1';
     if (from && to && from > to) { const t = from; from = to; to = t; }
 
     // ── 1. Ozontel ────────────────────────────────────────────────────────────
@@ -257,7 +279,7 @@ export default async function handler(req, res) {
        Errors are captured per tab and re-thrown at the original call site, so
        every existing try/catch below behaves exactly as before. */
     const PRE_TABS = ['Ozontel', 'LRM_TL_MAP', 'hourly', 'speed', 'speed_leads',
-                      'coverage', 'coverage_leads',
+                      'coverage', 'coverage_leads', 'depth',
                       'MS Schedule Inventory'];
     const pre = {};
     const queue = PRE_TABS.slice();
@@ -1084,6 +1106,100 @@ export default async function handler(req, res) {
       coverageMeta = { error: 'Coverage read failed: ' + String(e.message || e), external: false, diag: {} };
     }
 
+    /* ── 6e. Calling depth (`depth` tab, written by Depth.gs) ─────────────────
+       Per Date x LRM, from connectivity-lrm-daily-v2.sql. The metric is the
+       DEPTH-ADJUSTED CONNECT INDEX: every attempt is scored against the answer
+       rate of its attempt band, so a caller working a pile of 11th attempts is
+       not marked down for it.
+
+       THREE RULES THIS BLOCK EXISTS TO ENFORCE, all of them easy to break later:
+
+       1. NEVER AVERAGE THE INDEX. Only `connects` and `expected` are summed;
+          the index is recomputed as 100 x connects / expected at EVERY level.
+          Averaging the per-day index weights a 40-call day like a 400-call one,
+          and that is precisely the mix error the whole metric was built to fix.
+       2. SHORTFALL IS IN CONVERSATIONS, so it adds across a team and is the
+          only figure here a TL can act on directly. Kept as a raw sum.
+       3. THE INDEX IS ESTATE-RELATIVE. It reads ~100 when the whole floor
+          degrades together, so `connectPct` ships beside it and the frontend
+          never shows one without the other.
+
+       `Baseline Days` rides along per row: a row pulled inside a bisected chunk
+       was baselined over a shorter span, and the tab marks it rather than
+       quietly mixing yardsticks. */
+    let depthRows = [], depthTrend = [], depthHas = false;
+    try {
+      const dRaw = await read('depth');
+      if (dRaw.length > 1) {
+        depthHas = true;
+        const dHdr = dRaw[0].map(h => String(h).trim());
+        const di = (names) => findCol(dHdr, names);
+        const c = {
+          date: di(['Date']), agent: di(['LRM Email', 'Agent Id']), name: di(['LRM Name']),
+          calls: di(['Calls']), uniq: di(['Unique Numbers']),
+          fresh: di(['Fresh Numbers']), connects: di(['Connects']),
+          expected: di(['Expected Connects']), shortfall: di(['Shortfall']),
+          real: di(['Real Conversations']),
+          a13: di(['Attempts 1-3']), a410: di(['Attempts 4-10']), a11: di(['Attempts 11+']),
+          depth: di(['Avg Attempt Depth']), base: di(['Baseline Days']),
+        };
+        const num = (r, i) => (i < 0 ? 0 : Number(r[i]) || 0);
+        const acc = {}, byDay = {};
+        for (let i = 1; i < dRaw.length; i++) {
+          const r = dRaw[i];
+          const day = String(r[c.date] || '').trim().slice(0, 10);
+          const email = norm(r[c.agent]);
+          if (!day || !email || !email.includes('@')) continue;
+          if (isExcluded(email)) continue;
+          const v = {
+            calls: num(r, c.calls), uniq: num(r, c.uniq), fresh: num(r, c.fresh),
+            connects: num(r, c.connects), expected: num(r, c.expected),
+            real: num(r, c.real),
+            a13: num(r, c.a13), a410: num(r, c.a410), a11: num(r, c.a11),
+          };
+          const a = acc[email] || (acc[email] = { agent: email, days: 0, depthWSum: 0,
+            baseMin: null, calls: 0, uniq: 0, fresh: 0, connects: 0, expected: 0,
+            real: 0, a13: 0, a410: 0, a11: 0 });
+          Object.keys(v).forEach(k => { a[k] += v[k]; });
+          a.days += 1;
+          /* Weighted by calls, not a mean of means: a 12-call day and a 400-call
+             day do not describe the same work. */
+          a.depthWSum += num(r, c.depth) * v.calls;
+          const bd = num(r, c.base);
+          if (bd && (a.baseMin === null || bd < a.baseMin)) a.baseMin = bd;
+
+          const d = byDay[day] || (byDay[day] = { date: day, calls: 0, connects: 0,
+            expected: 0, fresh: 0, real: 0, uniq: 0, lrms: 0, depthWSum: 0, baseMin: null });
+          d.calls += v.calls; d.connects += v.connects; d.expected += v.expected;
+          d.fresh += v.fresh; d.real += v.real; d.uniq += v.uniq; d.lrms += 1;
+          d.depthWSum += num(r, c.depth) * v.calls;
+          if (bd && (d.baseMin === null || bd < d.baseMin)) d.baseMin = bd;
+        }
+
+        const meta = {};
+        rosterAll.forEach(r => { meta[norm(r['Agent Id'])] = r; });
+        depthRows = Object.keys(acc).map(k => {
+          const a = acc[k], m = meta[a.agent] || {};
+          return { ...a,
+            name: m['LRM Name'] || nameFromEmail(a.agent),
+            city: m['City'] || '', cluster: m['Cluster'] || m['City'] || '',
+            tl: m['TL'] || '', tlName: m['TL Name'] || '',
+            zsm: m['ZSM'] || '', zsmName: m['ZSM Name'] || '',
+            ados: m['ADOS'] || '', adosName: m['ADOS Name'] || '',
+            avgDepth: a.calls ? a.depthWSum / a.calls : 0,
+            _inScope: inScope(a.agent) };
+        }).sort((x, y) => y.calls - x.calls);
+
+        depthTrend = Object.keys(byDay).sort().map(d => {
+          const row = byDay[d];
+          row.avgDepth = row.calls ? row.depthWSum / row.calls : 0;
+          return row;
+        });
+      }
+    } catch (e) {
+      console.warn('No depth tab: ' + e.message);
+    }
+
     /* MS Schedule Inventory — the burn-down feed for the Action Center MS Plan
        (sql/ms-inventory-lead-snapshot.sql). One row per Cluster x City x
        Assigned LRM for one schedule date (tomorrow, typically). Optional tab —
@@ -1537,9 +1653,13 @@ export default async function handler(req, res) {
       },
       rosterRows: rosterAll.map(r => ({ ...r, _inScope: inScope(norm(r['Agent Id'])) })),
       totals, cityRows, adosRows, zsmRows, tlRows, hourlyRows, hourlyHasMS,
-      speedRows, speedLeads, speedHas, speedBuckets: SPEED_BUCKETS, msScheduleRows,
-      coverageRows, coverageLeads, coverageTrend, coverageStatus, coverageHas,
+      speedRows, speedHas, speedBuckets: SPEED_BUCKETS, msScheduleRows,
+      speedLeads:    wantLeads ? speedLeads    : [],
+      coverageLeads: wantLeads ? coverageLeads : [],
+      leadsOmitted:  !wantLeads,
+      coverageRows, coverageTrend, coverageStatus, coverageHas,
       coverageMatureDays: COVERAGE_MATURE_DAYS, coverage: coverageMeta,
+      depthRows, depthTrend, depthHas,
       connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
       didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor,
       connHas: {
@@ -1578,8 +1698,10 @@ function emptyPayload(from, to, viewerEmail) {
     cityRows: [], adosRows: [], zsmRows: [], tlRows: [], hourlyRows: [], hourlyHasMS: false,
     speedRows: [], speedLeads: [], speedHas: false, speedBuckets: [], msScheduleRows: [],
     coverageRows: [], coverageLeads: [], coverageTrend: [], coverageStatus: [],
+    leadsOmitted: false,
     coverageHas: false, coverageMatureDays: 1,
     coverage: { error: '', external: false, diag: {} },
+    depthRows: [], depthTrend: [], depthHas: false,
     connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
     inboundPerf: [], inboundDiag: {},
     didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
