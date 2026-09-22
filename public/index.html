@@ -544,8 +544,7 @@
       <span class="toggle-slider"></span>
     </label>
     <span class="refresh-label">Auto-refresh</span>
-    <select class="interval-select" id="intervalSelect">
-      <option value="5">5 min</option>
+    <select class="interval-select" id="intervalSelect" title="The sheet behind this page is rewritten every 15 minutes, so refreshing faster cannot surface newer numbers.">
       <option value="10">10 min</option>
       <option value="15" selected>15 min</option>
       <option value="30">30 min</option>
@@ -757,6 +756,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabDID">☎️ DID estate</div>
   <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
   <div class="tab"        id="tabCoverage">🎯 Coverage</div>
+  <div class="tab"        id="tabDepth">📶 Calling depth</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
 </div>
@@ -796,6 +796,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="didPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="speedPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="coveragePanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="depthPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
 <div id="printRoot"></div>
@@ -810,6 +811,9 @@ table.hl td.pc .no{color:#c0392b}
 
 <script>
 var D = null, activeTab = 'dist';
+/* Tabs whose drilldowns need the per-lead arrays the API now omits by default. */
+var LEADS_TABS = { coverage:1, speed:1 };
+var leadsLoading = false, refreshPending = false;
 var AUTH = { token:'', clientId:'', required:false, email:'', ready:false };
 var F = { q:'', ados:[], zsms:[], cities:[], tls:[], agents:[], band:'all', flag:'' };
 var citySort  = { col:'totalCalls', dir:-1 };
@@ -886,7 +890,15 @@ function startAutoRefresh() {
   tickCountdown();
   countdownTimer = setInterval(function() {
     countdownSecs--;
-    if (countdownSecs <= 0) { loadData(); countdownSecs = mins * 60; }
+    /* A BACKGROUND tab pulls NOTHING (23 Sep 2026). Forgotten dashboard tabs on
+       laptops across the floor were each pulling a full payload every 15 minutes
+       all day, at nobody's benefit. The pull is DEFERRED, not skipped —
+       refreshPending fires it the moment the tab is looked at again, so the
+       numbers are never stale on screen. */
+    if (countdownSecs <= 0) {
+      if (document.hidden) refreshPending = true; else loadData();
+      countdownSecs = mins * 60;
+    }
     tickCountdown();
   }, 1000);
 }
@@ -906,7 +918,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   document.getElementById('btnRefresh').addEventListener('click', function() {
     countdownSecs = parseInt(document.getElementById('intervalSelect').value)*60 || 900;
-    loadData();
+    loadData({ force:true });
   });
   document.getElementById('btnApplyDates').addEventListener('click', loadData);
   document.getElementById('btnPDF').addEventListener('click', downloadPDF);
@@ -925,6 +937,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabDID').addEventListener('click', function(){ switchTab('did'); });
   document.getElementById('tabSpeed').addEventListener('click', function(){ switchTab('speed'); });
   document.getElementById('tabCoverage').addEventListener('click', function(){ switchTab('coverage'); });
+  document.getElementById('tabDepth').addEventListener('click', function(){ switchTab('depth'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
     if (this.checked) startAutoRefresh(); else stopAutoRefresh();
@@ -959,11 +972,21 @@ document.addEventListener('DOMContentLoaded', function() {
   // The board carries a clock (as-of stamp, current-hour bar, pace notch), so it
   // re-renders every 60s even between the 15-min data pulls.
   setInterval(function(){ if (D && activeTab === 'floor') renderFloor(); if (D && activeTab === 'dist') renderHourlyBoard(); }, 60000);
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden && refreshPending) { refreshPending = false; loadData(); }
+  });
   bootAuth();
 });
 
 /* ── Data fetch (falls back to demo data if the API is unavailable) ── */
-function loadData() {
+/* No `_t=` cache buster and no `cache:'no-store'` any more (23 Sep 2026). Those
+   two together made every single load a guaranteed origin hit — a unique URL the
+   browser could never reuse — which is what paused the Vercel account. The API
+   now sends `private, max-age=240`, so a repeat load inside four minutes costs
+   nothing. loadData({force:true}) bypasses that with `cache:'reload'`, and the
+   Refresh BUTTON is the one caller that passes it: when the user explicitly asks
+   for new numbers they get a network pull. */
+function loadData(opts) {
   var from = document.getElementById('fromDate').value;
   var to   = document.getElementById('toDate').value;
   if (!from || !to) { alert('Please select a valid date range.'); return; }
@@ -973,8 +996,9 @@ function loadData() {
   document.getElementById('btnApplyDates').disabled = true;
   setLoading();
 
-  fetch('/api/dashboard?from=' + from + '&to=' + to + '&_t=' + Date.now(),
-        { cache: 'no-store', headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
+  fetch('/api/dashboard?from=' + from + '&to=' + to + (LEADS_TABS[activeTab] ? '&leads=1' : ''),
+        { cache: (opts && opts.force) ? 'reload' : 'default',
+          headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
     .then(function(r) {
       if (r.status === 401 || r.status === 403) {
         return r.json().catch(function(){ return {}; }).then(function(e){
@@ -1013,7 +1037,33 @@ function onData(data) {
   document.getElementById('tsLabel').textContent   = 'Updated ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
   buildKPI();
   buildFilterBar();
+  ensureLeads(activeTab);
   renderActive();
+}
+
+/* The Coverage and FRT per-lead arrays are not in the initial payload — see
+   `wantLeads` in api/dashboard.js. Fetch them the first time one of those tabs is
+   opened, then re-render it. The drill builders (speedDrill, coverage's group
+   drill) stay SYNCHRONOUS and untouched: they read D.speedLeads / D.coverageLeads
+   as before, and by the time a row inside an open tab can be clicked this has
+   landed. A failure is silent and leaves the existing empty-state in place. */
+function ensureLeads(name) {
+  if (!D || !LEADS_TABS[name] || !D.leadsOmitted || leadsLoading) return;
+  leadsLoading = true;
+  var from = document.getElementById('fromDate').value;
+  var to   = document.getElementById('toDate').value;
+  fetch('/api/dashboard?from=' + from + '&to=' + to + '&leads=1',
+        { headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){
+      leadsLoading = false;
+      if (!d || !D) return;
+      D.coverageLeads = d.coverageLeads || [];
+      D.speedLeads    = d.speedLeads    || [];
+      D.leadsOmitted  = false;
+      if (activeTab === name) renderActive();
+    })
+    .catch(function(){ leadsLoading = false; });
 }
 
 function onErr(msg) {
@@ -1052,11 +1102,12 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', inbound:'tabInbound', did:'tabDID', speed:'tabSpeed', coverage:'tabCoverage' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', inbound:'inboundPanel', did:'didPanel', speed:'speedPanel', coverage:'coveragePanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', inbound:'tabInbound', did:'tabDID', speed:'tabSpeed', coverage:'tabCoverage', depth:'tabDepth' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', inbound:'inboundPanel', did:'didPanel', speed:'speedPanel', coverage:'coveragePanel', depth:'depthPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
+  ensureLeads(name);
   renderActive();
 }
 
@@ -1078,7 +1129,8 @@ var PANEL_RENDERERS = {
   inbound: function(){ if(typeof renderInbound==='function') renderInbound(); },
   did:     function(){ if(typeof renderDID==='function') renderDID(); },
   speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); },
-  coverage:function(){ if(typeof renderCoverage==='function') renderCoverage(); }
+  coverage:function(){ if(typeof renderCoverage==='function') renderCoverage(); },
+  depth:   function(){ if(typeof renderDepth==='function') renderDepth(); }
 };
 function renderActive() {
   if(!D) return;
@@ -2412,6 +2464,7 @@ function downloadPDF(){
 <script src="distribution.js?v=20260919a"></script>
 <script src="speed.js?v=20260919c"></script>
 <script src="coverage.js?v=20260920d"></script>
+<script src="depth.js?v=20260921a"></script>
 <script src="msdriver.js?v=20260907a"></script>
 <script src="msplan.js?v=20260907b"></script>
 <script src="conncharts.js?v=20260913d"></script>
