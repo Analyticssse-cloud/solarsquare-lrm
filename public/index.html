@@ -979,13 +979,9 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 /* ── Data fetch (falls back to demo data if the API is unavailable) ── */
-/* No `_t=` cache buster and no `cache:'no-store'` any more (23 Sep 2026). Those
-   two together made every single load a guaranteed origin hit — a unique URL the
-   browser could never reuse — which is what paused the Vercel account. The API
-   now sends `private, max-age=240`, so a repeat load inside four minutes costs
-   nothing. loadData({force:true}) bypasses that with `cache:'reload'`, and the
-   Refresh BUTTON is the one caller that passes it: when the user explicitly asks
-   for new numbers they get a network pull. */
+/* Cache REVERTED 23 Sep 2026: `_t=` buster + cache:'no-store' restored so every
+   load reads the live sheet. The `?leads=1` lazy-load is kept — it only trims
+   payload size and cannot serve stale data. */
 function loadData(opts) {
   var from = document.getElementById('fromDate').value;
   var to   = document.getElementById('toDate').value;
@@ -996,8 +992,8 @@ function loadData(opts) {
   document.getElementById('btnApplyDates').disabled = true;
   setLoading();
 
-  fetch('/api/dashboard?from=' + from + '&to=' + to + (LEADS_TABS[activeTab] ? '&leads=1' : ''),
-        { cache: (opts && opts.force) ? 'reload' : 'default',
+  fetch('/api/dashboard?from=' + from + '&to=' + to + (LEADS_TABS[activeTab] ? '&leads=1' : '') + '&_t=' + Date.now(),
+        { cache: 'no-store',
           headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
     .then(function(r) {
       if (r.status === 401 || r.status === 403) {
@@ -1052,8 +1048,8 @@ function ensureLeads(name) {
   leadsLoading = true;
   var from = document.getElementById('fromDate').value;
   var to   = document.getElementById('toDate').value;
-  fetch('/api/dashboard?from=' + from + '&to=' + to + '&leads=1',
-        { headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
+  fetch('/api/dashboard?from=' + from + '&to=' + to + '&leads=1&_t=' + Date.now(),
+        { cache: 'no-store', headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(d){
       leadsLoading = false;
