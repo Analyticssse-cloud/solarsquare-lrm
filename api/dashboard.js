@@ -1009,8 +1009,13 @@ export default async function handler(req, res) {
             dials: c.dials < 0 ? 0 : num(r[c.dials]),
             geoPin: c.geoPin < 0 ? 0 : num(r[c.geoPin]),
           };
-          const key = email + '||' + cluster;
-          const a = acc[key] || (acc[key] = { agent: email, cluster, leadCity,
+          /* Status joins the row key (23 Sep) so the Coverage tab can filter by
+             lead stage and every figure — KPIs, table, trend, stage panel —
+             recomputes from the same summed cells. Still a true rollup: the
+             feed's grain already includes Status. */
+          const st = (c.status < 0 ? '' : String(r[c.status] || '').trim()) || '(blank)';
+          const key = email + '||' + cluster + '||' + st;
+          const a = acc[key] || (acc[key] = { agent: email, cluster, leadCity, status: st,
             assigned: 0, dialled: 0, connected: 0, real: 0, never: 0, noAns: 0,
             d0: 0, d1: 0, d3: 0, dials: 0, geoPin: 0 });
           Object.keys(v).forEach(k => { a[k] += v[k]; });
@@ -1018,10 +1023,11 @@ export default async function handler(req, res) {
           /* Floor-wide daily series for the trend. Kept separate from `acc`
              because a trend must NOT be a rollup of the grain rows — the grain
              is LRM x cluster and a date has to survive every scope filter. */
-          const d = byDay[day] || (byDay[day] = { date: day, assigned: 0, connected: 0, real: 0, never: 0 });
+          const d = byDay[day] || (byDay[day] = { date: day, assigned: 0, connected: 0, real: 0, never: 0, byStatus: {} });
           d.assigned += v.assigned; d.connected += v.connected; d.real += v.real; d.never += v.never;
+          const ds = d.byStatus[st] || (d.byStatus[st] = { assigned: 0, connected: 0, real: 0, never: 0 });
+          ds.assigned += v.assigned; ds.connected += v.connected; ds.real += v.real; ds.never += v.never;
 
-          const st = (c.status < 0 ? '' : String(r[c.status] || '').trim()) || '(blank)';
           const s = byStatus[st] || (byStatus[st] = { status: st, assigned: 0, connected: 0, real: 0, never: 0 });
           s.assigned += v.assigned; s.connected += v.connected; s.real += v.real; s.never += v.never;
         }
