@@ -60,6 +60,14 @@ var covBasis = 'ever';
 try { var _cb = localStorage.getItem('lrmCovBasis'); if (_cb === 'ever' || _cb === 'real') covBasis = _cb; } catch (e) {}
 var covSort = { col: 'assigned', dir: -1 };
 var covOpen = null;
+/* Lead-stage filter (the lead's `status` funnel bucket). Empty = all stages.
+   Applied AFTER scope, so the stage panel can still show every stage's number
+   for the current scope while the rest of the tab narrows to the selection. */
+var covStages = [];
+try { var _cs = JSON.parse(localStorage.getItem('lrmCovStages') || '[]'); if (Array.isArray(_cs)) covStages = _cs; } catch (e) {}
+function covSaveStages() { try { localStorage.setItem('lrmCovStages', JSON.stringify(covStages)); } catch (e) {} }
+function covHasStage() { return (D.coverageRows || []).some(function (r) { return r.status; }); }
+function covStageOn(s) { return !covStages.length || covStages.indexOf(s || '(blank)') >= 0; }
 
 (function injectCoverageCss() {
   var css = '' +
@@ -151,7 +159,12 @@ var covOpen = null;
   '.cv-foot{margin-top:12px;padding-top:10px;border-top:1px solid var(--border,#e3e8f3)}' +
   '.cv-foot-b{font-size:10.5px;color:var(--muted,#6a7494);line-height:1.6;max-width:940px}' +
   '.cv-foot-b b{color:var(--ink,#18233f)}' +
-  '.cv-subnote{font-size:10.5px;color:var(--muted,#6a7494);margin-top:6px}';
+  '.cv-subnote{font-size:10.5px;color:var(--muted,#6a7494);margin-top:6px}' +
+  '.cv-stages{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 14px}' +
+  '.cv-chip .cv-chip-n{font-weight:600;opacity:.65;margin-left:5px}' +
+  'tr.cv-st{cursor:pointer}tr.cv-st:hover{background:rgba(24,35,63,.035)}' +
+  'tr.cv-st.on td:first-child{font-weight:800;box-shadow:inset 3px 0 0 #18233f}' +
+  'tr.cv-st.off td{color:var(--muted,#6a7494)}';
   var el = document.createElement('style');
   el.textContent = css;
   document.head.appendChild(el);
@@ -160,7 +173,7 @@ var covOpen = null;
 /* Same scope rules as every other tab. Written out rather than shared with
    speed.js because the two files are loaded independently and a shared helper
    would make load order matter. */
-function filterCoverage() {
+function filterCoverageScope() {
   return (D.coverageRows || []).filter(function (r) {
     if (F.ados.length && F.ados.indexOf(String(r.adosName || '')) < 0) return false;
     if (F.zsms.length && F.zsms.indexOf(String(r.zsmName || '')) < 0) return false;
@@ -178,6 +191,31 @@ function filterCoverage() {
       }
     }
     return r._inScope !== false;
+  });
+}
+function filterCoverage() {
+  return filterCoverageScope().filter(function (r) { return covStageOn(r.status); });
+}
+
+/* Per-stage totals for the CURRENT scope (not the stage selection), so the
+   panel always lists every stage and its numbers move with City/TL/LRM etc. */
+function covStageTotals(scopeRows) {
+  var by = {};
+  scopeRows.forEach(function (r) {
+    var k = r.status || '(blank)';
+    var s = by[k] || (by[k] = { status: k, assigned: 0, connected: 0, real: 0, never: 0, noAns: 0 });
+    s.assigned += r.assigned || 0; s.connected += r.connected || 0; s.real += r.real || 0;
+    s.never += r.never || 0; s.noAns += r.noAns || 0;
+  });
+  /* Sorted by volume, but the Meeting halves (Done / Not Done) stay side by
+     side, ranked by their combined volume, so the split reads as one stage. */
+  var grp = function (s) { return /^meeting\b/i.test(s) ? 'meeting' : s; };
+  var list = Object.keys(by).map(function (k) { return by[k]; }), gv = {};
+  list.forEach(function (s) { gv[grp(s.status)] = (gv[grp(s.status)] || 0) + s.assigned; });
+  return list.sort(function (a, b) {
+    return (gv[grp(b.status)] - gv[grp(a.status)]) ||
+      (grp(a.status) < grp(b.status) ? -1 : grp(a.status) > grp(b.status) ? 1 : 0) ||
+      (/done$/i.test(a.status) && !/not done$/i.test(a.status) ? -1 : 1);
   });
 }
 
@@ -249,9 +287,17 @@ function renderCoverage() {
     return;
   }
 
+  var hasStage = covHasStage();
+  if (!hasStage) covStages = [];
+  var scopeRows = filterCoverageScope();
+  var stageTot = hasStage ? covStageTotals(scopeRows) : [];
+  if (stageTot.length) covStages = covStages.filter(function (s) {
+    return stageTot.some(function (x) { return x.status === s; });
+  });
   var rows = filterCoverage();
   var t = covStats(rows);
-  if (activeTab === 'coverage') setCount(fmt(t.assigned) + ' leads');
+  if (activeTab === 'coverage') setCount(fmt(t.assigned) + ' leads' +
+    (covStages.length ? ' · ' + covStages.length + ' stage' + (covStages.length > 1 ? 's' : '') : ''));
 
   var G = covGrainDef();
   var groups = covGroup(rows, covGrain);
@@ -269,6 +315,19 @@ function renderCoverage() {
     '<button class="cv-chip' + (covBasis === 'real' ? ' on' : '') + '" data-basis="real" ' +
       'title="Connected with at least 15 seconds of talk. The dialler marks IVR-busy and ring-through as answered, so the raw rate overstates real conversations.">15s+ talk</button>' +
     '</div></div>';
+
+  // Lead-stage filter. Chip counts are the stage's leads in the CURRENT scope,
+  // so they move with every other filter. Multi-select; none = all stages.
+  if (hasStage && stageTot.length) {
+    html += '<div class="cv-stages"><span class="cv-basis-lbl">Lead stage</span>' +
+      '<button class="cv-chip' + (!covStages.length ? ' on' : '') + '" data-stage="">All</button>';
+    stageTot.forEach(function (s) {
+      var on = covStages.indexOf(s.status) >= 0;
+      html += '<button class="cv-chip' + (on ? ' on' : '') + '" data-stage="' + esc(s.status) + '">' +
+        esc(s.status) + '<span class="cv-chip-n">' + fmt(s.assigned) + '</span></button>';
+    });
+    html += '</div>';
+  }
 
   // ── KPIs ───────────────────────────────────────────────────────────────────
   var kpi = function (cls, v, lab, note) {
@@ -289,13 +348,22 @@ function renderCoverage() {
   // ── Trend ──────────────────────────────────────────────────────────────────
   // Floor-wide, so it is NOT filtered by scope: it answers "is the floor keeping
   // up", which a scoped subset cannot. Said plainly in the header.
-  var tr = (D.coverageTrend || []);
+  var tr = (D.coverageTrend || []).map(function (d) {
+    if (!covStages.length || !d.byStatus) return d;
+    var o = { date: d.date, age: d.age, maturing: d.maturing, assigned: 0, connected: 0, real: 0, never: 0 };
+    covStages.forEach(function (s) {
+      var b = d.byStatus[s]; if (!b) return;
+      o.assigned += b.assigned; o.connected += b.connected; o.real += b.real; o.never += b.never;
+    });
+    return o;
+  });
   if (tr.length > 1) {
     var maxA = 0;
     tr.forEach(function (d) { if (d.assigned > maxA) maxA = d.assigned; });
     var mature = tr.filter(function (d) { return !d.maturing; });
     html += '<div class="cv-trend"><div class="cv-trend-hd"><b>Coverage by cohort day</b>' +
-      '<span>floor-wide, not filtered · bar height is the day\'s lead volume · ' +
+      '<span>floor-wide, not filtered by scope' + (covStages.length ? ' · <b>filtered to the selected stages</b>' : '') +
+      ' · bar height is the day\'s lead volume · ' +
       'hatched = still maturing, too young to judge</span></div><div class="cv-bars">';
     tr.forEach(function (d) {
       var pct = d.assigned ? Math.round(1000 * (covBasis === 'real' ? d.real : d.connected) / d.assigned) / 10 : 0;
@@ -384,21 +452,28 @@ function renderCoverage() {
   html += '</tbody></table></div>';
 
   // ── Status panel ───────────────────────────────────────────────────────────
-  // Not a grain chip: status is a property of the LEAD, not of a person, so it
-  // cannot be filtered by scope and must not sit in the same switch.
-  var st = (D.coverageStatus || []).filter(function (s) { return s.assigned >= 50; });
+  // Recomputed from the scoped rows, so City / TL / LRM filters move these
+  // numbers too. Every stage stays listed; selected ones are marked and the
+  // rest dimmed. Click a row to toggle it in the stage filter.
+  var st = hasStage ? stageTot.filter(function (s) { return s.assigned > 0; })
+                    : (D.coverageStatus || []).filter(function (s) { return s.assigned >= 50; });
   if (st.length) {
-    html += '<div class="cv-tbl-note" style="margin-top:18px"><b>By lead status</b> — floor-wide, ' +
-      'not filtered. A status with low coverage and high volume is where leads are going quiet.</div>' +
-      '<div class="tbl-wrap"><table class="cv-grid"><thead><tr><th>Status</th>' +
+    html += '<div class="cv-tbl-note" style="margin-top:18px"><b>By lead stage</b> — ' +
+      (hasStage ? 'for the current filters; click a row to add or remove it from the stage filter. '
+                : 'floor-wide, not filtered. ') +
+      'A stage with low coverage and high volume is where leads are going quiet.</div>' +
+      '<div class="tbl-wrap"><table class="cv-grid"><thead><tr><th>Stage</th>' +
       '<th class="num">Leads</th><th class="num">Covered</th><th class="num">15s+ talk</th>' +
-      '<th class="num">Never dialled</th></tr></thead><tbody>';
+      '<th class="num">Never dialled</th><th class="num">No answer</th></tr></thead><tbody>';
     st.forEach(function (s) {
       var p = s.assigned ? Math.round(1000 * s.connected / s.assigned) / 10 : 0;
       var rp = s.assigned ? Math.round(1000 * s.real / s.assigned) / 10 : 0;
-      html += '<tr><td>' + esc(s.status) + '</td><td class="num">' + fmt(s.assigned) + '</td>' +
+      var sel = covStages.length ? (covStages.indexOf(s.status) >= 0 ? ' on' : ' off') : '';
+      html += '<tr class="' + (hasStage ? 'cv-st' + sel : '') + '" data-stage="' + esc(s.status) + '">' +
+        '<td>' + esc(s.status) + '</td><td class="num">' + fmt(s.assigned) + '</td>' +
         '<td class="num" style="background:' + covTint(p) + '">' + p + '%</td>' +
-        '<td class="num">' + rp + '%</td><td class="num">' + fmt(s.never) + '</td></tr>';
+        '<td class="num">' + rp + '%</td><td class="num">' + fmt(s.never) + '</td>' +
+        '<td class="num">' + (s.noAns == null ? '—' : fmt(s.noAns)) + '</td></tr>';
     });
     html += '</tbody></table></div>';
   }
@@ -420,6 +495,23 @@ function renderCoverage() {
   panel.innerHTML = html;
 
   // ── Wiring ─────────────────────────────────────────────────────────────────
+  var toggleStage = function (s) {
+    if (!s) covStages = [];
+    else {
+      var i = covStages.indexOf(s);
+      if (i >= 0) covStages.splice(i, 1); else covStages.push(s);
+      if (stageTot.length && covStages.length === stageTot.length) covStages = [];
+    }
+    covOpen = null;
+    covSaveStages();
+    renderCoverage();
+  };
+  panel.querySelectorAll('.cv-chip[data-stage]').forEach(function (b) {
+    b.addEventListener('click', function () { toggleStage(b.getAttribute('data-stage')); });
+  });
+  panel.querySelectorAll('tr.cv-st').forEach(function (r) {
+    r.addEventListener('click', function () { toggleStage(r.getAttribute('data-stage')); });
+  });
   panel.querySelectorAll('.cv-chip[data-basis]').forEach(function (b) {
     b.addEventListener('click', function () {
       covBasis = b.getAttribute('data-basis');
@@ -512,7 +604,7 @@ function covDrill(g, rows) {
   // so the group is resolved to a set of emails and the leads matched on that.
   var emails = {};
   (rows || []).forEach(function (r) { if ((G.of(r) || '—') === g.key) emails[r.agent] = true; });
-  var leads = (D.coverageLeads || []).filter(function (l) { return emails[l.agent]; });
+  var leads = (D.coverageLeads || []).filter(function (l) { return emails[l.agent] && covStageOn(l.status); });
 
   var html = '<div class="cv-drill-in">';
   if (!leads.length) {
