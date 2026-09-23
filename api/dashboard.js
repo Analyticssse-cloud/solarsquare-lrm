@@ -243,9 +243,8 @@ export default async function handler(req, res) {
      same browser. DO NOT change `private` to `public` (or add `s-maxage`) unless
      scoping first moves out of the payload — that is a security decision, not a
      bandwidth one. */
-  /* REVERTED 23 Sep 2026 at user request — back to live, uncached reads after a
-     cached response kept showing a partial (4-day) dataset post-backfill. */
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('Cache-Control', 'private, max-age=240, stale-while-revalidate=600');
+  res.setHeader('Vary', 'Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const auth = await requireUser(req);
@@ -1106,7 +1105,7 @@ export default async function handler(req, res) {
            is the same order and the cap truncates the TAIL, never the head. */
         coverageLeads.sort((a, b) => (a.dials === 0 ? -1 : b.dials === 0 ? 1 : 0)
                                   || (a.date < b.date ? -1 : a.date > b.date ? 1 : b.dials - a.dials));
-        if (coverageLeads.length > 4000) coverageLeads = coverageLeads.slice(0, 4000);
+        if (coverageLeads.length > 15000) coverageLeads = coverageLeads.slice(0, 15000);
       }
     } catch (e) {
       console.warn('Coverage feed failed: ' + e.message);
