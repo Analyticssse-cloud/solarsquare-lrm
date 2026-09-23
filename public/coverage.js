@@ -604,7 +604,14 @@ function covDrill(g, rows) {
   // so the group is resolved to a set of emails and the leads matched on that.
   var emails = {};
   (rows || []).forEach(function (r) { if ((G.of(r) || '—') === g.key) emails[r.agent] = true; });
-  var leads = (D.coverageLeads || []).filter(function (l) { return emails[l.agent] && covStageOn(l.status); });
+  /* On a place grain the card counts only this place's cells, so the list must
+     too — an LRM working two clusters would otherwise list both. Same fallback
+     order as the server (cluster -> city -> Unmapped). */
+  var placeOf = G.k === 'cluster' ? function (l) { return l.cluster || l.city || 'Unmapped'; }
+              : G.k === 'city'    ? function (l) { return l.city || l.cluster || 'Unmapped'; } : null;
+  var leads = (D.coverageLeads || []).filter(function (l) {
+    return emails[l.agent] && covStageOn(l.status) && (!placeOf || placeOf(l) === g.key);
+  });
 
   var html = '<div class="cv-drill-in">';
   if (!leads.length) {
@@ -612,11 +619,20 @@ function covDrill(g, rows) {
        than the daily feed (7 days, ~2,300 rows against a 4,000 cap), so a wide
        date range legitimately has covered rows with no worklist behind them. */
     html += '<h4>Uncovered leads</h4><div class="cv-subnote">None in the worklist for this group. ' +
-      'The worklist covers the last few days only \u2014 the table above can span a longer range, ' +
-      'so an older cohort has no rows here even though its leads are counted.</div>';
+      'If the card above shows uncovered leads for this group, the lead list has not been refreshed for this date range yet.</div>';
     return html + '</div>';
   }
   var shown = leads.slice(0, 200);
+  /* The list and the card must agree. If they do not, say so on screen rather
+     than leave two numbers side by side — it means the sheet has not been
+     re-pulled since the fix (run covRunBackfill once). */
+  var nNever = leads.filter(function (l) { return l.dials === 0; }).length;
+  var nUncov = (g.never || 0) + (g.noAns || 0);
+  if (nNever !== (g.never || 0) || leads.length !== nUncov) {
+    html += '<div class="cv-subnote">The card counts <b>' + fmt(nUncov) + '</b> uncovered (' + fmt(g.never || 0) +
+      ' never dialled); the lead list holds <b>' + fmt(leads.length) + '</b> (' + fmt(nNever) + ' never dialled). ' +
+      'The two are pulled together, so a gap means the lead list has not been refreshed for part of this date range yet.</div>';
+  }
   html += '<h4>Uncovered leads — ' + fmt(leads.length) + ' in ' + esc(g.key) +
     (leads.length > shown.length ? ' · showing the first ' + shown.length : '') + '</h4>';
   html += '<table class="cv-mini"><thead><tr><th>Lead</th><th>LRM</th><th>Created</th>' +
