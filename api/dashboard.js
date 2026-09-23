@@ -243,8 +243,9 @@ export default async function handler(req, res) {
      same browser. DO NOT change `private` to `public` (or add `s-maxage`) unless
      scoping first moves out of the payload — that is a security decision, not a
      bandwidth one. */
-  res.setHeader('Cache-Control', 'private, max-age=240, stale-while-revalidate=600');
-  res.setHeader('Vary', 'Authorization');
+  /* REVERTED 23 Sep 2026 at user request — back to live, uncached reads after a
+     cached response kept showing a partial (4-day) dataset post-backfill. */
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const auth = await requireUser(req);
