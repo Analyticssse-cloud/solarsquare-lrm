@@ -39,7 +39,8 @@ export const TTL = {
   'hourly': 75000,
   'speed': 120000,
   'speed_leads': 120000,
-  'LRM_TL_MAP': 600000,
+  /* 60 s: sign-in and access are driven by this tab, so Sheet edits must show up fast. */
+  'LRM_TL_MAP': 60000,
   'Inbound_perf': 75000,
   /* The tab's REAL name (lowercase, space). resolveTab tries several spellings,
      so every one it may land on needs a TTL or it silently falls to _default. */

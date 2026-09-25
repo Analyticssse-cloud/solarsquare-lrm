@@ -28,9 +28,32 @@ import { requireUser, deny } from './_auth.js';
 import { readLiveConnectivity } from './_connlive.js';
 import { readMSScores } from './_msscore.js';
 import { readCoverage } from './_coverage.js';
+import { readLeadDepth } from './_leaddepth.js';
 import { cachedRead, anyStale } from './_sheetcache.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase().replace('@homes.solarsquare.in', '@solarsquare.in');
+
+/* Strip every per-person row the viewer may not see (OTP sign-in, 24 Sep 2026).
+   Rows carrying _inScope are filtered on it; rows naming an LRM by email are filtered
+   through inScope(). Floor-level aggregates (totals, city, hourly, DID) are untouched.
+   VIEWER (full access / auth off) gets everything, as before. */
+const PERSON_KEYS = ['Agent Id', 'agent', 'agentEmail', 'email', 'lrmEmail', 'lrm', 'id'];
+function scopePayload(p, role, inScope) {
+  if (role === 'VIEWER') return p;
+  const keep = (r) => {
+    if (!r || typeof r !== 'object') return true;
+    if ('_inScope' in r) return r._inScope !== false;
+    for (const k of PERSON_KEYS) {
+      const v = r[k];
+      if (typeof v === 'string' && v.includes('@')) return inScope(norm(v));
+    }
+    return true;
+  };
+  for (const k of Object.keys(p)) {
+    if (Array.isArray(p[k]) && k !== 'agentCols') p[k] = p[k].filter(keep);
+  }
+  return p;
+}
 // Comma-tolerant: Metabase's CSV export formats values over 999 as '1,146.4', and a
 // bare Number() on that is NaN -> 0. That would read as a 00:00 check-in on 'First Call
 // Min' (i.e. the best possible start) for anyone whose first call is after 16:40.
@@ -394,6 +417,13 @@ export default async function handler(req, res) {
     // On the sheet but not an LRM/TL/ZSM/ADOS row (a support role): scope to self
     // rather than falling through to the open VIEWER role.
     else if (mapEmails.has(viewerEmail))  role = 'LRM';
+    // Leadership / Ops listed in FULL_ACCESS_EMAILS see the whole floor.
+    if (auth.configured && auth.fullAccess) role = 'VIEWER';
+    // Signed in but nowhere in the hierarchy and not on the full-access list: no data.
+    // (Before OTP this fell through to the open VIEWER role = the whole floor.)
+    else if (auth.configured && role === 'VIEWER') {
+      return res.status(403).json({ error: 'not-authorized', authError: true });
+    }
 
     // Which agents this viewer may see in the ROLLUPS (the flat Agent View stays open).
     const inScope = (agentEmail) => {
@@ -1133,6 +1163,10 @@ export default async function handler(req, res) {
        `Baseline Days` rides along per row: a row pulled inside a bisected chunk
        was baselined over a shorter span, and the tab marks it rather than
        quietly mixing yardsticks. */
+    /* Lead-level call depth (Dial depth tab) — separate spreadsheet, LEADDEPTH_SHEET_ID. */
+    const leadDepthRes = await readLeadDepth(effFrom, effTo).catch((e) => ({ agg: [], over: [], diag: { error: String(e) } }));
+    const leadDepth = leadDepthRes.over, leadDepthAgg = leadDepthRes.agg, leadDepthDiag = leadDepthRes.diag;
+
     let depthRows = [], depthTrend = [], depthHas = false;
     try {
       const dRaw = await read('depth');
@@ -1644,7 +1678,7 @@ export default async function handler(req, res) {
       .map(id => { const [name, city] = lrmSet[id].split('||'); return { id, name, city }; })
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    return res.status(200).json({
+    const payload = {
       dateLabel, fromDate: effFrom, toDate: effTo,
       viewer: {
         email: viewerEmail,
@@ -1665,7 +1699,7 @@ export default async function handler(req, res) {
       leadsOmitted:  !wantLeads,
       coverageRows, coverageTrend, coverageStatus, coverageHas,
       coverageMatureDays: COVERAGE_MATURE_DAYS, coverage: coverageMeta,
-      depthRows, depthTrend, depthHas,
+      depthRows, depthTrend, depthHas, leadDepth, leadDepthAgg, leadDepthDiag,
       connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
       didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor,
       connHas: {
@@ -1685,7 +1719,8 @@ export default async function handler(req, res) {
       tlList:   Object.keys(tlNameSet).sort(),
       lrmList,
       activeLRMs: agentRows.length, cities: cityRows.length,
-    });
+    };
+    return res.status(200).json(scopePayload(payload, role, inScope));
   } catch (err) {
     console.error('Dashboard API error:', err);
     return res.status(500).json({ error: err.message });
@@ -1707,7 +1742,7 @@ function emptyPayload(from, to, viewerEmail) {
     leadsOmitted: false,
     coverageHas: false, coverageMatureDays: 1,
     coverage: { error: '', external: false, diag: {} },
-    depthRows: [], depthTrend: [], depthHas: false,
+    depthRows: [], depthTrend: [], depthHas: false, leadDepth: [], leadDepthAgg: [], leadDepthDiag: {},
     connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
     inboundPerf: [], inboundDiag: {},
     didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
