@@ -568,6 +568,20 @@
 .auth-err{margin-top:16px;font-size:12.5px;color:#ffb4b4;background:rgba(255,90,90,.09);border:1px solid rgba(255,90,90,.28);border-radius:8px;padding:9px 11px;text-align:left;line-height:1.5}
 .auth-err.hidden{display:none}
 .auth-foot{margin-top:16px;font-size:11.5px;color:#6b7490}
+.otp-form{display:flex;flex-direction:column;gap:10px;text-align:left}
+.otp-form label{font-size:11.5px;color:#9aa3bd;font-weight:600;letter-spacing:.02em}
+.otp-form input{width:100%;box-sizing:border-box;background:#0f1526;border:1px solid #2e3a5c;border-radius:8px;color:#eef2ff;font-size:14px;padding:10px 12px;outline:none}
+.otp-form input:focus{border-color:var(--gold)}
+.otp-form input.code{font-size:22px;letter-spacing:.5em;text-align:center;font-variant-numeric:tabular-nums}
+.otp-btn{background:var(--gold);color:#18233f;border:none;border-radius:8px;padding:10px 14px;font-size:13.5px;font-weight:700;cursor:pointer}
+.otp-btn:hover{background:var(--gold-dk)}
+.otp-btn:disabled{opacity:.5;cursor:not-allowed}
+.otp-links{display:flex;justify-content:space-between;gap:10px;font-size:12px}
+.otp-links a{color:#9aa3bd;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.otp-links a:hover{color:#eef2ff}
+.otp-links a.off{opacity:.45;pointer-events:none}
+.otp-sent{font-size:12.5px;color:#c8d2f0;line-height:1.5}
+.otp-step.hidden{display:none}
 /* ── Who's signed in ── */
 .whoami{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#9aa3bd;margin-left:auto;padding-left:10px}
 .whoami .role-badge{background:#1f2a45;border:1px solid #2e3a5c;color:#c8d2f0;border-radius:5px;padding:1.5px 7px;font-size:10.5px;font-weight:650;letter-spacing:.03em}
@@ -735,8 +749,16 @@ table.hl td.pc .no{color:#c0392b}
 <div class="auth-bk hidden" id="authBk">
   <div class="auth-card">
     <h2>LRM Operations Dashboard</h2>
-    <p>Sign in with your SolarSquare account. What you can see is based on your role in the reporting hierarchy.</p>
-    <div class="auth-btn-host" id="gsiBtn"></div>
+    <p>Sign in with your SolarSquare work email. You'll see only your own numbers and the people who report to you.</p>
+    <div class="otp-form">
+      <div class="otp-step" id="otpStep1">
+        <form id="otpEmailForm" style="display:flex;flex-direction:column;gap:10px">
+          <label for="otpEmail">Work email</label>
+          <input id="otpEmail" type="email" autocomplete="email" placeholder="name@solarsquare.in" required>
+          <button class="otp-btn" id="otpSendBtn" type="submit">Sign in</button>
+        </form>
+      </div>
+    </div>
     <div class="auth-err hidden" id="authErr"></div>
     <div class="auth-foot" id="authFoot"></div>
   </div>
@@ -756,7 +778,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabDID">☎️ DID estate</div>
   <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
   <div class="tab"        id="tabCoverage">🎯 Coverage</div>
-  <div class="tab"        id="tabDepth">📶 Calling depth</div>
+  <div class="tab"        id="tabDepth">📶 Dial depth</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
 </div>
@@ -979,9 +1001,13 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 /* ── Data fetch (falls back to demo data if the API is unavailable) ── */
-/* Cache REVERTED 23 Sep 2026: `_t=` buster + cache:'no-store' restored so every
-   load reads the live sheet. The `?leads=1` lazy-load is kept — it only trims
-   payload size and cannot serve stale data. */
+/* No `_t=` cache buster and no `cache:'no-store'` any more (23 Sep 2026). Those
+   two together made every single load a guaranteed origin hit — a unique URL the
+   browser could never reuse — which is what paused the Vercel account. The API
+   now sends `private, max-age=240`, so a repeat load inside four minutes costs
+   nothing. loadData({force:true}) bypasses that with `cache:'reload'`, and the
+   Refresh BUTTON is the one caller that passes it: when the user explicitly asks
+   for new numbers they get a network pull. */
 function loadData(opts) {
   var from = document.getElementById('fromDate').value;
   var to   = document.getElementById('toDate').value;
@@ -992,8 +1018,8 @@ function loadData(opts) {
   document.getElementById('btnApplyDates').disabled = true;
   setLoading();
 
-  fetch('/api/dashboard?from=' + from + '&to=' + to + (LEADS_TABS[activeTab] ? '&leads=1' : '') + '&_t=' + Date.now(),
-        { cache: 'no-store',
+  fetch('/api/dashboard?from=' + from + '&to=' + to + (LEADS_TABS[activeTab] ? '&leads=1' : ''),
+        { cache: (opts && opts.force) ? 'reload' : 'default',
           headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
     .then(function(r) {
       if (r.status === 401 || r.status === 403) {
@@ -1010,7 +1036,7 @@ function loadData(opts) {
     .catch(function(e){
       // An auth refusal must NEVER fall through to demo data - that would look like
       // real numbers to someone who is not allowed to see them.
-      if (e.authError) { showAuthGate(authMessage(e.message)); onErr('Sign in to view this dashboard.'); return; }
+      if (e.authError) { AUTH.token = ''; try { localStorage.removeItem('lrm_session'); } catch (x) {} showAuthGate(authMessage(e.message)); onErr('Sign in to view this dashboard.'); return; }
       if (window.MOCK) { onData(window.MOCK); }   // offline / preview fallback
       else onErr(e.message);
     });
@@ -1048,8 +1074,8 @@ function ensureLeads(name) {
   leadsLoading = true;
   var from = document.getElementById('fromDate').value;
   var to   = document.getElementById('toDate').value;
-  fetch('/api/dashboard?from=' + from + '&to=' + to + '&leads=1&_t=' + Date.now(),
-        { cache: 'no-store', headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
+  fetch('/api/dashboard?from=' + from + '&to=' + to + '&leads=1',
+        { headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(d){
       leadsLoading = false;
@@ -1211,14 +1237,14 @@ function bootAuth() {
   }
 
   var saved = '';
-  try { saved = sessionStorage.getItem('lrm_id_token') || ''; } catch (e) {}
+  try { saved = localStorage.getItem('lrm_session') || ''; } catch (e) {}
 
   fetch('/api/config', { cache:'no-store' })
     .then(function(r){ return r.ok ? r.json() : {}; })
     .catch(function(){ return {}; })
     .then(function(cfg){
-      AUTH.clientId = cfg.clientId || '';
       AUTH.required = !!cfg.authRequired;
+      AUTH.domain   = cfg.allowedDomain || 'solarsquare.in';
       AUTH.ready    = true;
       var foot = document.getElementById('authFoot');
       if (foot) foot.textContent = cfg.allowedDomain ? '@' + cfg.allowedDomain + ' accounts only' : '';
@@ -1236,61 +1262,73 @@ function showAuthGate(msg) {
   var err = document.getElementById('authErr');
   if (msg) { err.textContent = msg; err.classList.remove('hidden'); }
   else err.classList.add('hidden');
-  mountGsi();
+  mountOtp();
 }
 function hideAuthGate() {
   var bk = document.getElementById('authBk');
   if (bk) bk.classList.add('hidden');
 }
 
-function mountGsi() {
-  if (!AUTH.clientId) {
-    document.getElementById('gsiBtn').innerHTML =
-      '<div style="font-size:12.5px;color:#ffb4b4">GOOGLE_CLIENT_ID is not set on this deployment.</div>';
-    return;
-  }
-  if (window.__gsiMounted) return;
-  var start = function() {
-    if (!window.google || !google.accounts || !google.accounts.id) return;
-    window.__gsiMounted = true;
-    google.accounts.id.initialize({ client_id: AUTH.clientId, callback: onCredential });
-    google.accounts.id.renderButton(document.getElementById('gsiBtn'),
-      { theme:'filled_blue', size:'large', text:'signin_with', shape:'pill' });
+/* Email sign-in: posts the email to /api/login and stores the session token.
+   Access is re-checked against LRM_TL_MAP on every data request. */
+var OTP = { busy:false };
+function otpMsg(reason, extra) {
+  var m = {
+    'bad-email':'Enter a valid email address.',
+    'wrong-domain':'Use your @' + (AUTH.domain || 'solarsquare.in') + ' work email.',
+    'not-mapped':'This email is not on the dashboard access list (LRM_TL_MAP). Contact Ops.',
+    'roster-unavailable':'Sign-in is briefly unavailable. Try again in a minute.',
+    'auth-not-configured':'Sign-in is not switched on for this deployment.'
   };
-  if (window.google && window.google.accounts) { start(); return; }
-  var s = document.createElement('script');
-  s.src = 'https://accounts.google.com/gsi/client';
-  s.async = true; s.defer = true;
-  s.onload = start;
-  document.head.appendChild(s);
+  return m[reason] || 'Something went wrong. Try again.';
 }
-
-function onCredential(resp) {
-  AUTH.token = (resp && resp.credential) || '';
-  if (!AUTH.token) { showAuthGate('Google did not return a credential. Try again.'); return; }
-  try { sessionStorage.setItem('lrm_id_token', AUTH.token); } catch (e) {}
-  hideAuthGate();
-  loadData();
+function otpErr(msg) {
+  var err = document.getElementById('authErr');
+  if (msg) { err.textContent = msg; err.classList.remove('hidden'); } else err.classList.add('hidden');
+}
+function otpPost(body) {
+  return fetch('/api/login', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ j._ok = r.ok; return j; }); });
+}
+function otpRequest() {
+  if (OTP.busy) return;
+  var email = document.getElementById('otpEmail').value.trim().toLowerCase();
+  if (!email) return;
+  OTP.busy = true; otpErr('');
+  var btn = document.getElementById('otpSendBtn'); btn.disabled = true; btn.textContent = 'Signing in…';
+  otpPost({ email: email }).then(function(j){
+    OTP.busy = false; btn.disabled = false; btn.textContent = 'Sign in';
+    if (!j._ok || !j.token) { otpErr(otpMsg(j.error)); return; }
+    AUTH.token = j.token; AUTH.email = j.email || email;
+    try { localStorage.setItem('lrm_session', AUTH.token); } catch (e) {}
+    hideAuthGate();
+    loadData();
+  }).catch(function(){ OTP.busy = false; btn.disabled = false; btn.textContent = 'Sign in'; otpErr('Network error. Try again.'); });
+}
+function mountOtp() {
+  if (window.__otpMounted) return;
+  window.__otpMounted = true;
+  document.getElementById('otpEmailForm').addEventListener('submit', function(e){ e.preventDefault(); otpRequest(); });
+  setTimeout(function(){ var el = document.getElementById('otpEmail'); if (el) el.focus(); }, 30);
 }
 
 function signOut() {
   AUTH.token = '';
-  try { sessionStorage.removeItem('lrm_id_token'); } catch (e) {}
-  if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
-  window.__gsiMounted = false;
-  document.getElementById('gsiBtn').innerHTML = '';
+  try { localStorage.removeItem('lrm_session'); sessionStorage.removeItem('lrm_id_token'); } catch (e) {}
+  OTP.challenge = '';
   showAuthGate('');
+  otpStep(1);
 }
 
 function authMessage(reason) {
   var m = {
     'not-signed-in':   'Please sign in to continue.',
-    'invalid-token':   'Your session expired. Sign in again.',
+    'invalid-token':   'Your session has expired. Sign in again.',
     'verify-failed':   'Could not verify your sign-in. Try again.',
-    'wrong-audience':  'This sign-in was issued for a different app. Sign in again.',
-    'email-unverified':'Your Google account email is not verified.',
-    'wrong-domain':    'Use your SolarSquare account - personal Google accounts cannot access this dashboard.',
-    'not-authorized':  'Your account is not on the access list for this dashboard.'
+    'wrong-audience':  'Sign in again.',
+    'email-unverified':'Sign in again.',
+    'wrong-domain':    'Use your SolarSquare work email.',
+    'not-authorized':  'Your email is not in the reporting hierarchy for this dashboard. Ask Ops to add you.'
   };
   return m[reason] || ('Access denied' + (reason ? ' (' + reason + ')' : '') + '.');
 }
@@ -2461,6 +2499,8 @@ function downloadPDF(){
 <script src="speed.js?v=20260919c"></script>
 <script src="coverage.js?v=20260923b"></script>
 <script src="depth.js?v=20260921a"></script>
+<script src="leaddepth.js?v=20260925b"></script>
+<script src="dialwaterfall.js?v=20260925c"></script>
 <script src="msdriver.js?v=20260907a"></script>
 <script src="msplan.js?v=20260907b"></script>
 <script src="conncharts.js?v=20260913d"></script>
