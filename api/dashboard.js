@@ -1015,6 +1015,9 @@ export default async function handler(req, res) {
           never: ci(['Never Dialled']), noAns: ci(['Dialled Not Connected']),
           d0: ci(['Connected D+0']), d1: ci(['Connected D+1']), d3: ci(['Connected D+3']),
           dials: ci(['Total Dials']), geoPin: ci(['Leads Geo From Pincode']),
+          source: ci(['Lead Source']),
+          // v1.4 (28 Sep): connected with >= 2 min of talk — a third covered basis.
+          t2: ci(['Leads Connected 2min+', 'Leads Connected 2 Min+']),
         };
         const known = new Set(rosterAll.map(r => norm(r['Agent Id'])));
         const acc = {}, byDay = {}, byStatus = {};
@@ -1033,6 +1036,7 @@ export default async function handler(req, res) {
             assigned: num(r[c.assigned]) || num(r[c.created]),
             dialled: num(r[c.dialled]), connected: num(r[c.connected]),
             real: c.real < 0 ? 0 : num(r[c.real]),
+            t2: c.t2 < 0 ? 0 : num(r[c.t2]),
             never: num(r[c.never]), noAns: num(r[c.noAns]),
             d0: c.d0 < 0 ? 0 : num(r[c.d0]), d1: c.d1 < 0 ? 0 : num(r[c.d1]),
             d3: c.d3 < 0 ? 0 : num(r[c.d3]),
@@ -1044,22 +1048,29 @@ export default async function handler(req, res) {
              recomputes from the same summed cells. Still a true rollup: the
              feed's grain already includes Status. */
           const st = (c.status < 0 ? '' : String(r[c.status] || '').trim()) || '(blank)';
-          const key = email + '||' + cluster + '||' + st;
-          const a = acc[key] || (acc[key] = { agent: email, cluster, leadCity, status: st,
-            assigned: 0, dialled: 0, connected: 0, real: 0, never: 0, noAns: 0,
+          /* Lead Source (26 Sep) joins the key the same way. '' when the sheet
+             predates the column — the tab then hides the source filter. */
+          const src = c.source < 0 ? '' : (String(r[c.source] || '').trim() || '(blank)');
+          const key = email + '||' + cluster + '||' + st + '||' + src;
+          const a = acc[key] || (acc[key] = { agent: email, cluster, leadCity, status: st, source: src,
+            assigned: 0, dialled: 0, connected: 0, real: 0, t2: 0, never: 0, noAns: 0,
             d0: 0, d1: 0, d3: 0, dials: 0, geoPin: 0 });
           Object.keys(v).forEach(k => { a[k] += v[k]; });
 
           /* Floor-wide daily series for the trend. Kept separate from `acc`
              because a trend must NOT be a rollup of the grain rows — the grain
              is LRM x cluster and a date has to survive every scope filter. */
-          const d = byDay[day] || (byDay[day] = { date: day, assigned: 0, connected: 0, real: 0, never: 0, byStatus: {} });
-          d.assigned += v.assigned; d.connected += v.connected; d.real += v.real; d.never += v.never;
-          const ds = d.byStatus[st] || (d.byStatus[st] = { assigned: 0, connected: 0, real: 0, never: 0 });
-          ds.assigned += v.assigned; ds.connected += v.connected; ds.real += v.real; ds.never += v.never;
+          const d = byDay[day] || (byDay[day] = { date: day, assigned: 0, connected: 0, real: 0, t2: 0, never: 0, byStatus: {}, byCell: {} });
+          d.assigned += v.assigned; d.connected += v.connected; d.real += v.real; d.t2 += v.t2; d.never += v.never;
+          const ds = d.byStatus[st] || (d.byStatus[st] = { assigned: 0, connected: 0, real: 0, t2: 0, never: 0 });
+          ds.assigned += v.assigned; ds.connected += v.connected; ds.real += v.real; ds.t2 += v.t2; ds.never += v.never;
+          // Stage x source cell, so the trend can honour both filters at once.
+          const ck = st + '\u0001' + src;
+          const dc = d.byCell[ck] || (d.byCell[ck] = { status: st, source: src, assigned: 0, connected: 0, real: 0, t2: 0, never: 0 });
+          dc.assigned += v.assigned; dc.connected += v.connected; dc.real += v.real; dc.t2 += v.t2; dc.never += v.never;
 
-          const s = byStatus[st] || (byStatus[st] = { status: st, assigned: 0, connected: 0, real: 0, never: 0 });
-          s.assigned += v.assigned; s.connected += v.connected; s.real += v.real; s.never += v.never;
+          const s = byStatus[st] || (byStatus[st] = { status: st, assigned: 0, connected: 0, real: 0, t2: 0, never: 0 });
+          s.assigned += v.assigned; s.connected += v.connected; s.real += v.real; s.t2 += v.t2; s.never += v.never;
         }
         const meta = {};
         rosterAll.forEach(r => { meta[norm(r['Agent Id'])] = r; });
@@ -1091,6 +1102,9 @@ export default async function handler(req, res) {
         });
         coverageStatus = Object.keys(byStatus).map(k => byStatus[k])
           .sort((x, y) => y.assigned - x.assigned);
+        // Tells the tab whether the 2+ min basis and the source filter have data yet.
+        coverageMeta.hasT2 = c.t2 >= 0;
+        coverageMeta.hasDailySource = c.source >= 0;
       }
 
       const lRaw = cov.leads || [];
