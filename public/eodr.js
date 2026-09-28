@@ -197,15 +197,10 @@ var EODR_CHECKIN_BY = 600;
 var EODR_ROWS = [
   { id: 'checkin', g: 'Floor time', label: 'Work start (first dial)', get: function (a) { return a.firstCall; }, f: 'clock', deadline: EODR_CHECKIN_BY, baseTxt: '10:00', note: 'when dialling began' },
   { id: 'late',    g: 'Floor time', label: 'Latest start in scope', get: function (a) { return a.lastCheck; }, f: 'clock', deadline: EODR_CHECKIN_BY, baseTxt: '10:00', note: 'slowest starter', multiOnly: true },
-  { id: 'shrink',  g: 'Floor time', label: 'Shrinkage', get: function (a) { return a.shrinkage; }, f: 'pct', flat: true, goodLow: true, note: 'no dials all day', multiOnly: true },
   { id: 'leads',   g: 'Activity', label: 'Unique leads dialled', get: function (a) { return a.leads; }, f: 'int', base: 175, per: true },
-  { id: 'eff',     g: 'Activity', label: 'Effective talk', get: function (a) { return a.effTalk; }, f: 'int', base: 120, per: true, note: 'actual talk, minutes' },
-  { id: 'talk',    g: 'Activity', label: 'Total talk', get: function (a) { return a.totalTime; }, f: 'int', base: 240, per: true, note: 'ring + talk + wrap, minutes', feedIf: 'trw' },
-  { id: 'msTod',   g: 'Meetings created', label: 'MS scheduled for today', get: function (a) { return a.msToday; }, f: 'one', base: 10, per: true },
-  { id: 't0',      g: 'Meetings created', label: 'MS created for today', get: function (a) { return a.t0; }, f: 'one', base: 10, per: true },
-  { id: 't1',      g: 'Meetings created', label: 'MS created for tomorrow', get: function (a) { return a.t1; }, f: 'one', base: 10, per: true },
-  { id: 't2',      g: 'Meetings created', label: 'MS created for T+2', get: function (a) { return a.t2; }, f: 'one', base: 10, per: true },
-  { id: 'msTot',   g: 'Meetings created', label: 'MS created \u2014 total', get: function (a) { return a.msTotal; }, f: 'one', base: 12, per: true },
+  { id: 'eff',     g: 'Activity', label: 'Effective talk', get: function (a) { return a.effTalk; }, f: 'int', base: 90, per: true, note: 'actual talk, minutes' },
+  { id: 'msTod',   g: 'Meetings created', label: 'MS scheduled for today', get: function (a) { return a.msToday; }, f: 'one', base: 10, per: true, perDay: true, note: 'per LRM per day' },
+  { id: 't1',      g: 'Meetings created', label: 'MS created for tomorrow', get: function (a) { return a.t1; }, f: 'one', base: 10, per: true, perDay: true, note: 'per LRM per day' },
   { id: 'md',      g: 'Outcomes', label: 'Meetings done', get: function (a) { return a.md; }, f: 'one', base: 6, per: true },
   { id: 'score',   g: 'Outcomes', label: 'MS score', get: function (a) { return a.msScore; }, f: 'one', base: 75, flat: true, feedIf: 'score', note: 'mean of scored days' },
   { id: 'msmd',    g: 'Outcomes', label: 'MS \u2192 MD %', get: function (a) { return a.msTotal ? a.md / a.msTotal * 100 : null; }, f: 'pct', flat: true, note: 'MD \u00f7 MS' },
@@ -311,10 +306,11 @@ function eodrStatus(row, v, win, headcount) {
   if (v === null || v === undefined) return '';
   if (row.per && !row.flat && !row.deadline) v = headcount ? v / headcount : null;
   if (v === null) return '';
+  if (row.perDay && win.days) v = v / win.days;
   if (row.deadline) return v <= row.deadline ? 'hit' : (v <= row.deadline + 30 ? 'near' : 'miss');
   if (row.goodLow) return v <= 5 ? 'hit' : (v <= 15 ? 'near' : 'miss');
   if (row.base) {
-    var t = row.flat ? row.base : row.base * win.days;
+    var t = (row.flat || row.perDay) ? row.base : row.base * win.days;
     var r = t > 0 ? v / t : 0;
     return r >= 1 ? 'hit' : (r >= 0.8 ? 'near' : 'miss');
   }
@@ -366,10 +362,11 @@ function eodrCell(row, agg, win, headcount, isNow) {
             : 'No data in this window';
     return '<td class="eodr-na' + now + '" title="' + esc(why) + '">—</td>';
   }
+  if (row.perDay && win.days) v = v / win.days;
   var txt = (EODR_FMT[row.f] || EODR_FMT.int)(v);
   // `v` is already per-LRM here, so the status is computed with `per` dropped
   // rather than dividing by the headcount twice.
-  var st = eodrStatus({ deadline: row.deadline, goodLow: row.goodLow, base: row.base, flat: row.flat }, v, win, 1);
+  var st = eodrStatus({ deadline: row.deadline, goodLow: row.goodLow, base: row.base, flat: row.flat || row.perDay }, v, win, 1);
   var cls = st ? 'eodr-' + st : '', title = '';
   if (row.deadline) {
     // A deadline inverts the scale: at or before the hour is a hit, and it is never
@@ -377,10 +374,10 @@ function eodrCell(row, agg, win, headcount, isNow) {
     title = 'Target ' + EODR_FMT.clock(row.deadline) + ' or earlier · over the '
           + agg.firstMinN + ' day/LRM row(s) with at least ' + EODR_CHECKIN_MIN_CALLS + ' dials';
   } else if (row.base) {
-    var target = row.flat ? row.base : row.base * win.days;
+    var target = (row.flat || row.perDay) ? row.base : row.base * win.days;
     var ratio = target > 0 ? v / target : 0;
     title = 'Baseline ' + (Math.round(target * 10) / 10).toLocaleString('en-IN')
-          + (row.flat ? '' : ' (' + row.base + ' \u00d7 ' + win.days + 'd)')
+          + ((row.flat || row.perDay) ? (row.perDay ? ' per LRM per day' : '') : ' (' + row.base + ' \u00d7 ' + win.days + 'd)')
           + ' \u00b7 at ' + Math.round(ratio * 100) + '%';
   } else if (row.goodLow) {
     title = 'Lower is better \u00b7 5% or less reads as healthy';

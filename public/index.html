@@ -854,8 +854,9 @@ var actView='dist';   // MS Plan / Effort per MS removed 13 Sep 2026; no longer 
 var perSort = { col:'dialsPerMs', dir:-1 };
 /* Distribution ("who is below the bar"), not averages. Present = made more than PRESENT_MIN calls. */
 /* Day-end bars per LRM. ttLow is a SECOND, harder talk-time floor the user asked
-   for (4 Sep): 120 min is the target, under 90 min is the intervention line. */
-var DIST = { presentMin:1, dial:200, ttMin:120, ttLow:90, ms:10 };
+   for (4 Sep): 120 min is the target, under 90 min is the intervention line.
+   Lowered 28 Sep (user): 90 min target, 75 min intervention line. */
+var DIST = { presentMin:1, dial:200, ttMin:90, ttLow:75, ms:10 };
 /* Every bar is scored against the share of the shift ELAPSED, not the whole day
    (user, 4 Sep): at 14:00 an LRM on 94 dials is on pace, and flagging them against
    200 would put most of the floor "below the bar" every morning. On a finished day
@@ -1764,7 +1765,8 @@ function floorHeroHTML(rows){
    Bars are plain CSS, not ECharts: three static bar rows do not justify the chart
    engine the Distribution heatmaps need, and this tab must open instantly.
    Honours the filter bar and viewer scope, because it reads filterAgents(). */
-var FLOOR_TARGET = { dials:200, talkMin:120, ms:10 };
+/* Floor Board talk bar = the 75-min line (user, 28 Sep), read from DIST so the two cannot drift. */
+var FLOOR_TARGET = { dials:200, talkMin:DIST.ttLow, ms:10 };
 /* One column set per metric: how the value is read off a row, how it prints, and
    the per-LRM day target it is scored against. */
 var FLOOR_BOARDS = [
@@ -2335,7 +2337,7 @@ var DIST_MET={
   present:{title:'Present LRMs',   sev:'sev-info', desc:'LRMs who made at least one call today.', action:'Population used for every percentage below.', pass:function(n,r){return true;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
   dial:   {title:'Below dial bar', sev:'sev-high', desc:'', action:'Hold accountable for the dial gap — not the team average.', pass:function(n,r){return n(r,'Call Count')<DIST.dial;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
   tt:     {title:'Below talk-time bar', sev:'sev-mid', desc:'', action:'Check conversation depth, not just dial count.',        pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttMin');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
-  tt90:   {title:'Under the 90-min talk floor', sev:'sev-high', desc:'', action:'Intervene today — this is time on the phone, not dial effort.', pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttLow');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
+  tt90:   {title:'Under the '+DIST.ttLow+'-min talk floor', sev:'sev-high', desc:'', action:'Intervene today — this is time on the phone, not dial effort.', pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttLow');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
   ms:     {title:'Below meetings bar',  sev:'sev-high',desc:'', action:'Coach on pitch and conversion.',                         pass:function(n,r){return n(r,'MS Today')<distBar('ms');}, sortVal:function(n,r){return n(r,'MS Today');}, metric:function(n,r){return n(r,'MS Today')+' MS';}}
 };
 function openDistModal(grp,met){
@@ -2497,10 +2499,10 @@ function downloadPDF(){
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <script src="distribution.js?v=20260919a"></script>
 <script src="speed.js?v=20260919c"></script>
-<script src="coverage.js?v=20260923b"></script>
+<script src="coverage.js?v=20260926a"></script>
 <script src="depth.js?v=20260921a"></script>
-<script src="leaddepth.js?v=20260925b"></script>
-<script src="dialwaterfall.js?v=20260925c"></script>
+<script src="leaddepth.js?v=20260925d"></script>
+<script src="dialwaterfall.js?v=20260925d"></script>
 <script src="msdriver.js?v=20260907a"></script>
 <script src="msplan.js?v=20260907b"></script>
 <script src="conncharts.js?v=20260913d"></script>
@@ -2512,6 +2514,6 @@ function downloadPDF(){
 <script src="callhealth.js?v=20260918c"></script>
 <script src="didview.js?v=20260919a"></script>
 <script src="inbound.js?v=20260918c"></script>
-<script src="eodr.js?v=20260918d"></script>
+<script src="eodr.js?v=20260925b"></script>
 </body>
 </html>
