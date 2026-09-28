@@ -996,7 +996,7 @@ export default async function handler(req, res) {
        dialler marks IVR-busy and ring-through as answered: Chennai reads 87.7%
        connected but 64.8% really connected. A raw connect rate flatters the floor. */
     const COVERAGE_MATURE_DAYS = 1;
-    let coverageRows = [], coverageLeads = [], coverageTrend = [], coverageStatus = [];
+    let coverageRows = [], coverageLeads = [], coverageTrend = [], coverageStatus = [], coverageDayCells = null;
     let coverageHas = false, coverageMeta = { error: '', external: false, diag: {} };
     try {
       const cov = await readCoverage(read);
@@ -1021,6 +1021,11 @@ export default async function handler(req, res) {
         };
         const known = new Set(rosterAll.map(r => norm(r['Agent Id'])));
         const acc = {}, byDay = {}, byStatus = {};
+        /* 28 Sep 2026: per (day, LRM, stage, source) cells so the cohort trend can
+           follow the scope filters. Compact on purpose — index lists + number
+           tuples — and only for LRMs the viewer may see. */
+        const dcDates = [], dcAgents = [], dcKeys = [], dcIdx = { d: {}, a: {}, k: {} }, dcAcc = {};
+        const dcI = (kind, list, v) => (dcIdx[kind][v] !== undefined ? dcIdx[kind][v] : (dcIdx[kind][v] = list.push(v) - 1));
         for (let i = 1; i < cRaw.length; i++) {
           const r = cRaw[i];
           if (!r) continue;
@@ -1071,6 +1076,13 @@ export default async function handler(req, res) {
 
           const s = byStatus[st] || (byStatus[st] = { status: st, assigned: 0, connected: 0, real: 0, t2: 0, never: 0 });
           s.assigned += v.assigned; s.connected += v.connected; s.real += v.real; s.t2 += v.t2; s.never += v.never;
+
+          if (inScope(email)) {
+            const dk = day + '|' + email + '|' + ck;
+            const t = dcAcc[dk] || (dcAcc[dk] = [dcI('d', dcDates, day), dcI('a', dcAgents, email),
+              dcI('k', dcKeys, ck), 0, 0, 0, 0, 0]);
+            t[3] += v.assigned; t[4] += v.connected; t[5] += v.real; t[6] += v.t2; t[7] += v.never;
+          }
         }
         const meta = {};
         rosterAll.forEach(r => { meta[norm(r['Agent Id'])] = r; });
@@ -1105,6 +1117,9 @@ export default async function handler(req, res) {
         // Tells the tab whether the 2+ min basis and the source filter have data yet.
         coverageMeta.hasT2 = c.t2 >= 0;
         coverageMeta.hasDailySource = c.source >= 0;
+        coverageDayCells = { dates: dcDates, agents: dcAgents,
+          keys: dcKeys.map(k => { const p = k.split('\u0001'); return [p[0], p[1] || '']; }),
+          cells: Object.keys(dcAcc).map(k => dcAcc[k]) };
       }
 
       const lRaw = cov.leads || [];
@@ -1711,7 +1726,7 @@ export default async function handler(req, res) {
       speedLeads:    wantLeads ? speedLeads    : [],
       coverageLeads: wantLeads ? coverageLeads : [],
       leadsOmitted:  !wantLeads,
-      coverageRows, coverageTrend, coverageStatus, coverageHas,
+      coverageRows, coverageTrend, coverageStatus, coverageHas, coverageDayCells,
       coverageMatureDays: COVERAGE_MATURE_DAYS, coverage: coverageMeta,
       depthRows, depthTrend, depthHas, leadDepth, leadDepthAgg, leadDepthDiag,
       connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
