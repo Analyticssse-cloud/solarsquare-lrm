@@ -57,7 +57,12 @@ try { var _cg = localStorage.getItem('lrmCovGrain'); if (COV_GRAINS.some(functio
    same population counted with >= 15s of talk. Both come from the same row, so
    the switch is a column choice, never a re-query. */
 var covBasis = 'ever';
-try { var _cb = localStorage.getItem('lrmCovBasis'); if (_cb === 'ever' || _cb === 'real') covBasis = _cb; } catch (e) {}
+try { var _cb = localStorage.getItem('lrmCovBasis'); if (_cb === 'ever' || _cb === 'real' || _cb === 'two') covBasis = _cb; } catch (e) {}
+/* 'two' (28 Sep) = connected with >= 2 min of talk. Needs the daily feed's
+   `Leads Connected 2min+` column (coverage-daily.sql v1.4 + a backfill). */
+function covHasT2() { return !!(D.coverage && D.coverage.hasT2) || (D.coverageRows || []).some(function (r) { return r.t2 > 0; }); }
+function covVal(o) { return covBasis === 'real' ? (o.real || 0) : covBasis === 'two' ? (o.t2 || 0) : (o.connected || 0); }
+function covBasisLab() { return covBasis === 'real' ? 'really covered' : covBasis === 'two' ? 'covered 2+ min' : 'covered'; }
 var covSort = { col: 'assigned', dir: -1 };
 var covOpen = null;
 /* Lead-stage filter (the lead's `status` funnel bucket). Empty = all stages.
@@ -68,6 +73,12 @@ try { var _cs = JSON.parse(localStorage.getItem('lrmCovStages') || '[]'); if (Ar
 function covSaveStages() { try { localStorage.setItem('lrmCovStages', JSON.stringify(covStages)); } catch (e) {} }
 function covHasStage() { return (D.coverageRows || []).some(function (r) { return r.status; }); }
 function covStageOn(s) { return !covStages.length || covStages.indexOf(s || '(blank)') >= 0; }
+/* Lead-source filter (26 Sep). Single select; '' = all sources. Hidden until the
+   daily feed carries a `Lead Source` column (SQL v1.3 + a backfill). */
+var covSource = '';
+try { covSource = localStorage.getItem('lrmCovSource') || ''; } catch (e) {}
+function covHasSource() { return (D.coverageRows || []).some(function (r) { return r.source; }); }
+function covSourceOn(s) { return !covSource || covSource === (s || '(blank)'); }
 
 (function injectCoverageCss() {
   var css = '' +
@@ -85,6 +96,8 @@ function covStageOn(s) { return !covStages.length || covStages.indexOf(s || '(bl
   '.cv-chip{border:1px solid var(--border,#e3e8f3);background:#fff;color:var(--ink,#18233f);font:700 11.5px/1 inherit;padding:6px 11px;border-radius:20px;cursor:pointer;white-space:nowrap}' +
   '.cv-chip:hover{border-color:#9fb0d8}' +
   '.cv-chip.on{background:#18233f;border-color:#18233f;color:#fff}' +
+  '.cv-chip:disabled{opacity:.45;cursor:not-allowed}.cv-chip:disabled:hover{border-color:var(--border,#e3e8f3)}' +
+  '.cv-src .cv-kpi-n{max-width:520px;line-height:1.4}.cv-src select:disabled{opacity:.55;cursor:not-allowed}' +
   '.cv-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:1px;background:var(--border,#e3e8f3);border:1px solid var(--border,#e3e8f3);margin-bottom:16px}' +
   '.cv-kpi{background:#fff;padding:11px 13px}' +
   '.cv-kpi:last-child{grid-column:auto/-1}' +
@@ -162,6 +175,10 @@ function covStageOn(s) { return !covStages.length || covStages.indexOf(s || '(bl
   '.cv-subnote{font-size:10.5px;color:var(--muted,#6a7494);margin-top:6px}' +
   '.cv-stages{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 14px}' +
   '.cv-chip .cv-chip-n{font-weight:600;opacity:.65;margin-left:5px}' +
+  '.cv-src{display:flex;align-items:center;gap:8px;margin:0 0 14px}' +
+  '.cv-src select{font:inherit;font-size:12px;color:var(--ink,#18233f);background:#fff;border:1px solid #d6dbe8;border-radius:6px;padding:5px 8px;min-width:220px;cursor:pointer}' +
+  '.cv-src select:hover{border-color:#18233f}.cv-src select:focus-visible{outline:2px solid #18233f;outline-offset:2px}' +
+  '.cv-src select.on{border-color:#18233f;font-weight:700}' +
   'tr.cv-st{cursor:pointer}tr.cv-st:hover{background:rgba(24,35,63,.035)}' +
   'tr.cv-st.on td:first-child{font-weight:800;box-shadow:inset 3px 0 0 #18233f}' +
   'tr.cv-st.off td{color:var(--muted,#6a7494)}';
@@ -194,7 +211,7 @@ function filterCoverageScope() {
   });
 }
 function filterCoverage() {
-  return filterCoverageScope().filter(function (r) { return covStageOn(r.status); });
+  return filterCoverageScope().filter(function (r) { return covStageOn(r.status) && covSourceOn(r.source); });
 }
 
 /* Per-stage totals for the CURRENT scope (not the stage selection), so the
@@ -203,8 +220,8 @@ function covStageTotals(scopeRows) {
   var by = {};
   scopeRows.forEach(function (r) {
     var k = r.status || '(blank)';
-    var s = by[k] || (by[k] = { status: k, assigned: 0, connected: 0, real: 0, never: 0, noAns: 0 });
-    s.assigned += r.assigned || 0; s.connected += r.connected || 0; s.real += r.real || 0;
+    var s = by[k] || (by[k] = { status: k, assigned: 0, connected: 0, real: 0, t2: 0, never: 0, noAns: 0 });
+    s.assigned += r.assigned || 0; s.connected += r.connected || 0; s.real += r.real || 0; s.t2 += r.t2 || 0;
     s.never += r.never || 0; s.noAns += r.noAns || 0;
   });
   /* Sorted by volume, but the Meeting halves (Done / Not Done) stay side by
@@ -220,14 +237,15 @@ function covStageTotals(scopeRows) {
 }
 
 function covStats(rows) {
-  var t = { assigned: 0, dialled: 0, connected: 0, real: 0, never: 0, noAns: 0,
+  var t = { assigned: 0, dialled: 0, connected: 0, real: 0, t2: 0, never: 0, noAns: 0,
             d0: 0, d1: 0, d3: 0, dials: 0, geoPin: 0 };
   (rows || []).forEach(function (r) {
     Object.keys(t).forEach(function (k) { t[k] += r[k] || 0; });
   });
   t.covPct = t.assigned ? Math.round(1000 * t.connected / t.assigned) / 10 : 0;
   t.realPct = t.assigned ? Math.round(1000 * t.real / t.assigned) / 10 : 0;
-  t.headline = covBasis === 'real' ? t.realPct : t.covPct;
+  t.t2Pct = t.assigned ? Math.round(1000 * t.t2 / t.assigned) / 10 : 0;
+  t.headline = t.assigned ? Math.round(1000 * covVal(t) / t.assigned) / 10 : 0;
   t.uncovered = t.assigned - t.connected;
   t.dialsPer = t.assigned ? Math.round(10 * t.dials / t.assigned) / 10 : 0;
   return t;
@@ -254,9 +272,9 @@ function covGroup(rows, grain) {
   var G = covGrainDef(grain), by = {};
   (rows || []).forEach(function (r) {
     var k = G.of(r) || '—';
-    var a = by[k] || (by[k] = { key: k, assigned: 0, dialled: 0, connected: 0, real: 0,
+    var a = by[k] || (by[k] = { key: k, assigned: 0, dialled: 0, connected: 0, real: 0, t2: 0,
                                 never: 0, noAns: 0, d0: 0, d1: 0, d3: 0, dials: 0, lrms: {} });
-    ['assigned', 'dialled', 'connected', 'real', 'never', 'noAns', 'd0', 'd1', 'd3', 'dials']
+    ['assigned', 'dialled', 'connected', 'real', 't2', 'never', 'noAns', 'd0', 'd1', 'd3', 'dials']
       .forEach(function (f) { a[f] += r[f] || 0; });
     a.lrms[r.agent] = true;
   });
@@ -265,7 +283,8 @@ function covGroup(rows, grain) {
     a.n = Object.keys(a.lrms).length;
     a.covPct = a.assigned ? Math.round(1000 * a.connected / a.assigned) / 10 : 0;
     a.realPct = a.assigned ? Math.round(1000 * a.real / a.assigned) / 10 : 0;
-    a.headline = covBasis === 'real' ? a.realPct : a.covPct;
+    a.t2Pct = a.assigned ? Math.round(1000 * a.t2 / a.assigned) / 10 : 0;
+    a.headline = a.assigned ? Math.round(1000 * covVal(a) / a.assigned) / 10 : 0;
     a.neverPct = a.assigned ? Math.round(1000 * a.never / a.assigned) / 10 : 0;
     a.gap = Math.round((a.covPct - a.realPct) * 10) / 10;
     a.dialsPer = a.assigned ? Math.round(10 * a.dials / a.assigned) / 10 : 0;
@@ -289,19 +308,39 @@ function renderCoverage() {
 
   var hasStage = covHasStage();
   if (!hasStage) covStages = [];
+  var hasSource = covHasSource();
+  var hasT2 = covHasT2();
+  if (!hasT2 && covBasis === 'two') covBasis = 'ever';
+  /* Sources seen in the worklist (coverage_leads col H) while the daily feed has
+     none yet: the filter is shown but locked, because the rates would not move. */
+  var leadSrc = {};
+  if (!hasSource) (D.coverageLeads || []).forEach(function (l) { if (l.source) leadSrc[l.source] = (leadSrc[l.source] || 0) + 1; });
   var scopeRows = filterCoverageScope();
-  var stageTot = hasStage ? covStageTotals(scopeRows) : [];
+  /* Cross-filtered: source options count leads in the selected stages, stage
+     chips count leads in the selected source. */
+  var srcCount = {}, srcList = [];
+  if (hasSource) {
+    scopeRows.forEach(function (r) {
+      if (!covStageOn(r.status)) return;
+      var k = r.source || '(blank)';
+      srcCount[k] = (srcCount[k] || 0) + (r.assigned || 0);
+    });
+    srcList = Object.keys(srcCount).sort(function (a, b) { return srcCount[b] - srcCount[a]; });
+    if (covSource && !srcCount.hasOwnProperty(covSource)) covSource = '';
+  } else covSource = '';
+  var stageTot = hasStage ? covStageTotals(scopeRows.filter(function (r) { return covSourceOn(r.source); })) : [];
   if (stageTot.length) covStages = covStages.filter(function (s) {
     return stageTot.some(function (x) { return x.status === s; });
   });
   var rows = filterCoverage();
   var t = covStats(rows);
   if (activeTab === 'coverage') setCount(fmt(t.assigned) + ' leads' +
-    (covStages.length ? ' · ' + covStages.length + ' stage' + (covStages.length > 1 ? 's' : '') : ''));
+    (covStages.length ? ' · ' + covStages.length + ' stage' + (covStages.length > 1 ? 's' : '') : '') +
+    (covSource ? ' · ' + covSource : ''));
 
   var G = covGrainDef();
   var groups = covGroup(rows, covGrain);
-  var basisLab = covBasis === 'real' ? 'really covered' : 'covered';
+  var basisLab = covBasisLab();
 
   var html = '<div class="cv-wrap">';
 
@@ -314,6 +353,10 @@ function renderCoverage() {
       'title="Any connected call, ever.">Connected</button>' +
     '<button class="cv-chip' + (covBasis === 'real' ? ' on' : '') + '" data-basis="real" ' +
       'title="Connected with at least 15 seconds of talk. The dialler marks IVR-busy and ring-through as answered, so the raw rate overstates real conversations.">15s+ talk</button>' +
+    '<button class="cv-chip' + (covBasis === 'two' ? ' on' : '') + '" data-basis="two"' +
+      (hasT2 ? ' title="Connected with at least 2 minutes of talk — a real conversation."'
+             : ' disabled title="Needs the Leads Connected 2min+ column — paste coverage-daily.sql v1.4 and run covRunBackfill()."') +
+      '>2+ min talk</button>' +
     '</div></div>';
 
   // Lead-stage filter. Chip counts are the stage's leads in the CURRENT scope,
@@ -329,6 +372,26 @@ function renderCoverage() {
     html += '</div>';
   }
 
+  // Lead-source filter. Option counts are leads in the current scope + stages.
+  if (hasSource && srcList.length) {
+    var allSrc = 0; srcList.forEach(function (k) { allSrc += srcCount[k]; });
+    html += '<label class="cv-src"><span class="cv-basis-lbl">Lead source</span>' +
+      '<select data-cvsrc class="' + (covSource ? 'on' : '') + '"><option value="">All sources (' + fmt(allSrc) + ')</option>';
+    srcList.forEach(function (k) {
+      html += '<option value="' + esc(k) + '"' + (k === covSource ? ' selected' : '') + '>' +
+        esc(k) + ' (' + fmt(srcCount[k]) + ')</option>';
+    });
+    html += '</select></label>';
+  } else if (!hasSource && Object.keys(leadSrc).length) {
+    html += '<label class="cv-src"><span class="cv-basis-lbl">Lead source</span>' +
+      '<select disabled title="The daily coverage tab has no Lead Source column yet"><option>All sources</option>';
+    Object.keys(leadSrc).sort(function (a, b) { return leadSrc[b] - leadSrc[a]; }).forEach(function (k) {
+      html += '<option>' + esc(k) + '</option>';
+    });
+    html += '</select><span class="cv-kpi-n">Sources are in the lead list, but the daily <code>coverage</code> tab ' +
+      'has no Lead Source column yet — paste coverage-daily.sql v1.4 and run <code>covRunBackfill()</code> to switch this on.</span></label>';
+  }
+
   // ── KPIs ───────────────────────────────────────────────────────────────────
   var kpi = function (cls, v, lab, note) {
     return '<div class="cv-kpi' + (cls ? ' ' + cls : '') + '"><div class="cv-kpi-v">' + v + '</div>' +
@@ -339,7 +402,9 @@ function renderCoverage() {
     kpi('', fmt(t.assigned), 'Leads assigned', 'all of them reached an LRM') +
     kpi(t.headline < 80 ? 'bad' : '', t.headline + '%', basisLab,
         covBasis === 'real' ? fmt(t.real) + ' with 15s+ talk'
-                            : fmt(t.connected) + ' reached · ' + t.realPct + '% with 15s+ talk') +
+        : covBasis === 'two' ? fmt(t.t2) + ' with 2+ min talk · ' + t.covPct + '% connected'
+                            : fmt(t.connected) + ' reached · ' + t.realPct + '% with 15s+ talk' +
+                              (hasT2 ? ' · ' + t.t2Pct + '% 2+ min' : '')) +
     kpi(t.never > 0 ? 'bad' : '', fmt(t.never), 'Never dialled', 'nobody tried — queue, not calling') +
     kpi('', fmt(t.noAns), 'Dialled, no answer', 'tried and missed — connectivity') +
     kpi('', t.dialsPer, 'Dials per lead', fmt(t.dials) + ' dials in total') +
@@ -348,12 +413,23 @@ function renderCoverage() {
   // ── Trend ──────────────────────────────────────────────────────────────────
   // Floor-wide, so it is NOT filtered by scope: it answers "is the floor keeping
   // up", which a scoped subset cannot. Said plainly in the header.
+  var trSrcOk = true;
   var tr = (D.coverageTrend || []).map(function (d) {
+    if (!covStages.length && !covSource) return d;
+    var o = { date: d.date, age: d.age, maturing: d.maturing, assigned: 0, connected: 0, real: 0, t2: 0, never: 0 };
+    if (d.byCell) {
+      Object.keys(d.byCell).forEach(function (k) {
+        var b = d.byCell[k];
+        if (!covStageOn(b.status) || !covSourceOn(b.source)) return;
+        o.assigned += b.assigned; o.connected += b.connected; o.real += b.real; o.t2 += b.t2 || 0; o.never += b.never;
+      });
+      return o;
+    }
+    if (covSource) trSrcOk = false;
     if (!covStages.length || !d.byStatus) return d;
-    var o = { date: d.date, age: d.age, maturing: d.maturing, assigned: 0, connected: 0, real: 0, never: 0 };
     covStages.forEach(function (s) {
       var b = d.byStatus[s]; if (!b) return;
-      o.assigned += b.assigned; o.connected += b.connected; o.real += b.real; o.never += b.never;
+      o.assigned += b.assigned; o.connected += b.connected; o.real += b.real; o.t2 += b.t2 || 0; o.never += b.never;
     });
     return o;
   });
@@ -363,10 +439,11 @@ function renderCoverage() {
     var mature = tr.filter(function (d) { return !d.maturing; });
     html += '<div class="cv-trend"><div class="cv-trend-hd"><b>Coverage by cohort day</b>' +
       '<span>floor-wide, not filtered by scope' + (covStages.length ? ' · <b>filtered to the selected stages</b>' : '') +
+      (covSource ? (trSrcOk ? ' · <b>source: ' + esc(covSource) + '</b>' : ' · <b>not filtered by source</b>') : '') +
       ' · bar height is the day\'s lead volume · ' +
       'hatched = still maturing, too young to judge</span></div><div class="cv-bars">';
     tr.forEach(function (d) {
-      var pct = d.assigned ? Math.round(1000 * (covBasis === 'real' ? d.real : d.connected) / d.assigned) / 10 : 0;
+      var pct = d.assigned ? Math.round(1000 * covVal(d) / d.assigned) / 10 : 0;
       var h = maxA ? Math.max(2, Math.round(100 * d.assigned / maxA)) : 2;
       var cls = d.maturing ? 'imm' : (pct >= 85 ? '' : pct >= 75 ? 'low' : 'bad');
       html += '<div class="cv-bar ' + cls + '" title="' + esc(d.date) + ' · ' + fmt(d.assigned) +
@@ -378,8 +455,8 @@ function renderCoverage() {
     html += '</div>';
     if (mature.length >= 2) {
       var first = mature[0], last = mature[mature.length - 1];
-      var p1 = first.assigned ? 100 * first.connected / first.assigned : 0;
-      var p2 = last.assigned ? 100 * last.connected / last.assigned : 0;
+      var p1 = first.assigned ? 100 * covVal(first) / first.assigned : 0;
+      var p2 = last.assigned ? 100 * covVal(last) / last.assigned : 0;
       var delta = Math.round((p2 - p1) * 10) / 10;
       html += '<div class="cv-subnote">Across the mature days, coverage moved <b>' +
         (delta >= 0 ? '+' : '') + delta + ' pts</b> (' + esc(first.date) + ' → ' + esc(last.date) +
@@ -417,7 +494,7 @@ function renderCoverage() {
     '<th data-cs="key">' + G.head + '</th>' +
     th('assigned', 'Assigned') +
     th('dialled', 'Dialled') +
-    th('headline', basisLab === 'covered' ? 'Covered' : 'Really cov.', ' cv-sep') +
+    th('headline', covBasis === 'real' ? 'Really cov.' : covBasis === 'two' ? 'Cov. 2+ min' : 'Covered', ' cv-sep') +
     th('gap', 'Raw → 15s+ gap') +
     th('never', 'Never dialled', ' cv-sep') +
     th('noAns', 'No answer') +
@@ -464,6 +541,7 @@ function renderCoverage() {
       'A stage with low coverage and high volume is where leads are going quiet.</div>' +
       '<div class="tbl-wrap"><table class="cv-grid"><thead><tr><th>Stage</th>' +
       '<th class="num">Leads</th><th class="num">Covered</th><th class="num">15s+ talk</th>' +
+      (hasT2 ? '<th class="num">2+ min talk</th>' : '') +
       '<th class="num">Never dialled</th><th class="num">No answer</th></tr></thead><tbody>';
     st.forEach(function (s) {
       var p = s.assigned ? Math.round(1000 * s.connected / s.assigned) / 10 : 0;
@@ -472,7 +550,9 @@ function renderCoverage() {
       html += '<tr class="' + (hasStage ? 'cv-st' + sel : '') + '" data-stage="' + esc(s.status) + '">' +
         '<td>' + esc(s.status) + '</td><td class="num">' + fmt(s.assigned) + '</td>' +
         '<td class="num" style="background:' + covTint(p) + '">' + p + '%</td>' +
-        '<td class="num">' + rp + '%</td><td class="num">' + fmt(s.never) + '</td>' +
+        '<td class="num">' + rp + '%</td>' +
+        (hasT2 ? '<td class="num">' + (s.assigned ? Math.round(1000 * (s.t2 || 0) / s.assigned) / 10 : 0) + '%</td>' : '') +
+        '<td class="num">' + fmt(s.never) + '</td>' +
         '<td class="num">' + (s.noAns == null ? '—' : fmt(s.noAns)) + '</td></tr>';
     });
     html += '</tbody></table></div>';
@@ -483,6 +563,7 @@ function renderCoverage() {
     '<b>Covered</b> means at least one connected call to that lead, at any time after it was ' +
     'created. <b>15s+ talk</b> is the same count with a real conversation behind it — the dialler ' +
     'reports IVR-busy and ring-through as answered, so the two differ by a lot in some clusters. ' +
+    '<b>2+ min talk</b> is stricter again: at least one connected call with two minutes of conversation. ' +
     '<b>Leads with no LRM are not in this tab at all</b>: they are an allocation question with a ' +
     'different owner, and including them made the floor look far worse than its own work. ' +
     'Inbound calls are not counted yet, so a customer who rang us and spoke reads as uncovered — ' +
@@ -508,6 +589,13 @@ function renderCoverage() {
   };
   panel.querySelectorAll('.cv-chip[data-stage]').forEach(function (b) {
     b.addEventListener('click', function () { toggleStage(b.getAttribute('data-stage')); });
+  });
+  var srcSel = panel.querySelector('select[data-cvsrc]');
+  if (srcSel) srcSel.addEventListener('change', function () {
+    covSource = srcSel.value;
+    covOpen = null;
+    try { localStorage.setItem('lrmCovSource', covSource); } catch (e) {}
+    renderCoverage();
   });
   panel.querySelectorAll('tr.cv-st').forEach(function (r) {
     r.addEventListener('click', function () { toggleStage(r.getAttribute('data-stage')); });
@@ -578,7 +666,7 @@ function covOpenModal(key, groups, rows) {
   var bk = covModalEl();
   bk.querySelector('#cvModalT').textContent = g.key;
   bk.querySelector('#cvModalS').textContent = fmt(g.assigned) + ' leads \u00b7 ' + g.headline +
-    '% ' + (covBasis === 'real' ? 'really covered' : 'covered') + ' \u00b7 ' +
+    '% ' + covBasisLab() + ' \u00b7 ' +
     fmt(g.never) + ' never dialled';
   bk.querySelector('#cvModalBd').innerHTML = covDrill(g, rows);
   bk.classList.remove('closing');
@@ -610,7 +698,7 @@ function covDrill(g, rows) {
   var placeOf = G.k === 'cluster' ? function (l) { return l.cluster || l.city || 'Unmapped'; }
               : G.k === 'city'    ? function (l) { return l.city || l.cluster || 'Unmapped'; } : null;
   var leads = (D.coverageLeads || []).filter(function (l) {
-    return emails[l.agent] && covStageOn(l.status) && (!placeOf || placeOf(l) === g.key);
+    return emails[l.agent] && covStageOn(l.status) && covSourceOn(l.source) && (!placeOf || placeOf(l) === g.key);
   });
 
   var html = '<div class="cv-drill-in">';
