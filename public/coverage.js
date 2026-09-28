@@ -411,10 +411,28 @@ function renderCoverage() {
     '</div>';
 
   // ── Trend ──────────────────────────────────────────────────────────────────
-  // Floor-wide, so it is NOT filtered by scope: it answers "is the floor keeping
-  // up", which a scoped subset cannot. Said plainly in the header.
+  // Follows the scope filters when the backend ships per-LRM day cells (28 Sep).
   var trSrcOk = true;
-  var tr = (D.coverageTrend || []).map(function (d) {
+  /* 28 Sep 2026: the trend now FOLLOWS the scope filters (ADOS/ZSM/City/TL/LRM)
+     when the backend ships per-LRM day cells; the old floor-wide series is the
+     fallback for an API that predates them. */
+  var dcx = D.coverageDayCells, trScoped = false, tr;
+  if (dcx && dcx.cells && dcx.cells.length) {
+    trScoped = true;
+    var inAg = {}; scopeRows.forEach(function (r) { inAg[r.agent] = true; });
+    var trByDay = {};
+    (D.coverageTrend || []).forEach(function (d) {
+      trByDay[d.date] = { date: d.date, age: d.age, maturing: d.maturing, assigned: 0, connected: 0, real: 0, t2: 0, never: 0 };
+    });
+    dcx.cells.forEach(function (c) {
+      if (!inAg[dcx.agents[c[1]]]) return;
+      var k = dcx.keys[c[2]] || ['', ''];
+      if (!covStageOn(k[0]) || !covSourceOn(k[1])) return;
+      var o = trByDay[dcx.dates[c[0]]]; if (!o) return;
+      o.assigned += c[3]; o.connected += c[4]; o.real += c[5]; o.t2 += c[6]; o.never += c[7];
+    });
+    tr = Object.keys(trByDay).sort().map(function (k) { return trByDay[k]; });
+  } else tr = (D.coverageTrend || []).map(function (d) {
     if (!covStages.length && !covSource) return d;
     var o = { date: d.date, age: d.age, maturing: d.maturing, assigned: 0, connected: 0, real: 0, t2: 0, never: 0 };
     if (d.byCell) {
@@ -438,10 +456,11 @@ function renderCoverage() {
     tr.forEach(function (d) { if (d.assigned > maxA) maxA = d.assigned; });
     var mature = tr.filter(function (d) { return !d.maturing; });
     html += '<div class="cv-trend"><div class="cv-trend-hd"><b>Coverage by cohort day</b>' +
-      '<span>floor-wide, not filtered by scope' + (covStages.length ? ' · <b>filtered to the selected stages</b>' : '') +
+      '<span>' + (trScoped ? 'follows the filters above' : 'floor-wide, not filtered by scope') +
+      (covStages.length ? ' · <b>' + covStages.length + ' stage' + (covStages.length > 1 ? 's' : '') + '</b>' : '') +
       (covSource ? (trSrcOk ? ' · <b>source: ' + esc(covSource) + '</b>' : ' · <b>not filtered by source</b>') : '') +
-      ' · bar height is the day\'s lead volume · ' +
-      'hatched = still maturing, too young to judge</span></div><div class="cv-bars">';
+      ' · bar height = leads created that day · ' +
+      'striped = today, too early to judge</span></div><div class="cv-bars">';
     tr.forEach(function (d) {
       var pct = d.assigned ? Math.round(1000 * covVal(d) / d.assigned) / 10 : 0;
       var h = maxA ? Math.max(2, Math.round(100 * d.assigned / maxA)) : 2;
