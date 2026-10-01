@@ -125,7 +125,7 @@ function renderDialWaterfall(panel) {
   var all = awEnsureUntouched(ldRows());
   panel.innerHTML = '';
   var wrap = document.createElement('div'); wrap.className = 'dp-wrap'; panel.appendChild(wrap);
-  if (!all.length) { wrap.innerHTML = '<div class="dp-empty"><b>No call-depth feed yet.</b></div>'; return; }
+  if (!all.length) { wrap.innerHTML = ldDiagHtml(); return; }
 
   var srcCount = {};
   var allN = 0;
@@ -227,6 +227,7 @@ function renderDialWaterfall(panel) {
     var panel = document.getElementById('depthPanel');
     if (!panel) return;
     renderDialWaterfall(panel);
+    if (typeof renderCityDepth === 'function') renderCityDepth(panel);
     if (typeof renderLeadDepth === 'function') renderLeadDepth(panel);
   };
 })();
