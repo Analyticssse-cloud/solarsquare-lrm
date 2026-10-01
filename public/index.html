@@ -307,8 +307,8 @@
     table.dist:not(.mtd) td.ok { color: #0f6b3c; }
     /* speed grid: its group row becomes the band, which also fixes a contrast
        defect — the row was muted grey text on the inherited navy head */
-    table.sl-grid thead tr, table.cv-grid thead tr { background: #f5f7fc; }
-    table.sl-grid thead th, table.cv-grid thead th { color: var(--blue); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.6px; border-bottom: 1px solid #cfd8ee; }
+    table.sl-grid thead tr { background: #f5f7fc; }
+    table.sl-grid thead th { color: var(--blue); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.6px; border-bottom: 1px solid #cfd8ee; }
     table.sl-grid tr.sl-hgrp th { background: var(--blue-soft); color: var(--blue); font-size: 9px; letter-spacing: 0.8px; border-bottom: 1px solid #dbe3f7; }
     table.sl-grid td { border-bottom: 1px solid #eef1f7; padding: 6px 9px; }
 
@@ -544,7 +544,8 @@
       <span class="toggle-slider"></span>
     </label>
     <span class="refresh-label">Auto-refresh</span>
-    <select class="interval-select" id="intervalSelect" title="The sheet behind this page is rewritten every 15 minutes, so refreshing faster cannot surface newer numbers.">
+    <select class="interval-select" id="intervalSelect">
+      <option value="5">5 min</option>
       <option value="10">10 min</option>
       <option value="15" selected>15 min</option>
       <option value="30">30 min</option>
@@ -568,20 +569,6 @@
 .auth-err{margin-top:16px;font-size:12.5px;color:#ffb4b4;background:rgba(255,90,90,.09);border:1px solid rgba(255,90,90,.28);border-radius:8px;padding:9px 11px;text-align:left;line-height:1.5}
 .auth-err.hidden{display:none}
 .auth-foot{margin-top:16px;font-size:11.5px;color:#6b7490}
-.otp-form{display:flex;flex-direction:column;gap:10px;text-align:left}
-.otp-form label{font-size:11.5px;color:#9aa3bd;font-weight:600;letter-spacing:.02em}
-.otp-form input{width:100%;box-sizing:border-box;background:#0f1526;border:1px solid #2e3a5c;border-radius:8px;color:#eef2ff;font-size:14px;padding:10px 12px;outline:none}
-.otp-form input:focus{border-color:var(--gold)}
-.otp-form input.code{font-size:22px;letter-spacing:.5em;text-align:center;font-variant-numeric:tabular-nums}
-.otp-btn{background:var(--gold);color:#18233f;border:none;border-radius:8px;padding:10px 14px;font-size:13.5px;font-weight:700;cursor:pointer}
-.otp-btn:hover{background:var(--gold-dk)}
-.otp-btn:disabled{opacity:.5;cursor:not-allowed}
-.otp-links{display:flex;justify-content:space-between;gap:10px;font-size:12px}
-.otp-links a{color:#9aa3bd;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
-.otp-links a:hover{color:#eef2ff}
-.otp-links a.off{opacity:.45;pointer-events:none}
-.otp-sent{font-size:12.5px;color:#c8d2f0;line-height:1.5}
-.otp-step.hidden{display:none}
 /* ── Who's signed in ── */
 .whoami{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#9aa3bd;margin-left:auto;padding-left:10px}
 .whoami .role-badge{background:#1f2a45;border:1px solid #2e3a5c;color:#c8d2f0;border-radius:5px;padding:1.5px 7px;font-size:10.5px;font-weight:650;letter-spacing:.03em}
@@ -749,16 +736,8 @@ table.hl td.pc .no{color:#c0392b}
 <div class="auth-bk hidden" id="authBk">
   <div class="auth-card">
     <h2>LRM Operations Dashboard</h2>
-    <p>Sign in with your SolarSquare work email. You'll see only your own numbers and the people who report to you.</p>
-    <div class="otp-form">
-      <div class="otp-step" id="otpStep1">
-        <form id="otpEmailForm" style="display:flex;flex-direction:column;gap:10px">
-          <label for="otpEmail">Work email</label>
-          <input id="otpEmail" type="email" autocomplete="email" placeholder="name@solarsquare.in" required>
-          <button class="otp-btn" id="otpSendBtn" type="submit">Sign in</button>
-        </form>
-      </div>
-    </div>
+    <p>Sign in with your SolarSquare account. What you can see is based on your role in the reporting hierarchy.</p>
+    <div class="auth-btn-host" id="gsiBtn"></div>
     <div class="auth-err hidden" id="authErr"></div>
     <div class="auth-foot" id="authFoot"></div>
   </div>
@@ -777,8 +756,6 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabInbound">📞 Inbound</div>
   <div class="tab"        id="tabDID">☎️ DID estate</div>
   <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
-  <div class="tab"        id="tabCoverage">🎯 Coverage</div>
-  <div class="tab"        id="tabDepth">📶 Dial depth</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
 </div>
@@ -817,8 +794,6 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="inboundPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="didPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="speedPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
-  <div class="panel" id="coveragePanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
-  <div class="panel" id="depthPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
 <div id="printRoot"></div>
@@ -833,9 +808,6 @@ table.hl td.pc .no{color:#c0392b}
 
 <script>
 var D = null, activeTab = 'dist';
-/* Tabs whose drilldowns need the per-lead arrays the API now omits by default. */
-var LEADS_TABS = { coverage:1, speed:1, depth:1 };
-var leadsLoading = false, refreshPending = false;
 var AUTH = { token:'', clientId:'', required:false, email:'', ready:false };
 var F = { q:'', ados:[], zsms:[], cities:[], tls:[], agents:[], band:'all', flag:'' };
 var citySort  = { col:'totalCalls', dir:-1 };
@@ -854,9 +826,8 @@ var actView='dist';   // MS Plan / Effort per MS removed 13 Sep 2026; no longer 
 var perSort = { col:'dialsPerMs', dir:-1 };
 /* Distribution ("who is below the bar"), not averages. Present = made more than PRESENT_MIN calls. */
 /* Day-end bars per LRM. ttLow is a SECOND, harder talk-time floor the user asked
-   for (4 Sep): 120 min is the target, under 90 min is the intervention line.
-   Lowered 28 Sep (user): 90 min target, 75 min intervention line. */
-var DIST = { presentMin:1, dial:200, ttMin:90, ttLow:75, ms:10 };
+   for (4 Sep): 120 min is the target, under 90 min is the intervention line. */
+var DIST = { presentMin:1, dial:200, ttMin:120, ttLow:90, ms:10 };
 /* Every bar is scored against the share of the shift ELAPSED, not the whole day
    (user, 4 Sep): at 14:00 an LRM on 94 dials is on pace, and flagging them against
    200 would put most of the floor "below the bar" every morning. On a finished day
@@ -913,15 +884,7 @@ function startAutoRefresh() {
   tickCountdown();
   countdownTimer = setInterval(function() {
     countdownSecs--;
-    /* A BACKGROUND tab pulls NOTHING (23 Sep 2026). Forgotten dashboard tabs on
-       laptops across the floor were each pulling a full payload every 15 minutes
-       all day, at nobody's benefit. The pull is DEFERRED, not skipped —
-       refreshPending fires it the moment the tab is looked at again, so the
-       numbers are never stale on screen. */
-    if (countdownSecs <= 0) {
-      if (document.hidden) refreshPending = true; else loadData();
-      countdownSecs = mins * 60;
-    }
+    if (countdownSecs <= 0) { loadData(); countdownSecs = mins * 60; }
     tickCountdown();
   }, 1000);
 }
@@ -941,7 +904,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   document.getElementById('btnRefresh').addEventListener('click', function() {
     countdownSecs = parseInt(document.getElementById('intervalSelect').value)*60 || 900;
-    loadData({ force:true });
+    loadData();
   });
   document.getElementById('btnApplyDates').addEventListener('click', loadData);
   document.getElementById('btnPDF').addEventListener('click', downloadPDF);
@@ -959,8 +922,6 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabInbound').addEventListener('click', function(){ switchTab('inbound'); });
   document.getElementById('tabDID').addEventListener('click', function(){ switchTab('did'); });
   document.getElementById('tabSpeed').addEventListener('click', function(){ switchTab('speed'); });
-  document.getElementById('tabCoverage').addEventListener('click', function(){ switchTab('coverage'); });
-  document.getElementById('tabDepth').addEventListener('click', function(){ switchTab('depth'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
     if (this.checked) startAutoRefresh(); else stopAutoRefresh();
@@ -995,21 +956,11 @@ document.addEventListener('DOMContentLoaded', function() {
   // The board carries a clock (as-of stamp, current-hour bar, pace notch), so it
   // re-renders every 60s even between the 15-min data pulls.
   setInterval(function(){ if (D && activeTab === 'floor') renderFloor(); if (D && activeTab === 'dist') renderHourlyBoard(); }, 60000);
-  document.addEventListener('visibilitychange', function(){
-    if (!document.hidden && refreshPending) { refreshPending = false; loadData(); }
-  });
   bootAuth();
 });
 
 /* ── Data fetch (falls back to demo data if the API is unavailable) ── */
-/* No `_t=` cache buster and no `cache:'no-store'` any more (23 Sep 2026). Those
-   two together made every single load a guaranteed origin hit — a unique URL the
-   browser could never reuse — which is what paused the Vercel account. The API
-   now sends `private, max-age=240`, so a repeat load inside four minutes costs
-   nothing. loadData({force:true}) bypasses that with `cache:'reload'`, and the
-   Refresh BUTTON is the one caller that passes it: when the user explicitly asks
-   for new numbers they get a network pull. */
-function loadData(opts) {
+function loadData() {
   var from = document.getElementById('fromDate').value;
   var to   = document.getElementById('toDate').value;
   if (!from || !to) { alert('Please select a valid date range.'); return; }
@@ -1019,9 +970,8 @@ function loadData(opts) {
   document.getElementById('btnApplyDates').disabled = true;
   setLoading();
 
-  fetch('/api/dashboard?from=' + from + '&to=' + to + (LEADS_TABS[activeTab] ? '&leads=1' : ''),
-        { cache: (opts && opts.force) ? 'reload' : 'default',
-          headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
+  fetch('/api/dashboard?from=' + from + '&to=' + to + '&_t=' + Date.now(),
+        { cache: 'no-store', headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
     .then(function(r) {
       if (r.status === 401 || r.status === 403) {
         return r.json().catch(function(){ return {}; }).then(function(e){
@@ -1037,7 +987,7 @@ function loadData(opts) {
     .catch(function(e){
       // An auth refusal must NEVER fall through to demo data - that would look like
       // real numbers to someone who is not allowed to see them.
-      if (e.authError) { AUTH.token = ''; try { localStorage.removeItem('lrm_session'); } catch (x) {} showAuthGate(authMessage(e.message)); onErr('Sign in to view this dashboard.'); return; }
+      if (e.authError) { showAuthGate(authMessage(e.message)); onErr('Sign in to view this dashboard.'); return; }
       if (window.MOCK) { onData(window.MOCK); }   // offline / preview fallback
       else onErr(e.message);
     });
@@ -1060,34 +1010,7 @@ function onData(data) {
   document.getElementById('tsLabel').textContent   = 'Updated ' + new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
   buildKPI();
   buildFilterBar();
-  ensureLeads(activeTab);
   renderActive();
-}
-
-/* The Coverage and FRT per-lead arrays are not in the initial payload — see
-   `wantLeads` in api/dashboard.js. Fetch them the first time one of those tabs is
-   opened, then re-render it. The drill builders (speedDrill, coverage's group
-   drill) stay SYNCHRONOUS and untouched: they read D.speedLeads / D.coverageLeads
-   as before, and by the time a row inside an open tab can be clicked this has
-   landed. A failure is silent and leaves the existing empty-state in place. */
-function ensureLeads(name) {
-  if (!D || !LEADS_TABS[name] || !D.leadsOmitted || leadsLoading) return;
-  leadsLoading = true;
-  var from = document.getElementById('fromDate').value;
-  var to   = document.getElementById('toDate').value;
-  fetch('/api/dashboard?from=' + from + '&to=' + to + '&leads=1',
-        { headers: AUTH.token ? { Authorization: 'Bearer ' + AUTH.token } : {} })
-    .then(function(r){ return r.ok ? r.json() : null; })
-    .then(function(d){
-      leadsLoading = false;
-      if (!d || !D) return;
-      D.coverageLeads = d.coverageLeads || [];
-      D.speedLeads    = d.speedLeads    || [];
-      D.depthLeads    = d.depthLeads    || [];
-      D.leadsOmitted  = false;
-      if (activeTab === name) renderActive();
-    })
-    .catch(function(){ leadsLoading = false; });
 }
 
 function onErr(msg) {
@@ -1126,12 +1049,11 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', inbound:'tabInbound', did:'tabDID', speed:'tabSpeed', coverage:'tabCoverage', depth:'tabDepth' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', inbound:'inboundPanel', did:'didPanel', speed:'speedPanel', coverage:'coveragePanel', depth:'depthPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', inbound:'tabInbound', did:'tabDID', speed:'tabSpeed' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', inbound:'inboundPanel', did:'didPanel', speed:'speedPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
-  ensureLeads(name);
   renderActive();
 }
 
@@ -1152,9 +1074,7 @@ var PANEL_RENDERERS = {
   eodr:    function(){ if(typeof renderEODR==='function') renderEODR(); },
   inbound: function(){ if(typeof renderInbound==='function') renderInbound(); },
   did:     function(){ if(typeof renderDID==='function') renderDID(); },
-  speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); },
-  coverage:function(){ if(typeof renderCoverage==='function') renderCoverage(); },
-  depth:   function(){ if(typeof renderDepth==='function') renderDepth(); }
+  speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); }
 };
 function renderActive() {
   if(!D) return;
@@ -1239,14 +1159,14 @@ function bootAuth() {
   }
 
   var saved = '';
-  try { saved = localStorage.getItem('lrm_session') || ''; } catch (e) {}
+  try { saved = sessionStorage.getItem('lrm_id_token') || ''; } catch (e) {}
 
   fetch('/api/config', { cache:'no-store' })
     .then(function(r){ return r.ok ? r.json() : {}; })
     .catch(function(){ return {}; })
     .then(function(cfg){
+      AUTH.clientId = cfg.clientId || '';
       AUTH.required = !!cfg.authRequired;
-      AUTH.domain   = cfg.allowedDomain || 'solarsquare.in';
       AUTH.ready    = true;
       var foot = document.getElementById('authFoot');
       if (foot) foot.textContent = cfg.allowedDomain ? '@' + cfg.allowedDomain + ' accounts only' : '';
@@ -1264,73 +1184,61 @@ function showAuthGate(msg) {
   var err = document.getElementById('authErr');
   if (msg) { err.textContent = msg; err.classList.remove('hidden'); }
   else err.classList.add('hidden');
-  mountOtp();
+  mountGsi();
 }
 function hideAuthGate() {
   var bk = document.getElementById('authBk');
   if (bk) bk.classList.add('hidden');
 }
 
-/* Email sign-in: posts the email to /api/login and stores the session token.
-   Access is re-checked against LRM_TL_MAP on every data request. */
-var OTP = { busy:false };
-function otpMsg(reason, extra) {
-  var m = {
-    'bad-email':'Enter a valid email address.',
-    'wrong-domain':'Use your @' + (AUTH.domain || 'solarsquare.in') + ' work email.',
-    'not-mapped':'This email is not on the dashboard access list (LRM_TL_MAP). Contact Ops.',
-    'roster-unavailable':'Sign-in is briefly unavailable. Try again in a minute.',
-    'auth-not-configured':'Sign-in is not switched on for this deployment.'
+function mountGsi() {
+  if (!AUTH.clientId) {
+    document.getElementById('gsiBtn').innerHTML =
+      '<div style="font-size:12.5px;color:#ffb4b4">GOOGLE_CLIENT_ID is not set on this deployment.</div>';
+    return;
+  }
+  if (window.__gsiMounted) return;
+  var start = function() {
+    if (!window.google || !google.accounts || !google.accounts.id) return;
+    window.__gsiMounted = true;
+    google.accounts.id.initialize({ client_id: AUTH.clientId, callback: onCredential });
+    google.accounts.id.renderButton(document.getElementById('gsiBtn'),
+      { theme:'filled_blue', size:'large', text:'signin_with', shape:'pill' });
   };
-  return m[reason] || 'Something went wrong. Try again.';
+  if (window.google && window.google.accounts) { start(); return; }
+  var s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client';
+  s.async = true; s.defer = true;
+  s.onload = start;
+  document.head.appendChild(s);
 }
-function otpErr(msg) {
-  var err = document.getElementById('authErr');
-  if (msg) { err.textContent = msg; err.classList.remove('hidden'); } else err.classList.add('hidden');
-}
-function otpPost(body) {
-  return fetch('/api/login', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) })
-    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ j._ok = r.ok; return j; }); });
-}
-function otpRequest() {
-  if (OTP.busy) return;
-  var email = document.getElementById('otpEmail').value.trim().toLowerCase();
-  if (!email) return;
-  OTP.busy = true; otpErr('');
-  var btn = document.getElementById('otpSendBtn'); btn.disabled = true; btn.textContent = 'Signing in…';
-  otpPost({ email: email }).then(function(j){
-    OTP.busy = false; btn.disabled = false; btn.textContent = 'Sign in';
-    if (!j._ok || !j.token) { otpErr(otpMsg(j.error)); return; }
-    AUTH.token = j.token; AUTH.email = j.email || email;
-    try { localStorage.setItem('lrm_session', AUTH.token); } catch (e) {}
-    hideAuthGate();
-    loadData();
-  }).catch(function(){ OTP.busy = false; btn.disabled = false; btn.textContent = 'Sign in'; otpErr('Network error. Try again.'); });
-}
-function mountOtp() {
-  if (window.__otpMounted) return;
-  window.__otpMounted = true;
-  document.getElementById('otpEmailForm').addEventListener('submit', function(e){ e.preventDefault(); otpRequest(); });
-  setTimeout(function(){ var el = document.getElementById('otpEmail'); if (el) el.focus(); }, 30);
+
+function onCredential(resp) {
+  AUTH.token = (resp && resp.credential) || '';
+  if (!AUTH.token) { showAuthGate('Google did not return a credential. Try again.'); return; }
+  try { sessionStorage.setItem('lrm_id_token', AUTH.token); } catch (e) {}
+  hideAuthGate();
+  loadData();
 }
 
 function signOut() {
   AUTH.token = '';
-  try { localStorage.removeItem('lrm_session'); sessionStorage.removeItem('lrm_id_token'); } catch (e) {}
-  OTP.challenge = '';
+  try { sessionStorage.removeItem('lrm_id_token'); } catch (e) {}
+  if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
+  window.__gsiMounted = false;
+  document.getElementById('gsiBtn').innerHTML = '';
   showAuthGate('');
-  otpStep(1);
 }
 
 function authMessage(reason) {
   var m = {
     'not-signed-in':   'Please sign in to continue.',
-    'invalid-token':   'Your session has expired. Sign in again.',
+    'invalid-token':   'Your session expired. Sign in again.',
     'verify-failed':   'Could not verify your sign-in. Try again.',
-    'wrong-audience':  'Sign in again.',
-    'email-unverified':'Sign in again.',
-    'wrong-domain':    'Use your SolarSquare work email.',
-    'not-authorized':  'Your email is not in the reporting hierarchy for this dashboard. Ask Ops to add you.'
+    'wrong-audience':  'This sign-in was issued for a different app. Sign in again.',
+    'email-unverified':'Your Google account email is not verified.',
+    'wrong-domain':    'Use your SolarSquare account - personal Google accounts cannot access this dashboard.',
+    'not-authorized':  'Your account is not on the access list for this dashboard.'
   };
   return m[reason] || ('Access denied' + (reason ? ' (' + reason + ')' : '') + '.');
 }
@@ -1766,8 +1674,7 @@ function floorHeroHTML(rows){
    Bars are plain CSS, not ECharts: three static bar rows do not justify the chart
    engine the Distribution heatmaps need, and this tab must open instantly.
    Honours the filter bar and viewer scope, because it reads filterAgents(). */
-/* Floor Board talk bar = the 75-min line (user, 28 Sep), read from DIST so the two cannot drift. */
-var FLOOR_TARGET = { dials:200, talkMin:DIST.ttLow, ms:10 };
+var FLOOR_TARGET = { dials:200, talkMin:120, ms:10 };
 /* One column set per metric: how the value is read off a row, how it prints, and
    the per-LRM day target it is scored against. */
 var FLOOR_BOARDS = [
@@ -2338,7 +2245,7 @@ var DIST_MET={
   present:{title:'Present LRMs',   sev:'sev-info', desc:'LRMs who made at least one call today.', action:'Population used for every percentage below.', pass:function(n,r){return true;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
   dial:   {title:'Below dial bar', sev:'sev-high', desc:'', action:'Hold accountable for the dial gap — not the team average.', pass:function(n,r){return n(r,'Call Count')<DIST.dial;}, sortVal:function(n,r){return n(r,'Call Count');}, metric:function(n,r){return n(r,'Call Count')+' dials';}},
   tt:     {title:'Below talk-time bar', sev:'sev-mid', desc:'', action:'Check conversation depth, not just dial count.',        pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttMin');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
-  tt90:   {title:'Under the '+DIST.ttLow+'-min talk floor', sev:'sev-high', desc:'', action:'Intervene today — this is time on the phone, not dial effort.', pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttLow');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
+  tt90:   {title:'Under the 90-min talk floor', sev:'sev-high', desc:'', action:'Intervene today — this is time on the phone, not dial effort.', pass:function(n,r){return n(r,'Total Talk Time')*60<distBar('ttLow');}, sortVal:function(n,r){return n(r,'Total Talk Time');}, metric:function(n,r){return Math.round(n(r,'Total Talk Time')*60)+' min TT';}},
   ms:     {title:'Below meetings bar',  sev:'sev-high',desc:'', action:'Coach on pitch and conversion.',                         pass:function(n,r){return n(r,'MS Today')<distBar('ms');}, sortVal:function(n,r){return n(r,'MS Today');}, metric:function(n,r){return n(r,'MS Today')+' MS';}}
 };
 function openDistModal(grp,met){
@@ -2498,15 +2405,8 @@ function downloadPDF(){
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
-<script src="distribution.js?v=20260930a"></script>
-<script src="dod.js?v=20260930a"></script>
-<script src="speed.js?v=20260919c"></script>
-<script src="coverage.js?v=20260928b"></script>
-<script src="depth.js?v=20260921a"></script>
-<script src="leaddepth.js?v=20260925d"></script>
-<script src="dialwaterfall.js?v=20261001a"></script>
-<script src="citydepth.js?v=20261001a"></script>
-<script src="depthwide.js?v=20261001b"></script>
+<script src="distribution.js?v=20260913d"></script>
+<script src="speed.js?v=20260918e"></script>
 <script src="msdriver.js?v=20260907a"></script>
 <script src="msplan.js?v=20260907b"></script>
 <script src="conncharts.js?v=20260913d"></script>
@@ -2518,6 +2418,6 @@ function downloadPDF(){
 <script src="callhealth.js?v=20260918c"></script>
 <script src="didview.js?v=20260919a"></script>
 <script src="inbound.js?v=20260918c"></script>
-<script src="eodr.js?v=20260925b"></script>
+<script src="eodr.js?v=20260918d"></script>
 </body>
 </html>

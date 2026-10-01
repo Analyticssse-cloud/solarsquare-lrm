@@ -27,6 +27,10 @@ function dwStage(s) { s = String(s || '').trim(); return s || 'No stage'; }
 function dwPct(a, b) { return b ? Math.round(1000 * a / b) / 10 : null; }
 function dwP(v) { return v == null ? '–' : v.toFixed(1) + '%'; }
 function dwF2(n, d) { return d ? (n / d).toFixed(2) : ''; }
+/* Meetings = LEADS with a meeting scheduled (msl), not a sum of the daily MS count,
+   which counts one lead once per day it carried a meeting. */
+function dwMsLeads(r) { return r.n ? (r.msl != null ? r.msl : r.ms) : (r.ms > 0 ? 1 : 0); }
+function dwReach(r) { return r.n ? !!r.rch : ((r.rc != null ? r.rc : r.conn) > 0); }
 function dwHr(h) { var p = function (x) { return (x < 10 ? '0' : '') + x + ':00'; }; return p(h) + '-' + p(h + 1); }
 
 /* LRM → TL/ZSM/ADOS from the aggregate rows, so the lead list can ship LRM only. */
@@ -45,7 +49,7 @@ function dwLeadRows() {
   D.__dwLeads = (D.depthLeads || []).map(function (x) {
     var c = ch[x.lrm] || {};
     return { lead: x.l, lrm: x.lrm, tl: c.tl, zsm: c.zsm, ados: c.ados, cluster: x.c, source: x.s || '—', stage: x.st, status: x.ss,
-      dials: x.d, conn: x.cn, ms: x.ms, md: x.md, assigned: x.a, link: 'https://lighthouse.solarsquare.in/#/menu/lead/details/' + encodeURIComponent(x.l) };
+      dials: x.d, conn: x.cn, rc: x.rc, ms: x.ms, md: x.md, assigned: x.a, link: 'https://lighthouse.solarsquare.in/#/menu/lead/details/' + encodeURIComponent(x.l) };
   });
   return D.__dwLeads;
 }
@@ -68,10 +72,10 @@ function dwRender(panel) {
   rows.forEach(function (r) {
     var k = dwKeyOf(r, g), w = ldW(r), d = ldDepth(r);
     [G[k] || (G[k] = mk(k)), T].forEach(function (a) {
-      a.leads += w; a.dials += r.dials; a.ms += r.ms;
+      a.leads += w; a.dials += r.dials; a.ms += dwMsLeads(r);
       if (d > 0) a.dialled += w;
-      if (ldReached(r)) a.reached += w;
-      if (d >= 6 && !ldReached(r)) a.overZero += w;
+      if (dwReach(r)) a.reached += w;
+      if (d >= 6 && !dwReach(r)) a.overZero += w;
     });
     if (r.lrm && !lrmKey[r.lrm]) lrmKey[r.lrm] = k;
   });
@@ -130,12 +134,18 @@ function dwRender(panel) {
     '<div class="ld-sub">Leads are picked by <b>assigned date</b>; every dial on them since assignment counts. Depth = dials ÷ leads dialled. <b>Click any row or stage cell</b> to see the lead ids behind it.</div></div>' +
     (mock ? '<span class="ld-mock">Preview · sample data</span>' : '') + '</div>';
 
+  var dg = (window.D && D.leadDepthDiag) || {}, realBasis = dg.reachBasis === 'real';
+  var cov = [];
+  if (dg.dataMax) cov.push('Data tab covers calls ' + ldEsc(dg.dataMin) + ' → ' + ldEsc(dg.dataMax));
+  if (dg.afterDataEnd) cov.push(ldFmt(dg.afterDataEnd) + ' leads assigned after ' + ldEsc(dg.dataMax) + ' left out (no call data yet, not untouched)');
+  if (dg.dataDupRows) cov.push(ldFmt(dg.dataDupRows) + ' duplicate lead × day rows in Data collapsed');
+  if (cov.length) h += '<div class="ld-sub dw-cov">' + cov.join(' · ') + '</div>';
   var stat = function (v, l, c) { return '<div class="ld-stat' + (c ? ' ' + c : '') + '"><b>' + v + '</b><span>' + l + '</span></div>'; };
   h += '<div class="ld-stats">' + stat(ldFmt(T.leads), 'leads assigned') +
     stat(dwP(dwPct(T.leads - T.dialled, T.leads)), 'untouched', (T.leads - T.dialled) / T.leads >= 0.2 ? 'bad' : '') +
     stat(ldFmt(T.dialled), 'leads dialled') + stat(T.depth.toFixed(2), 'dialing depth (overall)') +
-    stat(dwP(dwPct(T.reached, T.dialled)), 'dialled leads reached') + stat(ldFmt(T.ms), 'meetings scheduled') +
-    stat(ldFmt(T.overZero), 'dead over-dials (6+, never reached)', T.overZero ? 'bad' : '') + '</div>';
+    stat(dwP(dwPct(T.reached, T.dialled)), realBasis ? 'dialled leads reached (real conversation)' : 'dialled leads connected (any connect)') + stat(ldFmt(T.ms), 'leads with a meeting scheduled') +
+    stat(ldFmt(T.overZero), realBasis ? 'dead over-dials (6+, never reached)' : 'dead over-dials (6+, never connected)', T.overZero ? 'bad' : '') + '</div>';
 
   h += '<div class="ld-card dw-card"><div class="dw-bar"><div class="ld-seg">';
   DW_GRAINS.forEach(function (x) { h += '<button class="' + (x.k === g ? 'on' : '') + '" data-dg="' + x.k + '">' + x.lab + '</button>'; });
@@ -177,7 +187,7 @@ function dwRender(panel) {
     h += '</tbody></table></div>';
     dwCtx = { g: g, otherSet: otherSet, glab: glab };
   } else h += dwLeads(over);
-  h += '</div><div class="ef-foot"><b>Dialing depth</b> = dials ÷ leads dialled at least once, for leads assigned in the date range (LA tab), counting every dial since assignment (Data tab). ' +
+  h += '</div><div class="ef-foot"><b>Dialing depth</b> = dials ÷ leads dialled at least once, for leads assigned in the date range (LA tab), counting every dial since the lead\'s <b>first</b> assignment, so calls under a previous owner still count (Data tab, one row per lead × day — duplicates collapsed). <b>Meetings</b> = leads with at least one meeting scheduled, not a sum of daily counts. ' +
     '<b>Best hour</b> = the hour with the highest connected ÷ dials for that row\'s LRMs (hourly tab, dated by <b>call</b> date; hours under 30 dials or 3% of the day ignored). ' +
     '<b>Calling depth (best hr)</b> = dials ÷ unique leads dialled in that hour' + (hasUniq ? '' : ' — <b>blank until the hourly tab carries a "Unique Leads Dialed" column</b>') + '. ' +
     '<b>Stage-wise</b> = dials ÷ dialled leads by the lead\'s <b>current</b> stage; the ' + DW_STAGE_COLS + ' largest stages get a column, the rest pool into Other. Grey = fewer than ' + DW_THIN + ' leads.</div>';
