@@ -102,14 +102,15 @@ async function load(id) {
 
 const OVER = 6, OVER_CAP = 2500;
 
-export async function readLeadDepth(from, to) {
+export async function readLeadDepth(from, to, opts) {
+  const wantLeads = !!(opts && opts.leads);
   const id = String(process.env.LEADDEPTH_SHEET_ID || '').trim();
   if (!id) return { agg: [], over: [], stage: [], diag: { configured: false } };
   let c;
   try { c = await load(id); }
   catch (e) { console.error('leaddepth read', e); return { agg: [], over: [], stage: [], diag: { configured: true, error: String(e.message || e) } }; }
 
-  const agg = new Map(), over = [], stg = new Map();
+  const agg = new Map(), over = [], stg = new Map(), list = [];
   let cohort = 0, untouched = 0;
   for (const L of c.leads) {
     if (from && L.assigned && L.assigned < from) continue;
@@ -131,12 +132,15 @@ export async function readLeadDepth(from, to) {
     let s = stg.get(sk);
     if (!s) stg.set(sk, s = { lrm: L.lrm, tl: L.tl, zsm: L.zsm, ados: L.ados, cluster: L.cluster, source: L.source, stage: L.stage || '—', n: 0, dl: 0, dials: 0 });
     s.n++; if (dials) s.dl++; s.dials += dials;
+    // Per-lead list for the Dial depth pop-up — only on the lazy ?leads=1 fetch.
+    // Short keys + LRM only (TL/ZSM/ADOS are re-derived client-side from agg).
+    if (wantLeads && dials) list.push({ l: L.lead, lrm: L.lrm, c: L.cluster, s: L.source, st: L.stage, ss: L.status, d: dials, cn: conn, ms, md, a: L.assigned });
     if (dials >= OVER) over.push({ lead: L.lead, lrm: L.lrm, tl: L.tl, zsm: L.zsm, ados: L.ados, cluster: L.cluster, source: L.source,
       dials, conn, ms, md, stage: L.stage, status: L.status, assigned: L.assigned,
       link: 'https://lighthouse.solarsquare.in/#/menu/lead/details/' + encodeURIComponent(L.lead) });
   }
   over.sort((a, b) => b.dials - a.dials || a.conn - b.conn);
-  return { agg: [...agg.values()], over: over.slice(0, OVER_CAP), stage: [...stg.values()],
+  return { agg: [...agg.values()], over: over.slice(0, OVER_CAP), stage: [...stg.values()], leads: list,
     diag: { configured: true, laTab: c.laTab, dataTab: c.dataTab, laRows: c.leads.length, dataRows: c.dataRows,
       cohort, untouched, overTotal: over.length, missingLA: c.missLA, missingData: c.missData, from, to, cachedAt: new Date(c.at).toISOString(),
       assignedMin: c.aMin, assignedMax: c.aMax, assignedUnparsed: c.aBlank, assignedSample: c.aSample } };

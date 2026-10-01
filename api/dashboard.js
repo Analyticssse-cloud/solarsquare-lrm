@@ -792,6 +792,9 @@ export default async function handler(req, res) {
         // findCol returns -1 until the sheet column exists, and num(undefined) is 0,
         // so this is safe to deploy BEFORE the SQL/Code.gs push lands.
         const hiMS    = findCol(hHdr, ['MS Scheduled']);
+        // Optional: unique leads dialled in the hour — feeds Dial depth's
+        // "Calling depth (best hr)". Absent column = 0 = the cell shows –.
+        const hiUniq  = findCol(hHdr, ['Unique Leads Dialed', 'Unique Leads Dialled', 'Unique Numbers Dialed']);
         const known   = new Set(agentRows.map(r => norm(r['Agent Id'])));
         const acc = {};
         for (let i = 1; i < hRaw.length; i++) {
@@ -809,7 +812,8 @@ export default async function handler(req, res) {
           // (the hourly curve and the league card) sum by hour, so the finer grain
           // is safe: more rows, identical totals.
           const k = email + '|' + day + '|' + hr;
-          const a = acc[k] || (acc[k] = { agent: email, date: day, hour: hr, calls: 0, connected: 0, talkHr: 0, ms: 0 });
+          const a = acc[k] || (acc[k] = { agent: email, date: day, hour: hr, calls: 0, connected: 0, talkHr: 0, ms: 0, uniq: 0 });
+          a.uniq      += hiUniq < 0 ? 0 : num(r[hiUniq]);
           a.calls     += num(r[hiCalls]);
           a.connected += num(r[hiConn]);
           a.talkHr    += num(r[hiTT]);
@@ -817,7 +821,7 @@ export default async function handler(req, res) {
         }
         hourlyRows = Object.keys(acc).map(k => {
           const a = acc[k];
-          return { agent: a.agent, date: a.date, hour: a.hour, calls: a.calls, connected: a.connected, talkHr: Math.round(a.talkHr * 100) / 100, ms: a.ms };
+          return { agent: a.agent, date: a.date, hour: a.hour, calls: a.calls, connected: a.connected, talkHr: Math.round(a.talkHr * 100) / 100, ms: a.ms, uniq: a.uniq };
         }).sort((x, y) => String(x.date).localeCompare(String(y.date)) || x.hour - y.hour || x.agent.localeCompare(y.agent));
         // hasHourlyMS tells the frontend whether to render the MS heatmap at all, so a
         // missing column shows "no hourly source" instead of a floor of honest zeroes.
@@ -1204,8 +1208,8 @@ export default async function handler(req, res) {
        was baselined over a shorter span, and the tab marks it rather than
        quietly mixing yardsticks. */
     /* Lead-level call depth (Dial depth tab) — separate spreadsheet, LEADDEPTH_SHEET_ID. */
-    const leadDepthRes = await readLeadDepth(effFrom, effTo).catch((e) => ({ agg: [], over: [], stage: [], diag: { error: String(e) } }));
-    const leadDepth = leadDepthRes.over, leadDepthAgg = leadDepthRes.agg, leadDepthDiag = leadDepthRes.diag, leadDepthStage = leadDepthRes.stage || [];
+    const leadDepthRes = await readLeadDepth(effFrom, effTo, { leads: wantLeads }).catch((e) => ({ agg: [], over: [], stage: [], diag: { error: String(e) } }));
+    const leadDepth = leadDepthRes.over, leadDepthAgg = leadDepthRes.agg, leadDepthDiag = leadDepthRes.diag, leadDepthStage = leadDepthRes.stage || [], depthLeads = leadDepthRes.leads || [];
 
     let depthRows = [], depthTrend = [], depthHas = false;
     try {
@@ -1736,6 +1740,7 @@ export default async function handler(req, res) {
       speedRows, speedHas, speedBuckets: SPEED_BUCKETS, msScheduleRows,
       speedLeads:    wantLeads ? speedLeads    : [],
       coverageLeads: wantLeads ? coverageLeads : [],
+      depthLeads:    wantLeads ? depthLeads    : [],
       leadsOmitted:  !wantLeads,
       coverageRows, coverageTrend, coverageStatus, coverageHas, coverageDayCells,
       coverageMatureDays: COVERAGE_MATURE_DAYS, coverage: coverageMeta,
