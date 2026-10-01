@@ -140,6 +140,24 @@ function ldOverRows() {
   if (window.MOCK && !D.leadDepthAgg) return ldRows().filter(function (r) { return r.dials >= LD_OVER; });
   return D.leadDepth || [];
 }
+
+/* Explains an empty Dial depth tab from the server's leadDepthDiag. */
+function ldDiagHtml() {
+  var g = (window.D && D.leadDepthDiag) || null;
+  var why;
+  if (!g || g.configured === undefined) why = 'The server sent no lead-depth data. The deployed <code>api/dashboard.js</code> is probably the old one — push the new <code>api/dashboard.js</code> and <code>api/_leaddepth.js</code>, then redeploy.';
+  else if (g.configured === false) why = '<code>LEADDEPTH_SHEET_ID</code> is not set on this deployment. Add it in Vercel → Settings → Environment Variables, then <b>Redeploy</b>.';
+  else if (g.error) why = 'Reading the sheet failed: <code>' + ldEsc(g.error) + '</code>' +
+    (/permission|403|caller/i.test(g.error) ? '<br>Share the sheet with the service-account email as Viewer.' : '') +
+    (/no lead_id header|Unable to parse range/i.test(g.error) ? '<br>Check the tab names are exactly <b>LA</b> and <b>Data</b>, or set LEADDEPTH_LA_TAB / LEADDEPTH_DATA_TAB.' : '');
+  else if (!g.cohort) why = 'The sheet was read (' + ldFmt(g.laRows || 0) + ' LA rows, ' + ldFmt(g.dataRows || 0) + ' Data rows) but <b>no lead has <code>lead_assigned_at</code> between ' +
+    ldEsc(g.from || '?') + ' and ' + ldEsc(g.to || '?') + '</b>.' +
+    (g.assignedMax ? '<br>The LA tab holds assignments from <b>' + ldEsc(g.assignedMin) + '</b> to <b>' + ldEsc(g.assignedMax) + '</b> — set the date range at the top inside that window.' : ' Widen the date range at the top.') +
+    (g.assignedUnparsed ? '<br>' + ldFmt(g.assignedUnparsed) + ' LA rows have an unreadable <code>lead_assigned_at</code> (e.g. <code>' + ldEsc(g.assignedSample || '') + '</code>).' : '') +
+    (g.missingLA && g.missingLA.length ? '<br>Columns not found in LA: <code>' + ldEsc(g.missingLA.join(', ')) + '</code>' : '');
+  else why = ldFmt(g.cohort) + ' leads were found, but none are inside your access scope or the current filters. Clear the filter bar.';
+  return '<div class="dp-empty"><b>No dial-depth data.</b><br>' + why + '</div>';
+}
 function ldW(r) { return r.n || 1; }
 function ldDepth(r) { return r.n ? r.d : r.dials; }
 function ldReached(r) { return r.n ? !!r.rch : r.conn > 0; }
@@ -184,7 +202,7 @@ function renderLeadDepth(panel) {
   var scroller = panel.querySelector('.dp-wrap');
   if (!scroller) { scroller = document.createElement('div'); scroller.className = 'dp-wrap'; panel.innerHTML = ''; panel.appendChild(scroller); }
   if (!rows.length) {
-    host.innerHTML = '<div class="dp-empty"><b>No lead-depth feed yet.</b> Point the dashboard at the call-depth sheet.</div>';
+    host.innerHTML = '';
     scroller.appendChild(host); return;
   }
   var t = ldAgg(rows);
