@@ -709,6 +709,7 @@ function renderHourlyBoard() {
     +     'call it an incident. A ringed point broke the band; that is a systems or roster event, '
     +     'not LRM behaviour. Hours with fewer than four comparable weekdays are left open.</div>'
     +   '</div>'
+    +   '<div id="distDod"></div>'
     + '</div>';
   }
   var stamp = document.getElementById('distStamp');
@@ -730,7 +731,7 @@ function distDrawHero() {
   if (!host) return;
   host.innerHTML = (typeof floorHeroHTML === 'function') ? floorHeroHTML(filterAgents()) : '';
 }
-function distRender() { distDrawHero(); distDrawTrend(); }
+function distRender() { distDrawHero(); distDrawTrend(); if (typeof renderDodTrend === 'function') renderDodTrend(); }
 window.addEventListener('resize', function () {
   Object.keys(distCharts).forEach(function (k) { try { distCharts[k].resize(); } catch (e) {} });
 });
