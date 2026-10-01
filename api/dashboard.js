@@ -463,6 +463,9 @@ export default async function handler(req, res) {
     });
 
     const bucket = {};
+    /* Day-on-day trend feed (30 Sep 2026): one row per LRM per day, built from the
+       SAME deduped, gated rows as agentRows, so the D-o-d bars sum to the hero. */
+    const dodAcc = {};
     /* ── ?diag=1 : per-date audit of the Ozontel tab ──────────────────────────
        Added 13 Sep 2026 because the month total still read high AFTER the
        (date, agent) dedup, which rules out the obvious duplication and means
@@ -543,7 +546,7 @@ export default async function handler(req, res) {
         topAgentsInRange: top,
       });
     }
-    dedup.forEach(row => {
+    dedup.forEach((row, dk) => {
       const obj = {};
       oHdr.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
 
@@ -565,6 +568,9 @@ export default async function handler(req, res) {
          the numerator was correct and only the denominator was inflated.
          Connected Calls and talk time were never affected. */
       obj['Call Count'] = num(pick(obj, ['Call Count', 'Total Calls']));
+      const dday = String(dk).split('|')[0];
+      const da = dodAcc[key + '|' + dday] || (dodAcc[key + '|' + dday] = { key, date: dday, calls: 0, connected: 0, talkHr: 0 });
+      da.calls += obj['Call Count']; da.connected += num(obj['Connected Calls']); da.talkHr += num(obj['Total Talk Time']);
 
       if (!bucket[key]) {
         bucket[key] = { ...obj, 'Agent Id': agt };
@@ -579,6 +585,11 @@ export default async function handler(req, res) {
     });
 
     const agentRows = Object.keys(bucket).map(k => bucket[k]);
+    const dodRows = Object.keys(dodAcc).map(k => {
+      const a = dodAcc[k];
+      return { agent: bucket[a.key]['Agent Id'], date: a.date, calls: a.calls, connected: a.connected,
+               talkHr: Math.round(a.talkHr * 1000) / 1000 };
+    }).sort((x, y) => x.date.localeCompare(y.date));
 
     agentRows.forEach(r => {
       const calls = num(r['Call Count']);
@@ -1193,8 +1204,8 @@ export default async function handler(req, res) {
        was baselined over a shorter span, and the tab marks it rather than
        quietly mixing yardsticks. */
     /* Lead-level call depth (Dial depth tab) — separate spreadsheet, LEADDEPTH_SHEET_ID. */
-    const leadDepthRes = await readLeadDepth(effFrom, effTo).catch((e) => ({ agg: [], over: [], diag: { error: String(e) } }));
-    const leadDepth = leadDepthRes.over, leadDepthAgg = leadDepthRes.agg, leadDepthDiag = leadDepthRes.diag;
+    const leadDepthRes = await readLeadDepth(effFrom, effTo).catch((e) => ({ agg: [], over: [], stage: [], diag: { error: String(e) } }));
+    const leadDepth = leadDepthRes.over, leadDepthAgg = leadDepthRes.agg, leadDepthDiag = leadDepthRes.diag, leadDepthStage = leadDepthRes.stage || [];
 
     let depthRows = [], depthTrend = [], depthHas = false;
     try {
@@ -1728,7 +1739,7 @@ export default async function handler(req, res) {
       leadsOmitted:  !wantLeads,
       coverageRows, coverageTrend, coverageStatus, coverageHas, coverageDayCells,
       coverageMatureDays: COVERAGE_MATURE_DAYS, coverage: coverageMeta,
-      depthRows, depthTrend, depthHas, leadDepth, leadDepthAgg, leadDepthDiag,
+      depthRows, depthTrend, depthHas, leadDepth, leadDepthAgg, leadDepthDiag, leadDepthStage,
       connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
       didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor,
       connHas: {
@@ -1742,7 +1753,7 @@ export default async function handler(req, res) {
       msScore: { error: msScore.error || '', external: !!msScore.external, diag: msScore.diag || {},
                  scored: msScored, lrms: agentRows.length,
                  inSheet: Object.keys(msScore.byEmail || {}).length },
-      agentCols, agentRows: agentRowsSlim,
+      agentCols, agentRows: agentRowsSlim, dodRows,
       dupRowsDropped, stale: anyStale(),
       cityList: Object.keys(citySet).sort(),
       tlList:   Object.keys(tlNameSet).sort(),
@@ -1771,14 +1782,14 @@ function emptyPayload(from, to, viewerEmail) {
     leadsOmitted: false,
     coverageHas: false, coverageMatureDays: 1,
     coverage: { error: '', external: false, diag: {} },
-    depthRows: [], depthTrend: [], depthHas: false, leadDepth: [], leadDepthAgg: [], leadDepthDiag: {},
+    depthRows: [], depthTrend: [], depthHas: false, leadDepth: [], leadDepthAgg: [], leadDepthDiag: {}, leadDepthStage: [],
     connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
     inboundPerf: [], inboundDiag: {},
     didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
     connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false,
                inboundPerf: false, didOverall: false, didDod: false },
     msScore: { error: '', external: false, diag: {}, scored: 0, lrms: 0, inSheet: 0 },
-    agentCols: [], agentRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
+    agentCols: [], agentRows: [], dodRows: [], rosterRows: [], cityList: [], tlList: [], lrmList: [],
     activeLRMs: 0, cities: 0,
   };
 }

@@ -83,6 +83,7 @@ async function load(id) {
       const a = calls.get(lead); if (a) a.push(rec); else calls.set(lead, [rec]);
     }
     const lc = la.cols, leads = [];
+    let aMin = '', aMax = '', aBlank = 0;
     for (let i = 0; i < la.len; i++) {
       const lead = String((lc.lead || [])[i] || '').trim();
       if (!lead) continue;
@@ -90,8 +91,10 @@ async function load(id) {
         source: String((lc.source || [])[i] || '').trim() || '—', assigned: iso((lc.assigned || [])[i]),
         stage: String((lc.stage || [])[i] || '').trim(), status: String((lc.status || [])[i] || '').trim(),
         tl: normE((lc.tl || [])[i]), zsm: normE((lc.zsm || [])[i]), ados: normE((lc.ados || [])[i]) });
+      const ad = leads[leads.length - 1].assigned;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(ad)) { if (!aMin || ad < aMin) aMin = ad; if (!aMax || ad > aMax) aMax = ad; } else aBlank++;
     }
-    cache = { id, at: Date.now(), leads, calls, laTab, dataTab, missLA: la.miss, missData: data.miss, dataRows: data.len };
+    cache = { id, at: Date.now(), leads, calls, laTab, dataTab, missLA: la.miss, missData: data.miss, dataRows: data.len, aMin, aMax, aBlank, aSample: String((lc.assigned || [])[0] || '') };
     return cache;
   })();
   try { return await inflight; } finally { inflight = null; }
@@ -101,12 +104,12 @@ const OVER = 6, OVER_CAP = 2500;
 
 export async function readLeadDepth(from, to) {
   const id = String(process.env.LEADDEPTH_SHEET_ID || '').trim();
-  if (!id) return { agg: [], over: [], diag: { configured: false } };
+  if (!id) return { agg: [], over: [], stage: [], diag: { configured: false } };
   let c;
   try { c = await load(id); }
-  catch (e) { console.error('leaddepth read', e); return { agg: [], over: [], diag: { configured: true, error: String(e.message || e) } }; }
+  catch (e) { console.error('leaddepth read', e); return { agg: [], over: [], stage: [], diag: { configured: true, error: String(e.message || e) } }; }
 
-  const agg = new Map(), over = [];
+  const agg = new Map(), over = [], stg = new Map();
   let cohort = 0, untouched = 0;
   for (const L of c.leads) {
     if (from && L.assigned && L.assigned < from) continue;
@@ -123,12 +126,18 @@ export async function readLeadDepth(from, to) {
     let g = agg.get(key);
     if (!g) agg.set(key, g = { lrm: L.lrm, tl: L.tl, zsm: L.zsm, ados: L.ados, cluster: L.cluster, source: L.source, d, rch, n: 0, dials: 0, conn: 0, ms: 0, md: 0 });
     g.n++; g.dials += dials; g.conn += conn; g.ms += ms; g.md += md;
+    // Stage-wise depth (City view): no depth/reach split, so it stays small.
+    const sk = L.lrm + '|' + L.source + '|' + L.cluster + '|' + L.stage;
+    let s = stg.get(sk);
+    if (!s) stg.set(sk, s = { lrm: L.lrm, tl: L.tl, zsm: L.zsm, ados: L.ados, cluster: L.cluster, source: L.source, stage: L.stage || '—', n: 0, dl: 0, dials: 0 });
+    s.n++; if (dials) s.dl++; s.dials += dials;
     if (dials >= OVER) over.push({ lead: L.lead, lrm: L.lrm, tl: L.tl, zsm: L.zsm, ados: L.ados, cluster: L.cluster, source: L.source,
       dials, conn, ms, md, stage: L.stage, status: L.status, assigned: L.assigned,
       link: 'https://lighthouse.solarsquare.in/#/menu/lead/details/' + encodeURIComponent(L.lead) });
   }
   over.sort((a, b) => b.dials - a.dials || a.conn - b.conn);
-  return { agg: [...agg.values()], over: over.slice(0, OVER_CAP),
+  return { agg: [...agg.values()], over: over.slice(0, OVER_CAP), stage: [...stg.values()],
     diag: { configured: true, laTab: c.laTab, dataTab: c.dataTab, laRows: c.leads.length, dataRows: c.dataRows,
-      cohort, untouched, overTotal: over.length, missingLA: c.missLA, missingData: c.missData, from, to, cachedAt: new Date(c.at).toISOString() } };
+      cohort, untouched, overTotal: over.length, missingLA: c.missLA, missingData: c.missData, from, to, cachedAt: new Date(c.at).toISOString(),
+      assignedMin: c.aMin, assignedMax: c.aMax, assignedUnparsed: c.aBlank, assignedSample: c.aSample } };
 }
