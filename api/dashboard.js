@@ -951,6 +951,7 @@ export default async function handler(req, res) {
              column at all" rather than a row of blanks. */
           attribution: li(['Attribution']), heldFrom: li(['Held From']),
           tatLead: li(['TAT Lead (min)']),
+          mongo: li(['Lead Mongo Id', 'Mongo Id', '_id']),
         };
         for (let i = 1; i < lRaw.length; i++) {
           const r = lRaw[i];
@@ -977,6 +978,7 @@ export default async function handler(req, res) {
             attribution: c.attribution < 0 ? '' : String(r[c.attribution] || '').trim(),
             heldFrom: c.heldFrom < 0 ? '' : String(r[c.heldFrom] || '').trim(),
             tatLead: c.tatLead < 0 || r[c.tatLead] === '' ? null : num(r[c.tatLead]),
+            mongo: c.mongo < 0 ? '' : String(r[c.mongo] || '').trim(),
           });
         }
         // never-called first, then slowest — the drill reads top-down as a worklist
@@ -1148,6 +1150,7 @@ export default async function handler(req, res) {
           created: li(['Lead Created At']), asg: li(['Assigned At']),
           dials: li(['Dial Attempts']), first: li(['First Dial At']), last: li(['Last Dial At']),
           age: li(['Age (days)']), flag: li(['Flag']),
+          mongo: li(['Lead Mongo Id', 'Mongo Id', '_id']),
         };
         for (let i = 1; i < lRaw.length; i++) {
           const r = lRaw[i];
@@ -1172,6 +1175,7 @@ export default async function handler(req, res) {
             lastDial: q.last < 0 ? '' : String(r[q.last] || '').trim(),
             age: q.age < 0 ? null : num(r[q.age]),
             flag: q.flag < 0 ? '' : String(r[q.flag] || '').trim(),
+            mongo: q.mongo < 0 ? '' : String(r[q.mongo] || '').trim(),
           });
         }
         /* The SQL already ordered this as a QUEUE — never dialled first, then
