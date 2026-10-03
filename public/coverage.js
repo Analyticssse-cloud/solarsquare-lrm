@@ -743,6 +743,7 @@ function covDrill(g, rows) {
   }
   html += '<h4>Uncovered leads — ' + fmt(leads.length) + ' in ' + esc(g.key) +
     (leads.length > shown.length ? ' · showing the first ' + shown.length : '') + '</h4>';
+  if (shown.length && !shown.some(function (l) { return l.mongo; })) html += '<div style="font-size:11.5px;color:#8a5a17;margin:0 0 8px">Lead ids are not linked yet — the <code>coverage_leads</code> tab has no <b>Lead Mongo Id</b> values. Paste the updated SQL into Metabase, update the Apps Script, then run the refresh.</div>';
   html += '<table class="cv-mini"><thead><tr><th>Lead</th><th>LRM</th><th>Created</th>' +
     '<th class="num">Age</th><th class="num">Dials</th><th>Last dial</th><th>Stage</th>' +
     '<th>Source</th><th>Why</th></tr></thead><tbody>';

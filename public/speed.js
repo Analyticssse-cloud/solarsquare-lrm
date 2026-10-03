@@ -580,8 +580,10 @@ function speedDrill(agent) {
      rather than a blank tenth. It says WHO the row is charged to: a handover
      means this LRM inherited the lead before anyone had called it. */
   var hasEntry = shown.some(function (r) { return r.attribution; });
+  var hasMongo = shown.some(function (r) { return r.mongo; });
   var out = '<div class="sl-drill-in"><h4>Leads behind this row — ' + rows.length +
     ' never-called or slower than 60 min' + (rows.length > shown.length ? ' (first 40)' : '') + '</h4>' +
+    (hasMongo ? '' : '<div style="font-size:11.5px;color:#8a5a17;margin:0 0 8px">Lead ids are not linked yet — the <code>speed_leads</code> tab has no <b>Lead Mongo Id</b> values. Paste the updated SQL into Metabase, update the Apps Script, then run the refresh.</div>') +
     '<table class="sl-mini"><thead><tr><th>Lead</th><th>City / cluster</th><th>Stage</th>' +
     (hasEntry ? '<th>Attribution</th>' : '') +
     '<th>Lead created</th><th>Assigned</th><th>Clock start</th><th>First call</th>' +
