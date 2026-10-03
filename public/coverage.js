@@ -181,7 +181,8 @@ function covSourceOn(s) { return !covSource || covSource === (s || '(blank)'); }
   '.cv-src select.on{border-color:#18233f;font-weight:700}' +
   'tr.cv-st{cursor:pointer}tr.cv-st:hover{background:rgba(24,35,63,.035)}' +
   'tr.cv-st.on td:first-child{font-weight:800;box-shadow:inset 3px 0 0 #18233f}' +
-  'tr.cv-st.off td{color:var(--muted,#6a7494)}';
+  'tr.cv-st.off td{color:var(--muted,#6a7494)}' +
+  '.cv-lead{font-weight:700;color:#2f56b0;text-decoration:none;border-bottom:1px dotted currentColor}.cv-lead:hover{color:#18233f;border-bottom-style:solid}';
   var el = document.createElement('style');
   el.textContent = css;
   document.head.appendChild(el);
@@ -747,7 +748,7 @@ function covDrill(g, rows) {
     '<th>Source</th><th>Why</th></tr></thead><tbody>';
   shown.forEach(function (l) {
     var cls = l.dials === 0 ? 'never' : (l.dials >= 5 ? 'hard' : 'noans');
-    html += '<tr><td>' + esc(l.lead) + '</td>' +
+    html += '<tr><td>' + (l.mongo ? '<a class="cv-lead" href="https://lighthouse.solarsquare.in/#/menu/lead/details/' + encodeURIComponent(l.mongo) + '" target="_blank" rel="noopener" title="Open in Lighthouse">' + esc(l.lead || l.mongo) + '</a>' : esc(l.lead)) + '</td>' +
       '<td>' + esc(agentName ? agentName(l.agent) : l.agent) + '</td>' +
       '<td>' + esc(l.createdAt) + '</td>' +
       '<td class="num">' + (l.age === null ? '—' : l.age + 'd') + '</td>' +

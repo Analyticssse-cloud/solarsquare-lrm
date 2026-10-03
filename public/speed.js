@@ -121,6 +121,7 @@ var speedOpen = null;
   '.sl-mini th{text-align:left;font-size:9.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted,#6a7494);padding:4px 8px;border-bottom:1px solid var(--border,#e3e8f3);white-space:nowrap}' +
   '.sl-mini th.num,.sl-mini td.num{text-align:right}' +
   '.sl-mini td{padding:4px 8px;border-bottom:1px solid #eef1f8;white-space:nowrap}' +
+  '.sl-lead{font-weight:700;color:#2f56b0;text-decoration:none;border-bottom:1px dotted currentColor}.sl-lead:hover{color:#18233f;border-bottom-style:solid}' +
   '.sl-flag{font-size:9.5px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;padding:2px 6px;border-radius:3px}' +
   '.sl-flag.never{background:#f6e2df;color:#8f2c22}' +
   '.sl-flag.slow{background:#faeed9;color:#8a5a17}' +
@@ -591,7 +592,7 @@ function speedDrill(agent) {
     var never = r.tat === null || r.tat === undefined;
     var geo = r.cluster || r.city || '';
     var shifted = r.clockStart && r.assignedAt && r.clockStart !== r.assignedAt;
-    out += '<tr><td><b>' + esc(r.lead) + '</b></td><td>' + esc(geo) + '</td><td>' + esc(r.stage) + '</td>' +
+    out += '<tr><td>' + (r.mongo ? '<a class="sl-lead" href="https://lighthouse.solarsquare.in/#/menu/lead/details/' + encodeURIComponent(r.mongo) + '" target="_blank" rel="noopener" title="Open in Lighthouse">' + esc(r.lead || r.mongo) + '</a>' : '<b>' + esc(r.lead || '—') + '</b>') + '</td><td>' + esc(geo) + '</td><td>' + esc(r.stage) + '</td>' +
       (hasEntry ? '<td' + (r.attribution && r.attribution !== 'same LRM'
         ? ' style="color:#8a5a17" title="' + esc(r.heldFrom ? 'Held by this LRM from ' + r.heldFrom : 'No assignment record in the audit history') + '"' : '') +
         '>' + esc(r.attribution || '—') + '</td>' : '') +
