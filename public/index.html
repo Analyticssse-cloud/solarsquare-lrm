@@ -779,6 +779,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabSpeed">⏱ First Response Time</div>
   <div class="tab"        id="tabCoverage">🎯 Coverage</div>
   <div class="tab"        id="tabDepth">📶 Dial depth</div>
+  <div class="tab"        id="tabMSSlots">🕘 MS Slots</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
 </div>
@@ -819,6 +820,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="speedPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="coveragePanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="depthPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="msslotsPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
 <div id="printRoot"></div>
@@ -961,6 +963,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabSpeed').addEventListener('click', function(){ switchTab('speed'); });
   document.getElementById('tabCoverage').addEventListener('click', function(){ switchTab('coverage'); });
   document.getElementById('tabDepth').addEventListener('click', function(){ switchTab('depth'); });
+  document.getElementById('tabMSSlots').addEventListener('click', function(){ switchTab('msslots'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
     if (this.checked) startAutoRefresh(); else stopAutoRefresh();
@@ -1126,8 +1129,8 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', inbound:'tabInbound', did:'tabDID', speed:'tabSpeed', coverage:'tabCoverage', depth:'tabDepth' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', inbound:'inboundPanel', did:'didPanel', speed:'speedPanel', coverage:'coveragePanel', depth:'depthPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', inbound:'tabInbound', did:'tabDID', speed:'tabSpeed', coverage:'tabCoverage', depth:'tabDepth', msslots:'tabMSSlots' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', inbound:'inboundPanel', did:'didPanel', speed:'speedPanel', coverage:'coveragePanel', depth:'depthPanel', msslots:'msslotsPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -1154,7 +1157,8 @@ var PANEL_RENDERERS = {
   did:     function(){ if(typeof renderDID==='function') renderDID(); },
   speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); },
   coverage:function(){ if(typeof renderCoverage==='function') renderCoverage(); },
-  depth:   function(){ if(typeof renderDepth==='function') renderDepth(); }
+  depth:   function(){ if(typeof renderDepth==='function') renderDepth(); },
+  msslots: function(){ if(typeof renderMSSlots==='function') renderMSSlots(); }
 };
 function renderActive() {
   if(!D) return;
@@ -2503,6 +2507,7 @@ function downloadPDF(){
 <script src="speed.js?v=20260919c"></script>
 <script src="coverage.js?v=20260928b"></script>
 <script src="depth.js?v=20260921a"></script>
+<script src="msslots.js?v=20261004a"></script>
 <script src="leaddepth.js?v=20260925d"></script>
 <script src="dialwaterfall.js?v=20261001a"></script>
 <script src="citydepth.js?v=20261001a"></script>
