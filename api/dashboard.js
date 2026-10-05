@@ -1304,7 +1304,13 @@ export default async function handler(req, res) {
           sched: ii(['Schedule Date']), daysOut: ii(['Days Out']), cohort: ii(['Cohort']),
           ms: ii(['MS Scheduled']), ct: ii(['Confirmed Today']), ce: ii(['Confirmed Earlier']),
           ncs: ii(['No Confirm Stamp']), leads: ii(['Distinct Leads']),
+          /* v17 slot columns (MS Slots tab). Absent on a v16 tab -> null, which the
+             tab reads as "slot feed not wired yet", never as zero meetings. */
+          s1: ii(['Slot 1 (09:30-12:00)', 'Slot 1']), s2: ii(['Slot 2 (12:00-15:00)', 'Slot 2']),
+          s3: ii(['Slot 3 (15:00-18:00)', 'Slot 3']), s4: ii(['Slot 4 (18:00-21:00)', 'Slot 4']),
+          sOut: ii(['Outside Slots']),
         };
+        const slotVal = (r, k) => c[k] < 0 ? null : num(r[c[k]]);
         for (let i = 1; i < iRaw.length; i++) {
           const r = iRaw[i];
           if (!r) continue;
@@ -1324,6 +1330,9 @@ export default async function handler(req, res) {
             'Confirmed Earlier': c.ce < 0 ? 0 : num(r[c.ce]),
             'No Confirm Stamp': c.ncs < 0 ? 0 : num(r[c.ncs]),
             'Distinct Leads': c.leads < 0 ? ms : num(r[c.leads]),
+            'Slot 1': slotVal(r, 's1'), 'Slot 2': slotVal(r, 's2'),
+            'Slot 3': slotVal(r, 's3'), 'Slot 4': slotVal(r, 's4'),
+            'Outside Slots': slotVal(r, 'sOut'),
           });
         }
       }
