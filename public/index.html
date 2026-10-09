@@ -780,6 +780,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="tab"        id="tabCoverage">🎯 Coverage</div>
   <div class="tab"        id="tabDepth">📶 Dial depth</div>
   <div class="tab"        id="tabMSSlots">🕘 MS Slots</div>
+  <div class="tab"        id="tabDidMgr">☎ DID Manager</div>
   <div class="tab-more" id="tabMore" title="City Summary and LRM View — the detailed review tables"></div>
   <div class="whoami" id="whoami"></div>
 </div>
@@ -821,6 +822,7 @@ table.hl td.pc .no{color:#c0392b}
   <div class="panel" id="coveragePanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="depthPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
   <div class="panel" id="msslotsPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+  <div class="panel" id="didmgrPanel" style="display:none"><div class="loading"><div class="spinner"></div>Loading…</div></div>
 </div>
 
 <div id="printRoot"></div>
@@ -869,7 +871,7 @@ var ACT = { bottomN:10 };   // connect-rate and volume thresholds went with the 
 
 var CITY_COLS = [
   {k:'city',l:'City'},{k:'totalCalls',l:'Total Calls'},{k:'uniqueDials',l:'Unique Dials'},
-  {k:'connected',l:'Connected'},{k:'totalTTHr',l:'Talk Time (hr)'},{k:'avgTalkMin',l:'Avg Talk (min)'},
+  {k:'connected',l:'Connected'},{k:'totalTTHr',l:'Talk Time (min)'},{k:'avgTalkMin',l:'Avg Talk (min)'},
   {k:'activeLRM',l:'Active LRMs'},{k:'callsPerLRM',l:'Calls/LRM'},
   {k:'msToday',l:'MS Today'},{k:'msT0',l:'MS T+0'},{k:'msT1',l:'MS T+1'},{k:'msT2',l:'MS T+2'},
   {k:'dsToday',l:'DS Today'},{k:'dsT1',l:'DS T+1'},{k:'dsT2',l:'DS T+2'},{k:'delta',l:'Delta'}
@@ -964,6 +966,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('tabCoverage').addEventListener('click', function(){ switchTab('coverage'); });
   document.getElementById('tabDepth').addEventListener('click', function(){ switchTab('depth'); });
   document.getElementById('tabMSSlots').addEventListener('click', function(){ switchTab('msslots'); });
+  document.getElementById('tabDidMgr').addEventListener('click', function(){ switchTab('didmgr'); });
 
   document.getElementById('autoRefreshToggle').addEventListener('change', function() {
     if (this.checked) startAutoRefresh(); else stopAutoRefresh();
@@ -1129,8 +1132,8 @@ function setReviewViews(on){
 function switchTab(name) {
   if((name === 'city' || name === 'agent') && !reviewOpen) setReviewViews(true);
   activeTab = name;
-  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', inbound:'tabInbound', did:'tabDID', speed:'tabSpeed', coverage:'tabCoverage', depth:'tabDepth', msslots:'tabMSSlots' };
-  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', inbound:'inboundPanel', did:'didPanel', speed:'speedPanel', coverage:'coveragePanel', depth:'depthPanel', msslots:'msslotsPanel' };
+  var map = { dist:'tabDist', floor:'tabFloor', city:'tabCity', agent:'tabAgent', ados:'tabADOS', zsm:'tabZSM', tl:'tabTL', action:'tabAction', eodr:'tabEODR', inbound:'tabInbound', did:'tabDID', speed:'tabSpeed', coverage:'tabCoverage', depth:'tabDepth', msslots:'tabMSSlots', didmgr:'tabDidMgr' };
+  var panels = { dist:'distPanel', floor:'floorPanel', city:'cityPanel', agent:'agentPanel', ados:'adosPanel', zsm:'zsmPanel', tl:'tlPanel', action:'actionPanel', eodr:'eodrPanel', inbound:'inboundPanel', did:'didPanel', speed:'speedPanel', coverage:'coveragePanel', depth:'depthPanel', msslots:'msslotsPanel', didmgr:'didmgrPanel' };
   Object.keys(map).forEach(function(k){ document.getElementById(map[k]).classList.toggle('active', name===k); });
   Object.keys(panels).forEach(function(k){ document.getElementById(panels[k]).style.display = name===k ? '' : 'none'; });
   syncFilterBar();
@@ -1158,7 +1161,8 @@ var PANEL_RENDERERS = {
   speed:   function(){ if(typeof renderSpeed==='function') renderSpeed(); },
   coverage:function(){ if(typeof renderCoverage==='function') renderCoverage(); },
   depth:   function(){ if(typeof renderDepth==='function') renderDepth(); },
-  msslots: function(){ if(typeof renderMSSlots==='function') renderMSSlots(); }
+  msslots: function(){ if(typeof renderMSSlots==='function') renderMSSlots(); },
+  didmgr:  function(){ if(typeof renderDidManager==='function') renderDidManager(); }
 };
 function renderActive() {
   if(!D) return;
@@ -1416,8 +1420,8 @@ var rollupOpen = { ados:{}, zsm:{}, tl:{} };
 
 function rollupFmt(v, t) {
   if (v === undefined || v === null || v === '') return '<span class="child-lbl">—</span>';
-  // Totals stay in hours; LRM-level rows are rendered in minutes at the call site.
-  if (t === 'hr') return (Math.round((Number(v)||0)*10)/10).toLocaleString('en-IN') + ' <span class="child-lbl">hr</span>';
+  // Talk time is MINUTES everywhere (9 Oct) — one unit on every tab, so figures compare at a glance.
+  if (t === 'hr') return Math.round((Number(v)||0)*60).toLocaleString('en-IN') + ' <span class="child-lbl">min</span>';
   if (t === 'pct') {
     var p = Number(v) || 0;
     var hc = p >= 60 ? 'heat-hi' : p >= 35 ? 'heat-md' : 'heat-lo';
@@ -1581,8 +1585,8 @@ function buildKPI() {
       t.msT1       +=Number(r['MS T+1'])||0;
       if(r['City']) citySet[r['City']]=true;
     });
-    t.avgTalkMin=t.realConnects>0?Math.round((t.totalTTHr*60/t.realConnects)*10)/10:0;
-    t.totalTTHr=Math.round(t.totalTTHr*10)/10;
+    t.avgTalkMin=t.connected>0?Math.round((t.totalTTHr*60/t.connected)*10)/10:0;
+    t.totalTTHr=Math.round(t.totalTTHr*1000)/1000;
     activeLRMs=rows.length; cities=Object.keys(citySet).length;
   } else if(filtersActive()){
     var rows=filterAgents(), citySet={};
@@ -1598,17 +1602,19 @@ function buildKPI() {
       t.msT1       +=Number(r['MS T+1'])||0;
       if(r['City']) citySet[r['City']]=true;
     });
-    t.avgTalkMin=t.realConnects>0?Math.round((t.totalTTHr*60/t.realConnects)*10)/10:0;
-    t.totalTTHr=Math.round(t.totalTTHr*10)/10;
+    t.avgTalkMin=t.connected>0?Math.round((t.totalTTHr*60/t.connected)*10)/10:0;
+    t.totalTTHr=Math.round(t.totalTTHr*1000)/1000;
     activeLRMs=rows.length; cities=Object.keys(citySet).length;
   } else {
     t=D.totals; activeLRMs=D.activeLRMs; cities=D.cities;
+    // Same rule as the filtered paths, whatever the payload carried: talk ÷ connected.
+    t=Object.assign({},t,{avgTalkMin:(Number(t.connected)||0)>0?Math.round(((Number(t.totalTTHr)||0)*60/Number(t.connected))*10)/10:0});
   }
   var items = [
     {v:fmt(t.totalCalls),    l:'Total Calls',  cls:''},
     {v:fmt(t.uniqueDials),   l:'Unique Dials', cls:'', sec:true},
     {v:fmt(t.connected),     l:'Connected',    cls:'green'},
-    {v:t.totalTTHr+' hr',    l:'Talk Time',    cls:''},
+    {v:fmt(Math.round((Number(t.totalTTHr)||0)*60))+' min', l:'Talk Time', cls:''},
     {v:(t.avgTalkMin||0)+' min', l:'Avg Talk Time', cls:'gold'},
     {v:fmt(t.msToday),       l:'MS Today',     cls:'gold'},
     {v:fmt(t.msT0),          l:'MS T+0',       cls:'', sec:true},
@@ -1720,7 +1726,7 @@ function floorHeroHTML(rows){
     s.real +=Number(r['Real Connects (15s+)'])||0;
   });
   var dayDial=n*FLOOR_TARGET.dials, dayTT=n*FLOOR_TARGET.talkMin, dayMS=n*FLOOR_TARGET.ms;
-  var ttMin=Math.round(s.tt*60), avgTalk=s.real>0?Math.round(s.tt*60/s.real*10)/10:0;
+  var ttMin=Math.round(s.tt*60), avgTalk=s.conn>0?Math.round(s.tt*60/s.conn*10)/10:0;
   var prog=dayDial?s.calls/dayDial:0;
   /* One card. pct is against the DAY target (so the bar fills over the day) and the
      notch is where pace sits, which is how "behind for this time of day" is read. */
@@ -1740,7 +1746,7 @@ function floorHeroHTML(rows){
         + ' &middot; <b>'+(gap>0?gap+'% behind':Math.abs(gap)+'% ahead of')+'</b> pace for this time of day')
     + card(fmt(s.conn),'','Connected calls',s.conn,0,
         s.calls?fmt(Math.round(s.conn/s.calls*100))+'% of dials connected':'&mdash;')
-    + card(Math.round(s.tt*10)/10,'hr','Talk time',ttMin,dayTT,
+    + card(fmt(ttMin),'min','Talk time',ttMin,dayTT,
         '<b>'+(dayTT?Math.round(ttMin/dayTT*100):0)+'%</b> of '+fmt(dayTT)+' min &middot; avg <b>'+avgTalk+' min</b> per connect')
     + card(fmt(s.ms),'','Meetings scheduled',s.ms,dayMS,
         fmt(s.md)+' closures logged today (MD)')
@@ -2189,7 +2195,7 @@ function numCols(rows,cols,keyOf){ var out={};
     out[k]=any&&!bad; });
   return out; }
 function numAttr(map,k){ return map[k]?' class="num"':''; }
-function cityCell(k,v,maxCalls){
+function cityCell(k,v,maxCalls){if(k==='totalTTHr'){var _mn=Math.round((Number(v)||0)*60);return _mn?fmt(_mn):'—';}
   if(k==='city')       return '<span class="cell-city">'+esc(String(v||''))+'</span>';
   if(k==='delta')      return deltaCell(v);
   if(k==='callsPerLRM'){ var n=Number(v)||0,pct=maxCalls>0?Math.min(100,Math.round(n/maxCalls*100)):0; var col=n>=80?'var(--green)':n>=50?'var(--gold-dk)':'var(--red)'; return '<div class="prog-wrap"><div class="prog-bar"><div class="prog-fill" style="background:'+col+';width:'+pct+'%"></div></div><span class="prog-num">'+n+'</span></div>'; }
@@ -2508,6 +2514,7 @@ function downloadPDF(){
 <script src="coverage.js?v=20260928b"></script>
 <script src="depth.js?v=20260921a"></script>
 <script src="msslots.js?v=20261004a"></script>
+<script src="didmanager.js?v=20261007a"></script>
 <script src="leaddepth.js?v=20260925d"></script>
 <script src="dialwaterfall.js?v=20261001a"></script>
 <script src="citydepth.js?v=20261001a"></script>

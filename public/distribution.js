@@ -353,7 +353,7 @@ var MTD_COLS = [
   { k:'dials', lab:'Dials',      per:FLOOR_TARGET_DAY.dials,   get:function(r){ return Number(r['Call Count'])||0; },
     show:function(v){ return fmt(Math.round(v)); }, unit:'' },
   { k:'talk',  lab:'Talk time',  per:FLOOR_TARGET_DAY.talkMin, get:function(r){ return (Number(r['Total Talk Time'])||0)*60; },
-    show:function(v){ return fmt(Math.round(v/60*10)/10)+' hr'; }, unit:' min' },
+    show:function(v){ return fmt(Math.round(v))+' min'; }, unit:' min' },
   { k:'ms',    lab:'MS',         per:FLOOR_TARGET_DAY.ms,      get:function(r){ return Number(r['MS Today'])||0; },
     show:function(v){ return fmt(Math.round(v)); }, unit:'' }
 ];
