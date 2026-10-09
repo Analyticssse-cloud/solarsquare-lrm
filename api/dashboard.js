@@ -605,6 +605,13 @@ export default async function handler(req, res) {
         delete r['_sum_' + k];
       });
 
+      /* Avg Talk = Talk Time ÷ Connected Calls, recomputed from the SUMMED totals
+         (9 Oct). The SQL's 'Avg. Talk Time' divides by Real Connects (15s+), not by
+         Connected Calls, and the line above then averaged it per day — so the
+         figure never reconciled with the two columns beside it (86 calls / 45
+         connected / 78 min read 2.3 min; 78 ÷ 45 = 1.7). */
+      r['Avg. Talk Time'] = conn > 0 ? Math.round((num(r['Total Talk Time']) * 60 / conn) * 10) / 10 : 0;
+
       const target = num(r['Ex.Call Count']) || 200 * days;
       r['Ex.Call Count'] = target;
       r['Progress'] = target > 0 ? Math.round((calls / target) * 10000) / 100 : 0;
@@ -704,8 +711,8 @@ export default async function handler(req, res) {
           childCount: Object.keys(a.children).length,
           connectPct:     a.callCount > 0 ? Math.round((a.connected / a.callCount) * 10000) / 100 : 0,
           realConnectPct: a.callCount > 0 ? Math.round((a.realConnects / a.callCount) * 10000) / 100 : 0,
-          totalTTHr:   Math.round(a.totalTTHr * 10) / 10,
-          avgTalkMin:  a.realConnects > 0 ? Math.round((a.totalTTHr * 60 / a.realConnects) * 10) / 10 : 0,
+          totalTTHr:   Math.round(a.totalTTHr * 1000) / 1000,   // 3 dp (~4 s): 1 dp = 6-min steps, so rollups never matched the sum of their LRMs
+          avgTalkMin:  a.connected > 0 ? Math.round((a.totalTTHr * 60 / a.connected) * 10) / 10 : 0,
           callsPerLRM: a.activeLRM > 0 ? Math.round(a.callCount / a.activeLRM) : 0,
           ttPerLRM:    a.activeLRM > 0 ? Math.round((a.totalTTHr * 60 / a.activeLRM) * 10) / 10 : 0,
           msPerLRM:    a.activeLRM > 0 ? Math.round((a.msToday / a.activeLRM) * 10) / 10 : 0,
@@ -745,8 +752,8 @@ export default async function handler(req, res) {
          msToday:0, msT0:0, msT1:0, meetingDone:0, msNoCall:0, dsToday:0 });
     totals.connectPct     = totals.totalCalls > 0 ? Math.round((totals.connected / totals.totalCalls) * 10000) / 100 : 0;
     totals.realConnectPct = totals.totalCalls > 0 ? Math.round((totals.realConnects / totals.totalCalls) * 10000) / 100 : 0;
-    totals.avgTalkMin     = totals.realConnects > 0 ? Math.round((totals.totalTTHr * 60 / totals.realConnects) * 10) / 10 : 0;
-    totals.totalTTHr      = Math.round(totals.totalTTHr * 10) / 10;
+    totals.avgTalkMin     = totals.connected > 0 ? Math.round((totals.totalTTHr * 60 / totals.connected) * 10) / 10 : 0;
+    totals.totalTTHr      = Math.round(totals.totalTTHr * 1000) / 1000;   // 3 dp, see rollups
 
     // ── 6. Slim agent rows ────────────────────────────────────────────────────
     const agentCols = [
@@ -1664,6 +1671,19 @@ export default async function handler(req, res) {
        against a picked day. */
     const didDodAllDays = didDodAll;
 
+    /* DID Manager (7 Oct 2026) — three tabs written by DidManager.gs. Not
+       person-scoped (DIDs belong to the floor), so every role sees them. Each is
+       optional: an unwired tab reads as [] and the view names the missing step. */
+    const didMgrDiag = { health: {}, swaps: {}, pool: {} };
+    const [didHealth, didSwaps, didPool] = await Promise.all([
+      passThrough('did_health_14d', { tabs: ['did_health_14d'], diag: didMgrDiag.health,
+        numeric: ['Calls 14d', 'Active Days', 'Calls per Day', 'Connects 14d', 'Connect % (all)',
+                  'Fresh Dials 14d', 'Fresh Connects 14d', 'Fresh Connect %', 'Calls Without Lead'] }),
+      passThrough('DID Swap List', { tabs: ['DID Swap List'], diag: didMgrDiag.swaps,
+        numeric: ['Calls 14d', 'Fresh Dials 14d', 'Fresh Connect %'] }),
+      passThrough('DID Pool', { tabs: ['DID Pool'], diag: didMgrDiag.pool }),
+    ]).catch((e) => { didMgrDiag.error = String(e.message || e); return [[], [], []]; });
+
     const useLive = !!String(process.env.CONN_SHEET_ID || '').trim();
     const [connDaily, connHourly, connAnomaly, didRows, inboundRows] = useLive
       ? [[], [], [], [], []]
@@ -1760,6 +1780,7 @@ export default async function handler(req, res) {
       depthRows, depthTrend, depthHas, leadDepth, leadDepthAgg, leadDepthDiag, leadDepthStage,
       connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
       didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor,
+      didHealth, didSwaps, didPool, didMgrDiag,
       connHas: {
         daily: connDaily.length > 0, hourly: connHourly.length > 0,
         anomaly: connAnomaly.length > 0, did: didRows.length > 0,
@@ -1804,6 +1825,7 @@ function emptyPayload(from, to, viewerEmail) {
     connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
     inboundPerf: [], inboundDiag: {},
     didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
+    didHealth: [], didSwaps: [], didPool: [], didMgrDiag: {},
     connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false,
                inboundPerf: false, didOverall: false, didDod: false },
     msScore: { error: '', external: false, diag: {}, scored: 0, lrms: 0, inSheet: 0 },

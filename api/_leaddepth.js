@@ -5,6 +5,13 @@
    LA   (env LEADDEPTH_LA_TAB, default "LA") — the COHORT: every assigned lead.
         lead_id | Call_log LRM Email | Cluster | marketing_lead_source |
         lead_assigned_at | Light House Link | stage | status | TL | ZSM | Ados
+        ("Call Depth Analysis 3.0", 7 Oct 2026: LA dropped TL | ZSM | Ados. They are
+        now OPTIONAL here and filled per LRM from the mapping tab below.)
+   LRM Mapping (env LEADDEPTH_MAP_TAB, default "LRM Mapping") — OPTIONAL, ~280 rows:
+        Email IDs | TL | Cluster | DZMS/ZSM | ADOS | Role. TL column = the TL's email
+        for LRM rows, the literal "TL" on a TL's own row (→ that TL is their own TL),
+        and "DZSM"/"Program Manager" on rows that are not floor staff (skipped).
+        Precedence per lead: LA's own column, then this mapping.
    Data (env LEADDEPTH_DATA_TAB, default "Data") — calls, one row per lead x day.
         lead_id | … | count of call dial | count of connected |
         meeting schedule count | meeting done count | Call / Schedule Date | …
@@ -55,7 +62,30 @@ const DATA_COLS = { lead: ['leadid'], dials: ['countofcalldial'], conn: ['counto
   // OPTIONAL: real conversations (e.g. 15s+ talk). When present, "reached" uses it
   // instead of count of connected, which also counts rings/IVR pickups.
   real: ['countofreallyconnected', 'countofrealconnected', 'countofrealconnects', 'realconnects', 'countofconversations', 'countofconversation'] };
-const OPTIONAL = { real: 1 };
+const OPTIONAL = { real: 1, tl: 1, zsm: 1, ados: 1 };
+
+const MAP_COLS = { email: ['emailids', 'emailid', 'email'], tl: ['tl'], zsm: ['dzmszsm', 'zsm', 'dzsm'], ados: ['ados'] };
+const isMail = (v) => /@/.test(String(v || ''));
+/* LRM -> {tl,zsm,ados}. Never throws: a missing tab just means no fill. */
+async function readMap(api, id) {
+  const tab = String(process.env.LEADDEPTH_MAP_TAB || 'LRM Mapping').trim();
+  const map = new Map();
+  try {
+    const res = await api.spreadsheets.values.get({ spreadsheetId: id, range: q(tab) });
+    const rows = res.data.values || [];
+    const { m } = mapCols(rows[0] || [], MAP_COLS);
+    if (m.email < 0) return { map, tab, error: 'no "Email IDs" header' };
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i], e = normE(r[m.email]);
+      if (!isMail(e)) continue;
+      const t = String(r[m.tl] == null ? '' : r[m.tl]).trim();
+      const tl = isMail(t) ? normE(t) : /^tl$/i.test(t) ? e : '';
+      if (!tl) continue;
+      map.set(e, { tl, zsm: isMail(r[m.zsm]) ? normE(r[m.zsm]) : '', ados: isMail(r[m.ados]) ? normE(r[m.ados]) : '' });
+    }
+    return { map, tab };
+  } catch (err) { return { map, tab, error: String(err.message || err) }; }
+}
 
 function mapCols(hdr, spec) {
   const h = hdr.map(sq), m = {}, miss = [];
@@ -92,7 +122,8 @@ async function load(id) {
     const api = await sheetsApi();
     const laTab = String(process.env.LEADDEPTH_LA_TAB || 'LA').trim();
     const dataTab = String(process.env.LEADDEPTH_DATA_TAB || 'Data').trim();
-    const [la, data] = await Promise.all([readTab(api, id, laTab, LA_COLS), readTab(api, id, dataTab, DATA_COLS)]);
+    const [la, data, hm] = await Promise.all([readTab(api, id, laTab, LA_COLS), readTab(api, id, dataTab, DATA_COLS), readMap(api, id)]);
+    let hierFromMap = 0, hierMissing = 0;
     // Calls per lead, kept per date so the "on/after assigned" rule applies at request time.
     // Data is one row per lead x day by design. A repeated lead x day is a COPY (re-pasted
     // export / overlapping backfill) — keep one, taking the larger value per field,
@@ -132,14 +163,20 @@ async function load(id) {
         leads.splice(j, 1, null);
       }
       seen.set(lead, leads.length);
-      leads.push({ lead, lrm: normE((lc.lrm || [])[i]), cluster: String((lc.cluster || [])[i] || '').trim(),
+      const lrm = normE((lc.lrm || [])[i]), H = hm.map.get(lrm) || {};
+      let tl = normE((lc.tl || [])[i]), zsm = normE((lc.zsm || [])[i]), ados = normE((lc.ados || [])[i]);
+      if (!tl && H.tl) { tl = H.tl; hierFromMap++; }
+      if (!zsm) zsm = H.zsm || ''; if (!ados) ados = H.ados || '';
+      if (!tl) hierMissing++;
+      leads.push({ lead, lrm, cluster: String((lc.cluster || [])[i] || '').trim(),
         source: String((lc.source || [])[i] || '').trim() || '—', assigned: ai, first,
         stage: String((lc.stage || [])[i] || '').trim(), status: String((lc.status || [])[i] || '').trim(),
-        tl: normE((lc.tl || [])[i]), zsm: normE((lc.zsm || [])[i]), ados: normE((lc.ados || [])[i]) });
+        tl, zsm, ados });
       const ad = leads[leads.length - 1].assigned; void ai;
       if (/^\d{4}-\d{2}-\d{2}$/.test(ad)) { if (!aMin || ad < aMin) aMin = ad; if (!aMax || ad > aMax) aMax = ad; } else aBlank++;
     }
-    cache = { id, at: Date.now(), leads: leads.filter(Boolean), dupRows, calls, dupData, dMin, dMax, dOrd, laOrd, hasReal, laTab, dataTab, missLA: la.miss, missData: data.miss, dataRows: data.len, aMin, aMax, aBlank, aSample: String((lc.assigned || [])[0] || '') };
+    cache = { id, at: Date.now(), leads: leads.filter(Boolean), dupRows, calls, dupData, dMin, dMax, dOrd, laOrd, hasReal, laTab, dataTab, missLA: la.miss, missData: data.miss, dataRows: data.len, aMin, aMax, aBlank, aSample: String((lc.assigned || [])[0] || ''),
+      mapTab: hm.tab, mapRows: hm.map.size, mapError: hm.error || '', hierFromMap, hierMissing };
     return cache;
   })();
   try { return await inflight; } finally { inflight = null; }
@@ -156,7 +193,7 @@ export async function readLeadDepth(from, to, opts) {
   catch (e) { console.error('leaddepth read', e); return { agg: [], over: [], stage: [], diag: { configured: true, error: String(e.message || e) } }; }
 
   const agg = new Map(), over = [], stg = new Map(), list = [];
-  let cohort = 0, untouched = 0, noDate = 0, preDials = 0, preLeads = 0, afterData = 0, reassignedDials = 0;
+  let cohort = 0, untouched = 0, noDate = 0, preDials = 0, preLeads = 0, afterData = 0, beforeData = 0, reassignedDials = 0;
   const okDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
   for (const L of c.leads) {
     // A lead with no parseable assigned date used to slip through BOTH bounds and sit
@@ -167,6 +204,9 @@ export async function readLeadDepth(from, to, opts) {
     // Assigned after the Data tab's last call date: it CANNOT have dials yet, so it
     // is not untouched — it is outside the data. Kept out of the cohort, counted in diag.
     if (c.dMax && L.assigned > c.dMax) { afterData++; continue; }
+    // Assigned BEFORE the Data tab's first call date: its early dials are not in the
+    // sheet, so it would read as untouched/shallow. Out of the cohort, counted in diag.
+    if (c.dMin && L.assigned < c.dMin) { beforeData++; continue; }
     cohort++;
     const since = L.first || L.assigned;
     let dials = 0, conn = 0, ms = 0, md = 0, real = 0, pre = 0;
@@ -195,9 +235,27 @@ export async function readLeadDepth(from, to, opts) {
       link: 'https://lighthouse.solarsquare.in/#/menu/lead/details/' + encodeURIComponent(L.lead) });
   }
   over.sort((a, b) => b.dials - a.dials || a.conn - b.conn);
+  /* Reconciliation: does the Data tab even hold the floor's calls, and do its lead ids
+     match LA's? Dials by CALL date in the range, split by whether the lead is in LA.
+     A low dataDialsInRange vs the dialler total = the Data tab is incomplete; a high
+     dialsOnLeadsNotInLA = an id-format mismatch (e.g. Mongo _id vs LMP code). */
+  if (!c.laSet) c.laSet = new Set(c.leads.map((L) => L.lead));
+  let dialsInRange = 0, dialsNotInLA = 0, leadsNotInLA = 0, msInRange = 0;
+  const notInLASample = [];
+  for (const [lead, byDay] of c.calls) {
+    let dl = 0;
+    for (const r of byDay.values()) { if ((from && r[0] < from) || (to && r[0] > to)) continue; dl += r[1]; msInRange += r[3]; }
+    if (!dl) continue;
+    dialsInRange += dl;
+    if (!c.laSet.has(lead)) { dialsNotInLA += dl; leadsNotInLA++; if (notInLASample.length < 5) notInLASample.push(lead); }
+  }
+  let cohortDials = 0; for (const g of agg.values()) cohortDials += g.dials;
+  const recon = { dataDialsInRange: dialsInRange, dataMsInRange: msInRange, cohortDials, dialsOnLeadsNotInLA: dialsNotInLA, leadsNotInLA,
+    notInLASample, laIdSample: c.leads.slice(0, 3).map((L) => L.lead) };
   return { agg: [...agg.values()], over: over.slice(0, OVER_CAP), stage: [...stg.values()], leads: list,
-    diag: { configured: true, laTab: c.laTab, dataTab: c.dataTab, laRows: c.leads.length, dataRows: c.dataRows,
-      cohort, untouched, overTotal: over.length, noDate, afterDataEnd: afterData, dataMin: c.dMin, dataMax: c.dMax,
+    diag: { configured: true, ...recon, laTab: c.laTab, dataTab: c.dataTab, laRows: c.leads.length, dataRows: c.dataRows,
+      cohort, untouched, overTotal: over.length, noDate, afterDataEnd: afterData, beforeDataStart: beforeData, dataMin: c.dMin, dataMax: c.dMax,
       dataDupRows: c.dupData, dataDateOrder: c.dOrd, laDateOrder: c.laOrd, reachBasis: c.hasReal ? 'real' : 'connected', dialsUnderPrevOwner: reassignedDials, laDupRows: c.dupRows, preAssignDials: preDials, untouchedOnlyPreAssign: preLeads, missingLA: c.missLA, missingData: c.missData, from, to, cachedAt: new Date(c.at).toISOString(),
-      assignedMin: c.aMin, assignedMax: c.aMax, assignedUnparsed: c.aBlank, assignedSample: c.aSample } };
+      assignedMin: c.aMin, assignedMax: c.aMax, assignedUnparsed: c.aBlank, assignedSample: c.aSample,
+      mapTab: c.mapTab, mapPeople: c.mapRows, mapError: c.mapError, leadsHierFromMap: c.hierFromMap, leadsNoHierarchy: c.hierMissing } };
 }
