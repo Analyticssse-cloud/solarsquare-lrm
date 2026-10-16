@@ -109,6 +109,25 @@ function inbHasField(field) {
   }
   return false;
 }
+/* MEETINGS SCHEDULED ON INBOUND (16 Oct 2026). Not in the inbound_perf feed: it
+   comes from the Ozontel tab's 'MS Addressed - Inbound' (v14+ SQL) = meetings that
+   day on leads this LRM took an inbound call from that day, any owner, matched by
+   customer phone. The API sums it over the window onto the LRM's agent row, so it
+   is read from the roster row, never re-summed here. Hidden when the sheet lacks
+   the column (absent ≠ zero) and when inbound fell back to another day, because
+   the two feeds would then cover different dates. Caveat: no connected-only filter
+   on inbound (the ring leg's status lies), so an unanswered inbound call can
+   still credit a meeting. */
+var INB_MS_COL = 'MS Addressed - Inbound';
+function inbHasMS() {
+  if (!D || (D.inboundDiag && D.inboundDiag.fallbackDate)) return false;
+  var rows = (typeof filterAgents === 'function') ? filterAgents() : (D.agentRows || []);
+  for (var i = 0; i < rows.length; i++) {
+    var v = rows[i][INB_MS_COL];
+    if (v !== undefined && v !== null && v !== '') return true;
+  }
+  return false;
+}
 function inbMin(v) { var n = Math.round(v); return n >= 60 ? (Math.floor(n / 60) + 'h ' + (n % 60) + 'm') : (n + 'm'); }
 function inbDash() { return '<span style="color:#c0c4d6">&mdash;</span>'; }
 function inbPct(v, dp) {
@@ -215,19 +234,26 @@ function inbRows() {
     a.avgQueue  = a.avgN ? a.queue / a.avgN : 0;
     a.legsPer   = a.calls && a.legs ? a.legs / a.calls : null;
     a.discPct   = a.answered ? a.custDisc / a.answered * 100 : null;
+    var msv = m[INB_MS_COL];
+    a.msIn      = (msv === undefined || msv === null || msv === '') ? null : (Number(msv) || 0);
+    a.msConv    = a.msIn !== null && a.answered ? a.msIn / a.answered * 100 : null;
     return a;
   });
 }
 
 function inbLrmTotals(rows) {
   var t = { calls:0, answered:0, unanswered:0, rangMissed:0, nrBusy:0, nrOther:0,
-            talk:0, custDisc:0, agentDisc:0, legs:0, wrap:0, avgN:0, lrms:rows.length };
+            talk:0, custDisc:0, agentDisc:0, legs:0, wrap:0, avgN:0, lrms:rows.length, msIn:0, msAns:0 };
   rows.forEach(function(a){
     t.calls += a.calls; t.answered += a.answered; t.unanswered += a.unanswered;
     t.rangMissed += a.rangMissed; t.nrBusy += a.nrBusy; t.nrOther += a.nrOther;
     t.talk += a.talk; t.custDisc += a.custDisc; t.agentDisc += a.agentDisc;
     t.legs += a.legs || 0; t.wrap += a.avgWrap * a.avgN; t.avgN += a.avgN;
+    if (a.msIn !== null) { t.msIn += a.msIn; t.msAns += a.answered; }
   });
+  /* Conversion only over LRMs that HAVE an MS reading, so a roster gap cannot
+     dilute the rate with answered calls that had no chance to be credited. */
+  t.msConv = t.msAns ? t.msIn / t.msAns * 100 : null;
   t.rang      = t.answered + t.rangMissed;
   t.notRouted = t.nrBusy + t.nrOther;
   t.answerPct = t.calls ? t.answered / t.calls * 100 : 0;
@@ -253,6 +279,8 @@ var INB_COLS = [
   { key:'pickupPct', label:'Pickup % (when rang)', need:'rangMissed', status:'pick', fmt:function(a){ return inbPct(a.pickupPct); } },
   { key:'nrBusy',    label:'Not Routed \u2013 Owner Busy', need:'nrBusy',  fmt:function(a){ return fmt(a.nrBusy); } },
   { key:'nrOther',   label:'Not Routed \u2013 Other',      need:'nrOther', fmt:function(a){ return fmt(a.nrOther); } },
+  { key:'msIn',      label:'MS on Inbound',        need:'@ms',        fmt:function(a){ return a.msIn === null ? inbDash() : fmt(a.msIn); } },
+  { key:'msConv',    label:'MS / Answered %',      need:'@ms',        fmt:function(a){ return inbPct(a.msConv); } },
   { key:'talk',      label:'Talk Time',            need:'talk',       fmt:function(a){ return inbMin(a.talk); } },
   { key:'avgTalk',   label:'Avg Talk (min)',       need:'talk',       fmt:function(a){ return inbM(a.avgTalk); } },
   { key:'avgWrap',   label:'Avg Wrap-up (min)',    need:'wrap',       fmt:function(a){ return inbM(a.avgWrap); } },
@@ -269,7 +297,8 @@ var INB_COLS = [
   { key:'days',      label:'Days',                 need:null,         fmt:function(a){ return a.days; } }
 ];
 function inbColsLive() {
-  return INB_COLS.filter(function(c){ return !c.need || inbHasField(c.need); });
+  var ms = inbHasMS();
+  return INB_COLS.filter(function(c){ return !c.need || (c.need === '@ms' ? ms : inbHasField(c.need)); });
 }
 
 /* The table is built exactly like the LRM tab's: a plain <table> in .tbl-wrap,
@@ -334,6 +363,10 @@ function inbCards(t) {
   else if (inbHasField('unanswered')) cards.push(['Not answered', fmt(t.unanswered), 'arrived, nobody spoke']);
   if (inbHasField('nrBusy') || inbHasField('nrOther')) {
     cards.push(['Not routed', fmt(t.notRouted), 'platform never offered the call — Ozonetel&rsquo;s, not the floor&rsquo;s']);
+  }
+  if (inbHasMS()) {
+    cards.push(['Meetings scheduled', fmt(t.msIn) + (t.msConv === null ? '' : ' <u>' + t.msConv.toFixed(1) + '%</u>'),
+                'on leads that called in that day &middot; % of answered']);
   }
   if (inbHasField('talk')) {
     cards.push(['Talk time', inbMin(t.talk), 'inbound only, never in dial totals']);

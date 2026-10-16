@@ -344,6 +344,147 @@ function dvTable(rows) {
     + '</tbody></table></div>';
 }
 
+/* ── By lead city / cluster (14 Oct 2026) — D.didCity from did_city_daily ──
+   Unlike the two feeds above these are COUNTS, so every rate here is weighted
+   by volume: connects ÷ calls over the picked window, summed server-side.
+   The city is the CUSTOMER's (lead pincode → city_state_cluster), not the LRM's.
+   Dial assignment is round-robin per call, so every DID sees roughly the same
+   city mix — which is what makes "this DID in this city vs the same DID in
+   every other city" a fair read of a regional problem with one number. */
+var DV_CITY_MIN = 30;   // calls before a city × DID cell is ranked
+var dvCity = (function(){ try { return localStorage.getItem('lrmDidCity') || ''; } catch(e){ return ''; } })();
+function dvRate(n, d) { return d > 0 ? 100 * n / d : null; }
+function dvGap(v) {
+  if (v === null || v === undefined || isNaN(v)) return '<span style="color:#c0c4d6">&mdash;</span>';
+  var s = (v > 0 ? '+' : '') + v.toFixed(1) + 'pp';
+  return '<span class="' + (v <= -3 ? 'bad' : v >= 3 ? 'ok' : '') + '">' + s + '</span>';
+}
+function dvCityCards() {
+  var dc = D && D.didCity;
+  var g = (D && D.didCityDiag) || {};
+  if (!dc || !dc.clusters || !dc.clusters.length) {
+    return ccCard({
+      title: 'DID performance by lead city',
+      note: 'not wired yet',
+      sub: g.tab ? 'Read ' + (g.rows || 0) + ' rows from <code>' + esc(g.tab) + '</code>, none inside the picked range.'
+         : 'No <code>did_city_daily</code> tab yet. Save <code>sql/did-city-daily-v1.sql</code> as a Metabase card, set '
+         + '<code>DID_CITY_QUESTION_ID</code> in Code.gs and run the backfill. The card reads <code>lead</code>, so it '
+         + 'stays blocked until the DBA restores the metabase-pii grant.',
+      body: ''
+    });
+  }
+  var C = dc.clusters, cells = dc.cells || [];
+  var tot = C.reduce(function (a, c) { a.calls += c.calls; a.connects += c.connects; a.fresh += c.fresh; a.freshConn += c.freshConn; a.pin += c.pin; return a; },
+    { calls: 0, connects: 0, fresh: 0, freshConn: 0, pin: 0 });
+  var floor = dvRate(tot.connects, tot.calls), floorFresh = dvRate(tot.freshConn, tot.fresh);
+  var placed = C.filter(function (c) { return c.cluster !== 'Unmapped' && c.cluster !== 'No lead'; });
+  if (!dvCity || !C.some(function (c) { return c.cluster === dvCity; })) dvCity = (placed[0] || C[0]).cluster;
+
+  var cityTbl = '<div class="tbl-wrap"><table class="dist"><thead><tr>'
+    + '<th style="text-align:left">Lead city / cluster</th><th class="sep">Calls</th><th>Share</th><th>DIDs used</th>'
+    + '<th class="sep">Connect %</th><th>vs floor</th><th class="sep">Fresh dials</th><th>Fresh connect %</th>'
+    + '<th class="sep">Geo from pincode</th></tr></thead><tbody>'
+    + C.map(function (c) {
+        var r = dvRate(c.connects, c.calls), on = c.cluster === dvCity;
+        var bg = on ? ' style="background:var(--blue-soft,#eef1f7)"' : '';
+        return '<tr data-dvcity="' + esc(c.cluster) + '" style="cursor:pointer">'
+          + '<td class="nm" style="text-align:left' + (on ? ';background:var(--blue-soft,#eef1f7);font-weight:600' : '') + '">' + esc(c.cluster) + '</td>'
+          + '<td num="1" class="sep"' + bg + '>' + fmt(c.calls) + '</td>'
+          + '<td num="1"' + bg + '>' + dvPct(dvRate(c.calls, tot.calls)) + '</td>'
+          + '<td num="1"' + bg + '>' + fmt(c.dids) + '</td>'
+          + '<td num="1" class="sep"' + bg + '>' + dvPct(r) + '</td>'
+          + '<td num="1"' + bg + '>' + dvGap(r === null || floor === null ? null : r - floor) + '</td>'
+          + '<td num="1" class="sep"' + bg + '>' + fmt(c.fresh) + '</td>'
+          + '<td num="1"' + bg + '>' + dvPct(dvRate(c.freshConn, c.fresh)) + '</td>'
+          + '<td num="1" class="sep"' + bg + '>' + dvPct(dvRate(c.pin, c.calls), 0) + '</td></tr>';
+      }).join('')
+    + '<tr><td class="nm" style="text-align:left;background:var(--blue-soft,#eef1f7);font-weight:600">All cities</td>'
+    + '<td num="1" class="sep" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + fmt(tot.calls) + '</td>'
+    + '<td num="1" style="background:var(--blue-soft,#eef1f7);font-weight:600">100.0%</td>'
+    + '<td num="1" style="background:var(--blue-soft,#eef1f7)"></td>'
+    + '<td num="1" class="sep" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + dvPct(floor) + '</td>'
+    + '<td num="1" style="background:var(--blue-soft,#eef1f7)"></td>'
+    + '<td num="1" class="sep" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + fmt(tot.fresh) + '</td>'
+    + '<td num="1" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + dvPct(floorFresh) + '</td>'
+    + '<td num="1" class="sep" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + dvPct(dvRate(tot.pin, tot.calls), 0) + '</td></tr>'
+    + '</tbody></table></div>';
+
+  /* Per DID inside the picked city, against (a) the city's own rate and (b) the
+     SAME DID in every other city. (b) is the regional-problem signal. */
+  var byDid = {};
+  cells.forEach(function (x) {
+    var b = byDid[x.did] || (byDid[x.did] = { calls: 0, connects: 0 });
+    b.calls += x.calls; b.connects += x.connects;
+  });
+  var city = C.filter(function (c) { return c.cluster === dvCity; })[0];
+  var cityRate = city ? dvRate(city.connects, city.calls) : null;
+  var inCity = cells.filter(function (x) { return x.cluster === dvCity; }).map(function (x) {
+    var all = byDid[x.did] || { calls: 0, connects: 0 };
+    var r = dvRate(x.connects, x.calls), rest = dvRate(all.connects - x.connects, all.calls - x.calls);
+    return { did: x.did, calls: x.calls, r: r, fr: dvRate(x.freshConn, x.fresh), fresh: x.fresh,
+             vsCity: (r === null || cityRate === null) ? null : r - cityRate,
+             vsElse: (r === null || rest === null) ? null : r - rest,
+             gated: x.calls < DV_CITY_MIN };
+  }).sort(function (a, b) {
+    if (a.gated !== b.gated) return a.gated ? 1 : -1;
+    if (a.gated) return b.calls - a.calls;
+    return (a.vsElse === null ? 999 : a.vsElse) - (b.vsElse === null ? 999 : b.vsElse);
+  });
+  var flagged = inCity.filter(function (x) { return !x.gated && x.vsElse !== null && x.vsElse <= -5; }).length;
+  var picker = '<select data-dvcity="1" class="input" style="font:inherit;padding:4px 8px">'
+    + C.map(function (c) { return '<option value="' + esc(c.cluster) + '"' + (c.cluster === dvCity ? ' selected' : '') + '>' + esc(c.cluster) + ' (' + fmt(c.calls) + ')</option>'; }).join('')
+    + '</select>';
+  var didTbl = '<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px"><span class="fb-sub">City</span>' + picker + '</div>'
+    + '<div class="tbl-wrap"><table class="dist"><thead><tr>'
+    + '<th style="text-align:left">DID</th><th class="sep">Calls here</th><th>Connect %</th>'
+    + '<th class="sep">vs this city</th><th>vs same DID elsewhere</th><th class="sep">Fresh dials</th><th>Fresh connect %</th>'
+    + '</tr></thead><tbody>'
+    + inCity.map(function (x) {
+        var mute = x.gated ? ' style="color:var(--muted)"' : '';
+        return '<tr' + mute + '><td class="nm" style="text-align:left">' + esc(x.did) + '</td>'
+          + '<td num="1" class="sep">' + fmt(x.calls) + '</td><td num="1">' + dvPct(x.r) + '</td>'
+          + '<td num="1" class="sep">' + (x.gated ? '&mdash;' : dvGap(x.vsCity)) + '</td>'
+          + '<td num="1">' + (x.gated ? '&mdash;' : dvGap(x.vsElse)) + '</td>'
+          + '<td num="1" class="sep">' + fmt(x.fresh) + '</td><td num="1">' + dvPct(x.fr) + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div>';
+
+  var best = placed.filter(function (c) { return c.calls >= 200; }).map(function (c) { return { k: c.cluster, r: dvRate(c.connects, c.calls) }; })
+    .sort(function (a, b) { return b.r - a.r; });
+  var top = best[0], low = best[best.length - 1];
+  return '<div style="margin-top:18px;padding-top:4px;border-top:1px solid #e4e7f0">'
+    + '<div style="font-weight:600;font-size:11px;line-height:1.2;letter-spacing:.09em;text-transform:uppercase;'
+    + 'color:var(--muted);margin:10px 0 12px">By lead city &middot; did_city_daily &middot; follows the date picker</div></div>'
+    + connStripCells([
+        ['Cities', fmt(placed.length), 'with a mapped lead in range'],
+        ['Floor connect %', dvPct(floor, 1), fmt(tot.calls) + ' calls, weighted'],
+        ['Best city', top ? esc(top.k) : '&mdash;', top ? top.r.toFixed(1) + '% · 200+ calls' : ''],
+        ['Weakest city', low && low !== top ? esc(low.k) : '&mdash;', low && low !== top ? low.r.toFixed(1) + '% · 200+ calls' : ''],
+        ['Spread', top && low && low !== top ? (top.r - low.r).toFixed(1) + ' <u>pp</u>' : '&mdash;', 'best vs weakest city'],
+        ['Placed by pincode', dvPct(dvRate(tot.pin, tot.calls), 0), 'rest from lead text or unmapped']
+      ])
+    + ccCard({
+        title: 'Connect % by lead city',
+        note: esc(g.window || '') + ' &middot; ' + (dc.days || 0) + (dc.days === 1 ? ' day' : ' days'),
+        sub: 'Every call in range, grouped by the <b>customer’s</b> city or cluster (lead pincode → '
+           + '<code>city_state_cluster</code>). These are counts, so each rate is <b>weighted by volume</b> — '
+           + 'unlike the unweighted means above. Click a row to drill into its DIDs.',
+        body: cityTbl,
+        foot: '<b>Unmapped</b> = a lead with no usable pincode or place name; <b>No lead</b> = the call carried a lead id '
+            + 'that matched no lead. A city’s gap to the floor is mostly its lead mix and its customers’ '
+            + 'networks — read Fresh connect % beside it before blaming the numbers.'
+      })
+    + ccCard({
+        title: 'DIDs inside ' + esc(dvCity),
+        note: inCity.length + ' DIDs' + (flagged ? ' &middot; <b class="bad">' + flagged + ' 5pp+ below their own rate elsewhere</b>' : ''),
+        sub: '<b>vs same DID elsewhere</b> compares this number in this city with the same number in every other city. '
+           + 'Assignment is round-robin per call, so a number that holds up elsewhere but sinks here points at a '
+           + 'regional block or spam label, not at the number overall. Worst first; cells under ' + DV_CITY_MIN
+           + ' calls are shown greyed and not ranked.',
+        body: didTbl
+      });
+}
+
 function renderDID() {
   var panel = document.getElementById('didPanel');
   if (!panel || !D) return;
@@ -351,12 +492,13 @@ function renderDID() {
   var hasOverall = D.connHas && D.connHas.didOverall && rows.length;
   var hasDod = D.connHas && D.connHas.didDod;
   var hasRep = D.connHas && D.connHas.did && D.didRows && D.didRows.length;
+  var hasCity = !!(D.didCity && D.didCity.clusters && D.didCity.clusters.length);
 
   if (activeTab === 'did') {
-    setCount(hasOverall ? rows.length + ' DIDs' : (hasDod ? 'day-on-day only' : 'no DID feed'));
+    setCount(hasOverall ? rows.length + ' DIDs' : (hasDod ? 'day-on-day only' : (hasCity ? 'by city only' : 'no DID feed')));
   }
 
-  if (!hasOverall && !hasDod && !hasRep) {
+  if (!hasOverall && !hasDod && !hasRep && !hasCity) {
     var g = (D && D.didOverallDiag) || {};
     panel.innerHTML = connStack(chNoSource('DID estate',
       'No DID feed for this view yet. ' + (g.tab ? 'Read ' + (g.rows || 0) + ' rows from ' + g.tab + '.'
@@ -411,6 +553,8 @@ function renderDID() {
       });
     }
   }
+
+  html += dvCityCards();
 
   if (hasOverall) {
     html += '<div style="margin-top:18px;padding-top:4px;border-top:1px solid #e4e7f0">'
@@ -517,6 +661,15 @@ function renderDID() {
   panel.innerHTML = connStack(html);
   if (typeof ccWireTables === 'function') ccWireTables(panel, 'Every DID \u00b7 all lead types', window.__dvTable || '');
   if (hasRep && typeof didRepWire === 'function') didRepWire(panel);
+
+  panel.querySelectorAll('[data-dvcity]').forEach(function (el) {
+    var pick = function () {
+      dvCity = el.tagName === 'SELECT' ? el.value : el.getAttribute('data-dvcity');
+      try { localStorage.setItem('lrmDidCity', dvCity); } catch (e) {}
+      renderDID();
+    };
+    el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'click', pick);
+  });
 
   panel.querySelectorAll('table.dist th[data-dvsort]').forEach(function (th) {
     th.addEventListener('click', function () {

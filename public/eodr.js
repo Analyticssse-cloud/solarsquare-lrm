@@ -112,8 +112,20 @@ function eodrNum(v) {
 /* Minimum dials before an LRM/day counts as a check-in observation — see the note at
    the First Call Min accumulator. */
 var EODR_CHECKIN_MIN_CALLS = 5;
+/* TEAM-LEVEL FIX (13 Oct 2026) — why TL / ZSM / ADOS / Pan-India read off:
+   1. Per-LRM rows divided by HEADCOUNT and were judged against base x CALENDAR days.
+      Over MTD/R7/R30 everyone with a week-off, every joiner and every leaver dragged
+      the team under target. The denominator is now LRM-DAYS WORKED (sum of each
+      row's _workDays = days with >= 1 dial), so every column reads "per LRM per
+      worked day" against the plain daily baseline.
+   2. Rows with 0 dials in the window were counted as heads (owner-credited meetings
+      with no calling). They no longer count as heads; their meetings still count.
+   3. Work start averaged blank days as 00:00 and applied the 5-dial test to the
+      WINDOW total. The server now ships _fcSum/_fcN per LRM (only days with >= 5
+      dials), and the team start is weighted by LRM-day.
+   4. 'MS >T+2' was never shipped to the client, so MS -> MD % was inflated. */
 function eodrAgg(rows) {
-  var a = { calls: 0, connected: 0, real: 0, leads: 0, talkHr: 0, trwHr: 0,
+  var a = { lrmDays: 0, fcSum: 0, fcN: 0, calls: 0, connected: 0, real: 0, leads: 0, talkHr: 0, trwHr: 0,
             ringHr: 0, wrapHr: 0, ringFill: 0, wrapFill: 0, hasTRW: false,
             firstMinSum: 0, firstMinN: 0, firstMinMax: null,
             msToday: 0, t0: 0, t1: 0, t2: 0, gt2: 0, md: 0,
@@ -138,10 +150,20 @@ function eodrAgg(rows) {
     // block takes the LATEST, so one of them would name the whole team's slowest starter.
     // Under EODR_CHECKIN_MIN_CALLS the row simply does not vote.
     var fm = r['First Call Min'];
-    if (fm !== undefined && fm !== '' && fm !== null && eodrNum(fm) > 0
+    if (r._fcN !== undefined && r._fcN !== '') {
+      // Server-side per-day gate (new payload). Team mean is LRM-day weighted;
+      // "latest" is the slowest LRM's own average, so one stray day can't name it.
+      var n = eodrNum(r._fcN);
+      if (n > 0) {
+        a.fcSum += eodrNum(r._fcSum); a.fcN += n;
+        var lm = eodrNum(r._fcSum) / n;
+        a.firstMinN += 1;
+        if (a.firstMinMax === null || lm > a.firstMinMax) a.firstMinMax = lm;
+      }
+    } else if (fm !== undefined && fm !== '' && fm !== null && eodrNum(fm) > 0
         && eodrNum(r['Call Count']) >= EODR_CHECKIN_MIN_CALLS) {
       var v = eodrNum(fm);
-      a.firstMinSum += v; a.firstMinN += 1;
+      a.fcSum += v; a.fcN += 1; a.firstMinN += 1;
       if (a.firstMinMax === null || v > a.firstMinMax) a.firstMinMax = v;
     }
     a.msToday   += eodrNum(r['MS Today']);
@@ -150,8 +172,10 @@ function eodrAgg(rows) {
     a.t2        += eodrNum(r['MS T+2']);
     a.gt2       += eodrNum(r['MS >T+2']);
     a.md        += eodrNum(r['Meeting Done']);
-    a.lrms      += 1;
-    if (eodrNum(r['Call Count']) === 0) a.idle += 1;
+    var wd = (r._workDays !== undefined && r._workDays !== '') ? eodrNum(r._workDays)
+           : (eodrNum(r['Call Count']) > 0 ? (eodrNum(r._dayCount) || 1) : 0);
+    a.lrmDays += wd;
+    if (eodrNum(r['Call Count']) > 0) a.lrms += 1; else a.idle += 1;
     var sc = r['MS Score'];
     if (sc !== undefined && sc !== '' && sc !== null) { a.scoreSum += eodrNum(sc); a.scoreN += 1; }
   });
@@ -163,10 +187,10 @@ function eodrAgg(rows) {
   // the same number twice under two names.
   a.effTalk   = a.talkMin;
   a.totalTime = a.hasTRW ? a.trwHr * 60 : null;
-  a.firstCall = a.firstMinN ? a.firstMinSum / a.firstMinN : null;
+  a.firstCall = a.fcN ? a.fcSum / a.fcN : null;
   a.lastCheck = a.firstMinMax;
   a.msScore   = a.scoreN ? a.scoreSum / a.scoreN : null;
-  a.shrinkage = a.lrms ? a.idle / a.lrms * 100 : null;
+  a.shrinkage = (a.lrms + a.idle) ? a.idle / (a.lrms + a.idle) * 100 : null;
   return a;
 }
 
@@ -287,6 +311,7 @@ function eodrMockWindows(W) {
         for (var i = 0; i < e.length; i++) seed = (seed * 31 + e.charCodeAt(i)) % 97;
         o['First Call Min'] = 570 + seed % 55;               // 09:30–10:24
       }
+      if (o._workDays === undefined || o._workDays === '') o._workDays = eodrNum(r['Call Count']) > 0 ? Math.max(1, Math.round(mult * 5 * 0.86)) : 0;
       if (o['Total Time (T+R+W)'] === undefined) {
         o['Total Time (T+R+W)'] = Math.round(eodrNum(o['Total Talk Time']) * 1.55 * 10) / 10;
       }
@@ -302,6 +327,26 @@ function eodrMockWindows(W) {
    the colour is one hover away rather than invisible. */
 /* The status rule, extracted so the cell tint and the row-label spine cannot
    disagree: the spine reads TODAY's status and must use the same thresholds. */
+/* ONE place that turns a row's raw window total into (shown value, target).
+   Team: per LRM per WORKED day vs the daily base. Single LRM: absolute window
+   total vs base x that LRM's worked days (perDay rows: per worked day). */
+function eodrResolve(row, agg, single) {
+  var v = row.get(agg);
+  if (v === null || v === undefined) return { v: null, t: null };
+  if (row.deadline || row.flat || !row.per) return { v: v, t: row.base || null };
+  var d = agg.lrmDays;
+  if (!d) return { v: null, t: null };
+  if (single && !row.perDay) return { v: v, t: row.base * d, days: d };
+  return { v: v / d, t: row.base, days: d };
+}
+function eodrStatusRV(row, rv) {
+  var v = rv.v;
+  if (v === null || v === undefined) return '';
+  if (row.deadline) return v <= row.deadline ? 'hit' : (v <= row.deadline + 30 ? 'near' : 'miss');
+  if (row.goodLow) return v <= 5 ? 'hit' : (v <= 15 ? 'near' : 'miss');
+  if (rv.t) { var r = v / rv.t; return r >= 1 ? 'hit' : (r >= 0.8 ? 'near' : 'miss'); }
+  return '';
+}
 function eodrStatus(row, v, win, headcount) {
   if (v === null || v === undefined) return '';
   if (row.per && !row.flat && !row.deadline) v = headcount ? v / headcount : null;
@@ -348,13 +393,13 @@ function eodrScoreFoot() {
     + (m.scored || 0) + ' of ' + (m.lrms || 0) + ' LRMs in the current feed carry a score ('
     + m.inSheet + ' scored in the sheet for this window).';
 }
-function eodrCell(row, agg, win, headcount, isNow) {
+function eodrCell(row, agg, win, single, isNow) {
   var now = isNow ? ' is-now' : '';
   if (row.feed === 'attendance') {
     return '<td class="eodr-na' + now + '" title="Not in the dashboard feed">—</td>';
   }
-  var v = row.get(agg);
-  if (row.per && v !== null && !row.flat && !row.deadline) v = headcount ? v / headcount : null;
+  var rv = eodrResolve(row, agg, single);
+  var v = rv.v;
   if (v === null) {
     var why = row.feedIf === 'score' ? eodrScoreWhy()
             : row.feedIf === 'trw'   ? 'Needs the "Total Time (T+R+W)" column — paste the v15 query into Metabase'
@@ -362,22 +407,17 @@ function eodrCell(row, agg, win, headcount, isNow) {
             : 'No data in this window';
     return '<td class="eodr-na' + now + '" title="' + esc(why) + '">—</td>';
   }
-  if (row.perDay && win.days) v = v / win.days;
   var txt = (EODR_FMT[row.f] || EODR_FMT.int)(v);
-  // `v` is already per-LRM here, so the status is computed with `per` dropped
-  // rather than dividing by the headcount twice.
-  var st = eodrStatus({ deadline: row.deadline, goodLow: row.goodLow, base: row.base, flat: row.flat || row.perDay }, v, win, 1);
+  var st = eodrStatusRV(row, rv);
   var cls = st ? 'eodr-' + st : '', title = '';
   if (row.deadline) {
-    // A deadline inverts the scale: at or before the hour is a hit, and it is never
-    // scaled by window length (10:00 is 10:00 whether the column is a day or a month).
-    title = 'Target ' + EODR_FMT.clock(row.deadline) + ' or earlier · over the '
-          + agg.firstMinN + ' day/LRM row(s) with at least ' + EODR_CHECKIN_MIN_CALLS + ' dials';
-  } else if (row.base) {
-    var target = (row.flat || row.perDay) ? row.base : row.base * win.days;
-    var ratio = target > 0 ? v / target : 0;
-    title = 'Baseline ' + (Math.round(target * 10) / 10).toLocaleString('en-IN')
-          + ((row.flat || row.perDay) ? (row.perDay ? ' per LRM per day' : '') : ' (' + row.base + ' \u00d7 ' + win.days + 'd)')
+    title = 'Target ' + EODR_FMT.clock(row.deadline) + ' or earlier \u00b7 over '
+          + agg.fcN + ' LRM-day(s) with at least ' + EODR_CHECKIN_MIN_CALLS + ' dials';
+  } else if (rv.t) {
+    var ratio = rv.t > 0 ? v / rv.t : 0;
+    title = 'Baseline ' + (Math.round(rv.t * 10) / 10).toLocaleString('en-IN')
+          + (rv.days ? ((single && !row.perDay) ? ' (' + row.base + ' \u00d7 ' + rv.days + ' worked day(s))'
+                       : ' per LRM per worked day \u00b7 ' + rv.days + ' LRM-day(s)') : '')
           + ' \u00b7 at ' + Math.round(ratio * 100) + '%';
   } else if (row.goodLow) {
     title = 'Lower is better \u00b7 5% or less reads as healthy';
@@ -414,13 +454,13 @@ function eodrBlock(o) {
     // The spine on the row label carries TODAY's status, so the left edge is
     // scannable without reading four columns.
     var aNow = o.aggs.today;
-    var sNow = aNow ? eodrStatus(row, row.get(aNow), W.today, o.heads.today) : '';
+    var sNow = aNow ? eodrStatusRV(row, eodrResolve(row, aNow, o.single)) : '';
     h += '<tr><th class="' + (sNow ? 's-' + sNow : '') + '">' + esc(row.label)
        + (row.note ? '<i>' + esc(row.note) + '</i>' : '') + '</th>'
        + '<td class="eodr-tgt">' + esc(eodrTgtTxt(row)) + '</td>';
     order.forEach(function (k, i) {
       var a = o.aggs[k];
-      h += a ? eodrCell(row, a, W[k], o.heads[k], i === 0)
+      h += a ? eodrCell(row, a, W[k], o.single, i === 0)
              : '<td class="eodr-na' + (i === 0 ? ' is-now' : '') + '">\u2014</td>';
     });
     h += '</tr>';
@@ -428,7 +468,8 @@ function eodrBlock(o) {
   h += '</tbody></table></div>'
      + '<div class="eodr-legend"><i class="lg-hit">At or above target</i>'
      + '<i class="lg-near">Within 20%</i><i class="lg-miss">Below</i>'
-     + '<span>Count targets scale by window length; rates and times do not.</span></div>';
+     + '<span>' + (o.single ? 'Count targets scale by the LRM\u2019s worked days; rates and times do not.'
+                  : 'Every count is per LRM per worked day, so all four columns share one target.') + '</span></div>';
   if (o.foot) h += '<div class="fb-foot eodr-foot">' + o.foot + '</div>';
   return h + '</div>';
 }
@@ -476,11 +517,12 @@ function renderEODR() {
           mode: single ? 'Absolute' : 'Per LRM',
           rowHead: 'Metric',
           hdNote: eodrScopeLabel(),
-          rows: rows, aggs: aggs, heads: heads,
+          rows: rows, aggs: aggs, heads: heads, single: single,
           sub: single
             ? 'One LRM in scope, so every number is that person\u2019s own \u2014 nothing is divided.'
-            : (heads.today || 0) + ' LRMs in the feed for this scope today \u00b7 counts are divided by the '
-              + 'headcount of each window, so the columns stay comparable as people come and go.',
+            : (heads.today || 0) + ' LRMs dialled in this scope today \u00b7 counts are divided by LRM-days '
+              + 'WORKED (days with at least one dial), so week-offs, joiners and leavers do not read as misses. '
+              + 'LRM-days \u2014 ' + order.map(function (k) { return W[k].label + ' ' + (aggs[k] ? aggs[k].lrmDays : '\u2014'); }).join(' \u00b7 ') + '.',
           foot: 'Check-in is the clock time of the first Ozonetel call \u2014 when work STARTED, which is the '
               + 'number this row is for. Arrival is not captured anywhere, and it is not the same thing: '
               + 'someone can reach the office at 09:30 and start dialling at 10:40. An LRM who never dialled '
