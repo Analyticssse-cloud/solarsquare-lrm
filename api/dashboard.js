@@ -235,6 +235,8 @@ const SUM_COLS = [
   'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'MS >T+2', 'Meeting Done',
   'MS on Calls <1min', 'MS on Calls 1-2min', 'MS on Calls >2min', 'MS - No Tracked Call',
   'DS Today', 'DS T+1', 'DS T+2',
+  // v14 caller-credit (16 Oct: shipped for the Inbound tab's 'MS on Inbound').
+  'MS Addressed', 'MS Addressed - Inbound',
   // v15 (EODR). 'Total Talk Time' above is TALK ONLY; this one is ring+talk+wrap and
   // is therefore the LARGER number despite the humbler name. Ring/Wrap Filled are
   // fill-rate witnesses — summed so the EODR tab can compare them to Connected Calls.
@@ -244,7 +246,13 @@ const SUM_COLS = [
 // 'First Call Min' is the check-in proxy as minutes-since-midnight: a clock string
 // cannot be averaged over a 30-day window, so the SQL emits both and this averages
 // the number. The EODR tab formats it back to HH:MM.
-const AVG_COLS = ['Avg. Talk Time', 'Avg. Handling Time', 'First Call Min'];
+const AVG_COLS = ['Avg. Talk Time', 'Avg. Handling Time'];
+/* EODR fix (13 Oct 2026): 'First Call Min' left AVG_COLS. Averaging it over EVERY day
+   counted blank days as 00:00 (pulling team starts to ~07:xx) and let the client's
+   ">= 5 dials" test run on the WINDOW's call count, where it is always true. It is now
+   averaged only over days that themselves carry >= FC_MIN_CALLS dials, and the sum /
+   count / latest are shipped so a TL/ZSM/ADOS card weights by LRM-day, not by LRM. */
+const FC_MIN_CALLS = 5;
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -577,10 +585,20 @@ export default async function handler(req, res) {
         SUM_COLS.forEach(k => { bucket[key][k] = num(obj[k]); });
         AVG_COLS.forEach(k => { bucket[key]['_sum_' + k] = num(obj[k]); });
         bucket[key]._dayCount = 1;
+        bucket[key]._workDays = 0; bucket[key]._fcSum = 0; bucket[key]._fcN = 0; bucket[key]._fcMax = '';
       } else {
         SUM_COLS.forEach(k => { bucket[key][k] = num(bucket[key][k]) + num(obj[k]); });
         AVG_COLS.forEach(k => { bucket[key]['_sum_' + k] = num(bucket[key]['_sum_' + k]) + num(obj[k]); });
         bucket[key]._dayCount++;
+      }
+      // Worked day = at least one dial. The EODR per-LRM denominator is LRM-days WORKED,
+      // not headcount x calendar days (week-offs, joiners and leavers read as misses).
+      const bk = bucket[key];
+      if (obj['Call Count'] > 0) bk._workDays++;
+      const fcv = num(obj['First Call Min']);
+      if (fcv > 0 && obj['Call Count'] >= FC_MIN_CALLS) {
+        bk._fcSum += fcv; bk._fcN++;
+        if (bk._fcMax === '' || fcv > bk._fcMax) bk._fcMax = fcv;
       }
     });
 
@@ -604,6 +622,7 @@ export default async function handler(req, res) {
         r[k] = Math.round((num(r['_sum_' + k]) / days) * 10) / 10;
         delete r['_sum_' + k];
       });
+      r['First Call Min'] = r._fcN ? Math.round((r._fcSum / r._fcN) * 10) / 10 : '';
 
       /* Avg Talk = Talk Time ÷ Connected Calls, recomputed from the SUMMED totals
          (9 Oct). The SQL's 'Avg. Talk Time' divides by Real Connects (15s+), not by
@@ -762,14 +781,15 @@ export default async function handler(req, res) {
       'Total Talk Time', 'Avg. Talk Time',
       'First Call Min', 'Ring Time', 'Wrap Time', 'Total Time (T+R+W)',
       'Ring Filled', 'Wrap Filled',
-      'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'Meeting Done', 'MS Score',
+      'MS Today', 'MS T+0', 'MS T+1', 'MS T+2', 'MS >T+2', 'Meeting Done', 'MS Score',
       'Calls <1min', 'Calls 1-2min', 'Calls >2min',
       'MS on Calls <1min', 'MS on Calls 1-2min', 'MS on Calls >2min', 'MS - No Tracked Call',
+      'MS Addressed', 'MS Addressed - Inbound',
       'Unique Leads Dialed', 'Unique Numbers Dialed',
       'Real Connects (15s+)', 'Real Connect %', 'Avg. Handling Time',
       'Progress', 'Delta', 'Score', 'Final Rank',
     ];
-    const metaKeys = ['LRM Name','Connect %','TL','ZSM','ADOS','ZSM Name','ADOS Name','_flagLowVol','_flagIdle','_flagNoMeet','Avg Daily Dials','_dayCount','_inScope'];
+    const metaKeys = ['LRM Name','Connect %','TL','ZSM','ADOS','ZSM Name','ADOS Name','_flagLowVol','_flagIdle','_flagNoMeet','Avg Daily Dials','_dayCount','_inScope','_workDays','_fcSum','_fcN','_fcMax'];
     const agentRowsSlim = agentRows.map(r => {
       const obj = {};
       agentCols.forEach(k => { obj[k] = r[k] !== undefined ? r[k] : ''; });
@@ -1671,6 +1691,45 @@ export default async function handler(req, res) {
        against a picked day. */
     const didDodAllDays = didDodAll;
 
+    /* DID × lead city/cluster (14 Oct 2026) — tab `did_city_daily`, card
+       sql/did-city-daily-v1.sql, one row per Date × Cluster × DID, all COUNTS.
+       Summed over the picked window HERE so the browser gets two small tables,
+       never the raw grain (~4k rows/day). Every % is recomputed from the sums. */
+    const didCityDiag = {};
+    const didCityRaw = await passThrough('did_city_daily', {
+      tabs: ['did_city_daily', 'did_city', 'DID City Daily'], diag: didCityDiag,
+      fields: {
+        date: { kind: 'text', keys: ['date'] }, cluster: { kind: 'text', keys: ['cluster', 'city'] },
+        did: { kind: 'text', keys: ['did'] }, calls: { kind: 'num', keys: ['calls'] },
+        connects: { kind: 'num', keys: ['connects'] }, fresh: { kind: 'num', keys: ['freshdials'] },
+        freshConn: { kind: 'num', keys: ['freshconnects'] }, pin: { kind: 'num', keys: ['geofrompincode'] },
+      },
+    });
+    const didCity = (() => {
+      const cl = {}, cells = {}, days = {};
+      for (const r of didCityRaw) {
+        const c = r._c || {}, d = rowDate(c.date);
+        if (!d || d < effFrom || d > effTo) continue;
+        const k = String(c.cluster || '').trim() || 'Unmapped', did = String(c.did || '').trim();
+        if (!did) continue;
+        days[d] = 1;
+        const v = { calls: +c.calls || 0, connects: +c.connects || 0, fresh: +c.fresh || 0, freshConn: +c.freshConn || 0 };
+        const a = cl[k] || (cl[k] = { cluster: k, calls: 0, connects: 0, fresh: 0, freshConn: 0, pin: 0, _d: {}, _days: {} });
+        Object.keys(v).forEach(f => { a[f] += v[f]; });
+        a.pin += +c.pin || 0; a._d[did] = 1; a._days[d] = 1;
+        const ck = k + '|' + did;
+        const b = cells[ck] || (cells[ck] = { cluster: k, did, calls: 0, connects: 0, fresh: 0, freshConn: 0 });
+        Object.keys(v).forEach(f => { b[f] += v[f]; });
+      }
+      const clusters = Object.values(cl).map(a => {
+        const { _d, _days, ...rest } = a;
+        return { ...rest, dids: Object.keys(_d).length, days: Object.keys(_days).length };
+      }).sort((x, y) => y.calls - x.calls);
+      return { clusters, cells: Object.values(cells), days: Object.keys(days).length };
+    })();
+    didCityDiag.window = effFrom + ' → ' + effTo;
+    didCityDiag.clusters = didCity.clusters.length;
+
     /* DID Manager (7 Oct 2026) — three tabs written by DidManager.gs. Not
        person-scoped (DIDs belong to the floor), so every role sees them. Each is
        optional: an unwired tab reads as [] and the view names the missing step. */
@@ -1779,13 +1838,13 @@ export default async function handler(req, res) {
       coverageMatureDays: COVERAGE_MATURE_DAYS, coverage: coverageMeta,
       depthRows, depthTrend, depthHas, leadDepth, leadDepthAgg, leadDepthDiag, leadDepthStage,
       connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
-      didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor,
+      didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor, didCity, didCityDiag,
       didHealth, didSwaps, didPool, didMgrDiag,
       connHas: {
         daily: connDaily.length > 0, hourly: connHourly.length > 0,
         anomaly: connAnomaly.length > 0, did: didRows.length > 0,
         inbound: inboundRows.length > 0, inboundPerf: inboundPerf.length > 0,
-        didOverall: didOverall.length > 0, didDod: didDodAll.length > 0,
+        didOverall: didOverall.length > 0, didDod: didDodAll.length > 0, didCity: didCityRaw.length > 0,
         floor: connFloor.length > 0,
         source: connSource, today: todayISO, error: connError, diag: connDiag,
       },
@@ -1825,6 +1884,7 @@ function emptyPayload(from, to, viewerEmail) {
     connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
     inboundPerf: [], inboundDiag: {},
     didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
+    didCity: { clusters: [], cells: [], days: 0 }, didCityDiag: {},
     didHealth: [], didSwaps: [], didPool: [], didMgrDiag: {},
     connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false,
                inboundPerf: false, didOverall: false, didDod: false },
