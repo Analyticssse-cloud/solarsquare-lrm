@@ -1,48 +1,22 @@
 /* ════════════════════════════════════════════════════════════════════════════
-   didview.js — the DID estate tab, built on the two feeds Code.gs actually
-   writes (18 Sep 2026).
+   didview.js — the DID estate tab. RESTRUCTURED 18 Oct 2026 (was: three KPI
+   strips, eight stacked cards, three feed banners and a long caveat card on
+   one scroll). Now: ONE headline strip, ONE feed line, and a view switch that
+   draws a single section at a time —
+     Overview      lead type × (range | vs all days | today | 15d | today vs 15d)
+                   + the day-by-day curve
+     By city       did_city_daily — city table, click → DIDs in that city
+     Numbers       watch list (worst movers vs their own baseline) + full tables
+     Reputation    did_rep cards, only when DID_REP_QUESTION_ID is set
+   Caveats collapse into one "How to read this tab" disclosure at the foot.
 
-   WHY THIS FILE EXISTS
-   --------------------
-   The DID view used to read ONE feed: `did_rep`, the depth-adjusted reputation
-   index. That card's id (`DID_REP_QUESTION_ID`) is still an empty string in
-   Code.gs, so the tab is never written — the view rendered "no DID feed" while
-   the sheet carried two populated DID tabs nobody was reading:
-
-     did_overall      card 3305, PARAMETERLESS. One row per DID, connect % per
-                      lead type at four windows (today / 7d / 15d / overall),
-                      computed inside the SQL via NOW(). No Date column, full
-                      replace every 15 minutes.
-     did_day_on_day   card 3304, one row per Date × DID, same five rates.
-                      History hard-pasted by its backfill; only today moves.
-
-   WHAT THE FEEDS ALLOW, AND WHAT THEY DO NOT
-   ------------------------------------------
-   Every value in both is a PERCENTAGE. There are no dials and no connects
-   anywhere — no denominators at all. Three consequences drive every decision
-   below, and each is printed on the view rather than left in this comment:
-
-   1. An estate figure can only be an UNWEIGHTED MEAN across DIDs. A DID that
-      took 12 dials counts the same as one that took 900. It is a shape
-      indicator, not the floor's connect rate — the floor's rate lives on the
-      LRM feeds.
-   2. A rate with no volume cannot be ranked safely. 14 Sep in this feed is a
-      Sunday-shaped day of 0.0s and 100.0s off tiny denominators. So per-DID
-      rows are a WATCH LIST sorted by movement, never a league table, and a DID
-      with a blank `today` is left out of the movement ranking rather than
-      drawn as zero.
-   3. `did_overall` does NOT honour the date picker — it cannot, it has no Date
-      column. The card says so in its own note. `did_day_on_day` does.
-
-   THE ONE FINDING THIS VIEW IS BUILT TO CARRY
-   -------------------------------------------
-   Connectivity is a property of the LEAD TYPE far more than of the number:
-   fresh leads run ~40-45%, retargeting ~20%, on the same DIDs in the same
-   hours. So "bad numbers" is mostly the wrong frame — and the lead-type matrix
-   is the first thing on the tab, above anything per-DID.
-
-   The did_rep cards (callhealth.js → didRepCards) are appended underneath and
-   appear automatically the day that card id is set.
+   Feed rules that have NOT changed (do not "fix" them):
+   - did_overall (card 3305) has no Date column → its Today/7d/15d/Overall
+     windows IGNORE the picker. did_day_on_day (3304) follows it.
+   - Both carry rates only, no dials → every estate figure is an UNWEIGHTED
+     mean across DIDs; per-DID rows are ranked by MOVEMENT, never by level.
+   - did_city_daily carries counts → city rates ARE volume-weighted; cells
+     under DV_CITY_MIN calls are greyed and not ranked.
    ════════════════════════════════════════════════════════════════════════════ */
 
 /* Lead types, in the order the estate should read them: the two that carry the
@@ -116,152 +90,102 @@ function dvWinLabel() {
   return s.first === s.last ? s.first : s.first + ' \u2192 ' + s.last;
 }
 
-/* Lead type × (picked range | every day in the tab | the gap). The second
-   column is the honest baseline available from this feed — it is NOT the
-   15-day line from did_overall, which is computed differently. */
-function dvRangeMatrix() {
-  var win = dvWinRows(), all = dvAllDayRows();
-  var body = DID_TYPES.map(function(t){
-    var isTotal = t.pre === 'total';
-    var tdStyle = isTotal ? ' style="background:var(--blue-soft,#eef1f7);font-weight:600"' : '';
-    var w = dvMean(win, t.dod), a = dvMean(all, t.dod);
-    var gap = (w === null || a === null) ? null : w - a;
-    return '<tr><td style="text-align:left"' + (isTotal ? ' class="nm"' : '') + tdStyle + '>'
-      + esc(t.label) + ' <span class="fb-sub" style="font-weight:400">' + esc(t.note) + '</span></td>'
-      + '<td num="1" class="sep"' + tdStyle + '>' + dvPct(w) + '</td>'
-      + '<td num="1"' + tdStyle + '>' + dvPct(a) + '</td>'
-      + '<td num="1" class="sep"' + tdStyle + '>' + dvSigned(gap) + '</td></tr>';
-  }).join('');
-  return '<div class="tbl-wrap"><table class="dist"><thead><tr>'
-    + '<th style="text-align:left">Lead type</th>'
-    + '<th class="sep">Selected range</th><th>Every day in tab</th>'
-    + '<th class="sep">Range vs all days</th>'
-    + '</tr></thead><tbody>' + body + '</tbody></table></div>';
-}
 
-/* Per-DID, inside the picked range, against that DID's own all-days line.
-   Movement, not level — a rate with no denominator cannot be ranked. */
-function dvRangeTable() {
-  var byDid = {}, allByDid = {};
-  var push = function(bag, rows){
+var DV_VIEWS = [['overview', 'Overview'], ['city', 'By city'], ['numbers', 'Numbers'], ['rep', 'Reputation']];
+var dvView = (function(){ try { return localStorage.getItem('lrmDidView') || 'overview'; } catch(e){ return 'overview'; } })();
+var DV_FLAG_PP = -3;   // a DID this far below its own baseline is on the watch list
+
+/* Per-DID means inside the picked range and over every day the tab holds. */
+function dvRangeByDid() {
+  var bag = function(rows){
+    var out = {};
     rows.forEach(function(r){
       var c = r._c || {}, k = String(c.did || '').trim();
       if (!k) return;
-      if (!bag[k]) bag[k] = { n: 0, s: {} };
-      bag[k].n++;
+      var b = out[k] || (out[k] = { n: 0, s: {} });
+      b.n++;
       DID_TYPES.forEach(function(t){
         var v = dvVal(r, t.dod);
         if (v === null || !isFinite(v)) return;
-        var e = bag[k].s[t.dod] || (bag[k].s[t.dod] = { s: 0, n: 0 });
+        var e = b.s[t.dod] || (b.s[t.dod] = { s: 0, n: 0 });
         e.s += v; e.n++;
       });
     });
+    return out;
   };
-  push(byDid, dvWinRows());
-  push(allByDid, dvAllDayRows());
-  var mean = function(bag, k, key){
-    var e = bag[k] && bag[k].s[key];
-    return (e && e.n) ? e.s / e.n : null;
-  };
-  var keys = Object.keys(byDid);
-  if (!keys.length) return '';
-  keys.sort(function(x, y){
-    var a = mean(byDid, x, 'total'), b = mean(byDid, y, 'total');
-    if (a === null) return 1;
-    if (b === null) return -1;
-    return a - b;
+  var win = bag(dvWinRows()), all = bag(dvAllDayRows());
+  var m = function(b, k, key){ var e = b[k] && b[k].s[key]; return (e && e.n) ? e.s / e.n : null; };
+  return Object.keys(win).map(function(k){
+    var o = { did: k, days: win[k].n, t: {} };
+    DID_TYPES.forEach(function(t){ o.t[t.dod] = m(win, k, t.dod); });
+    o.w = o.t.total; o.a = m(all, k, 'total');
+    o.mv = (o.w === null || o.a === null) ? null : o.w - o.a;
+    return o;
+  });
+}
+
+function dvRangeTable(list) {
+  if (!list.length) return '';
+  var s = list.slice().sort(function(x, y){
+    if (x.mv === null) return 1; if (y.mv === null) return -1; return x.mv - y.mv;
   });
   return '<div class="tbl-wrap"><table class="dist"><thead><tr>'
-    + '<th style="text-align:left">DID</th><th class="sep">Days in range</th>'
+    + '<th style="text-align:left">DID</th><th class="sep">Days</th>'
     + DID_TYPES.map(function(t, i){ return '<th' + (i === 0 ? ' class="sep"' : '') + '>' + esc(t.label) + '</th>'; }).join('')
-    + '<th class="sep">All calls, every day</th><th>Range vs all days</th>'
-    + '</tr></thead><tbody>'
-    + keys.map(function(k){
-        var w = mean(byDid, k, 'total'), a = mean(allByDid, k, 'total');
-        return '<tr><td class="nm" style="text-align:left">' + esc(k) + '</td>'
-          + '<td num="1" class="sep">' + (byDid[k].n || 0) + '</td>'
-          + DID_TYPES.map(function(t, i){
-              return '<td num="1"' + (i === 0 ? ' class="sep"' : '') + '>' + dvPct(mean(byDid, k, t.dod)) + '</td>';
-            }).join('')
-          + '<td num="1" class="sep">' + dvPct(a) + '</td>'
-          + '<td num="1">' + dvSigned((w === null || a === null) ? null : w - a) + '</td></tr>';
+    + '<th class="sep">All calls, every day</th><th>Range vs all days</th></tr></thead><tbody>'
+    + s.map(function(o){
+        return '<tr><td class="nm" style="text-align:left">' + esc(o.did) + '</td><td num="1" class="sep">' + o.days + '</td>'
+          + DID_TYPES.map(function(t, i){ return '<td num="1"' + (i === 0 ? ' class="sep"' : '') + '>' + dvPct(o.t[t.dod]) + '</td>'; }).join('')
+          + '<td num="1" class="sep">' + dvPct(o.a) + '</td><td num="1">' + dvSigned(o.mv) + '</td></tr>';
       }).join('')
     + '</tbody></table></div>';
 }
 
-/* ── The headline: connect % by lead type, four windows ────────────────────
-   A matrix, not bars. The comparison that matters runs BOTH ways — across
-   lead types (fresh vs retargeting, the finding) and across windows (is today
-   below the 15-day line?) — and only a grid lets the eye do both. */
-function dvTypeMatrix(rows) {
+/* ONE lead-type table. The first two figure columns follow the picker
+   (did_day_on_day); the last three are did_overall's fixed windows. A band row
+   names the two groups so the picker boundary is visible in the header itself. */
+function dvLeadMatrix(hasDod, hasOverall) {
+  var win = dvWinRows(), all = dvAllDayRows(), ov = dvRows();
+  var tot = 'background:var(--blue-soft,#eef1f7);font-weight:600';
   var body = DID_TYPES.map(function(t){
-    var isTotal = t.pre === 'total';
-    /* The totals row is styled EXPLICITLY, not with class="grp". The shell's only
-       .grp rule targets `tr.grp th` — a band row of header cells — so putting it
-       on a row of <td>s applies nothing at all, which is how this row shipped
-       looking like a fifth lead type. It is not a peer of the four above it: it
-       is their blend, and the card's argument is reading those four AGAINST this
-       line, so it has to carry the totals fill the rest of the dashboard uses. */
-    var tdStyle = isTotal ? ' style="background:var(--blue-soft,#eef1f7);font-weight:600"' : '';
-    var cells = DID_WINDOWS.map(function(w){
-      var m = dvMean(rows, t.pre + w.suf);
-      return '<td num="1"' + (w.suf === 'Today' ? ' class="sep"' : '') + tdStyle + '>' + dvPct(m) + '</td>';
-    }).join('');
-    /* Today against the 15-day line, which is the only honest "is this moving"
-       read available: today and 15d are computed the same way by the same card
-       over the same estate. */
-    var mv = (function(){
-      var a = dvMean(rows, t.pre + 'Today'), b = dvMean(rows, t.pre + '15d');
-      return (a === null || b === null) ? null : a - b;
-    })();
-    return '<tr>'
-      + '<td style="text-align:left' + (isTotal ? ';background:var(--blue-soft,#eef1f7);font-weight:600' : '') + '">'
-      + (isTotal ? '<b>' + esc(t.label) + '</b>' : esc(t.label))
-      + ' <u style="text-decoration:none;color:var(--muted);font-size:10.5px">' + esc(t.note) + '</u></td>'
-      + cells
-      + '<td num="1" class="sep"' + tdStyle + '>' + dvSigned(mv) + '</td></tr>';
+    var isT = t.pre === 'total', st = isT ? ' style="' + tot + '"' : '';
+    var cells = '';
+    if (hasDod) {
+      var w = dvMean(win, t.dod), a = dvMean(all, t.dod);
+      cells += '<td num="1" class="sep"' + st + '>' + dvPct(w) + '</td>'
+             + '<td num="1"' + st + '>' + dvSigned(w === null || a === null ? null : w - a) + '</td>';
+    }
+    if (hasOverall) {
+      var td = dvMean(ov, t.pre + 'Today'), b = dvMean(ov, t.pre + '15d');
+      cells += '<td num="1" class="sep"' + st + '>' + dvPct(td) + '</td>'
+             + '<td num="1"' + st + '>' + dvPct(b) + '</td>'
+             + '<td num="1"' + st + '>' + dvSigned(td === null || b === null ? null : td - b) + '</td>';
+    }
+    return '<tr><td style="text-align:left' + (isT ? ';' + tot : '') + '">' + esc(t.label)
+      + ' <span class="fb-sub" style="font-weight:400">' + esc(t.note) + '</span></td>' + cells + '</tr>';
   }).join('');
-  return '<div class="tbl-wrap"><table class="dist"><thead><tr>'
-    + '<th style="text-align:left">Lead type</th>'
-    + DID_WINDOWS.map(function(w){ return '<th' + (w.suf === 'Today' ? ' class="sep"' : '') + '>' + esc(w.label) + '</th>'; }).join('')
-    + '<th class="sep">Today vs 15d</th>'
+  return '<div class="tbl-wrap"><table class="dist"><thead>'
+    + '<tr class="grp"><th></th>'
+    + (hasDod ? '<th colspan="2" class="sep">Selected range</th>' : '')
+    + (hasOverall ? '<th colspan="3" class="sep">Fixed windows &middot; ignores picker</th>' : '')
+    + '</tr><tr><th style="text-align:left">Lead type</th>'
+    + (hasDod ? '<th class="sep">Connect %</th><th>vs all days</th>' : '')
+    + (hasOverall ? '<th class="sep">Today</th><th>15 days</th><th>Today vs 15d</th>' : '')
     + '</tr></thead><tbody>' + body + '</tbody></table></div>';
 }
 
-/* ── Movement per DID ──────────────────────────────────────────────────────
-   Today minus the 15-day line, worst first. This is deliberately NOT a
-   ranking of connect rate: with no denominators a raw rate ranks noise, but a
-   number that has moved several points against its OWN recent baseline is
-   worth a look whatever its level. DIDs with no reading today are dropped. */
-function dvMovementChart(rows) {
-  var items = rows.map(function(r){
-    var t = dvVal(r, 'totalToday'), b = dvVal(r, 'total15d');
-    if (t === null || b === null) return null;
-    return { label: String((r._c && r._c.did) || ''), value: t - b,
-             sub: 'today ' + t.toFixed(1) + '% · 15d ' + b.toFixed(1) + '%' };
-  }).filter(Boolean).sort(function(a, b){ return a.value - b.value; }).slice(0, 18);
-  if (!items.length) return '';
-  return ccRankedBars(items, { suffix: 'pp', goodHigh: true, signed: true, labelW: 132,
-    aria: 'Movement in connect % per DID, today against the 15-day line',
-    fmt: function(v){ return (v > 0 ? '+' : '') + (Math.round(v * 10) / 10) + 'pp'; } });
-}
-
-/* ── The estate curve, from did_day_on_day ─────────────────────────────────
-   Unweighted mean per DAY across every DID in the feed, so the shape of the
-   estate over time is visible at all — the one thing did_overall's four fixed
-   windows cannot show. Deliberately drawn from EVERY day the tab holds, not
-   the picked window, and labelled as such: a trend clipped to one picked day
-   is not a trend. */
-function dvTrend() {
-  var src = (D && (D.didDodAllDays || D.didDod)) || [];
+/* Day-by-day curve across every day the tab holds (a trend clipped to one
+   picked day is not a trend). Lines, not bars — the three lead types share
+   one picture and the gap between fresh and retargeting is the finding. */
+function dvTrendChart() {
+  var src = dvAllDayRows();
   if (!src.length) return '';
   var byDay = {};
   src.forEach(function(r){
     var c = r._c || {}, d = String(c.date || r['Date'] || '').trim().slice(0, 10);
     if (!d) return;
-    if (!byDay[d]) byDay[d] = { total: [], fresh: [], ret: [], dids: 0 };
-    var g = byDay[d];
-    g.dids++;
+    var g = byDay[d] || (byDay[d] = { total: [], fresh: [], ret: [], n: 0 });
+    g.n++;
     ['total', 'fresh', 'ret'].forEach(function(k){
       var v = c[k];
       if (v !== undefined && v !== null && v !== '' && isFinite(Number(v))) g[k].push(Number(v));
@@ -269,42 +193,158 @@ function dvTrend() {
   });
   var days = Object.keys(byDay).sort();
   if (days.length < 2) return '';
-  var mean = function(a){ return a.length ? a.reduce(function(s, x){ return s + x; }, 0) / a.length : null; };
-  var rows = days.map(function(d){
-    var g = byDay[d];
-    return { d: d, total: mean(g.total), fresh: mean(g.fresh), ret: mean(g.ret), dids: g.dids };
+  var mean = function(a){ return a.length ? Math.round(a.reduce(function(s, x){ return s + x; }, 0) / a.length * 10) / 10 : null; };
+  var ser = function(k){ return days.map(function(d){ return mean(byDay[d][k]); }); };
+  var ws = dvShape(dvWinRows());
+  var S = [
+    { name: 'Fresh', k: 'fresh', ink: '#2f8f5b', w: 2 },
+    { name: 'All calls', k: 'total', ink: '#2c4a8a', w: 2.6 },
+    { name: 'Retargeting', k: 'ret', ink: '#c0563b', w: 2, dash: '5 4' }
+  ];
+  S.forEach(function(sr){ sr.v = days.map(function(d){ return mean(byDay[d][sr.k]); }); });
+  var all = [];
+  S.forEach(function(sr){ sr.v.forEach(function(v){ if (v !== null) all.push(v); }); });
+  if (!all.length) return '';
+  /* Axis zoomed to the data band (stated on the axis itself) — a 0-based axis
+     flattens a 22-48% spread into three parallel lines. */
+  var lo = Math.floor(Math.min.apply(null, all) / 5) * 5, hi = Math.ceil(Math.max.apply(null, all) / 5) * 5;
+  if (hi - lo < 10) hi = lo + 10;
+  var W = 760, H = 220, L = 40, R = 116, T = 12, B = 26, n = days.length;
+  var X = function(i){ return L + (W - L - R) * (n > 1 ? i / (n - 1) : 0); };
+  var Y = function(v){ return T + (H - T - B) * (1 - (v - lo) / (hi - lo)); };
+  var g = '', step = (hi - lo) <= 20 ? 5 : 10;
+  for (var t = lo; t <= hi + 0.01; t += step) {
+    g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(t).toFixed(1) + '" y2="' + Y(t).toFixed(1) + '" stroke="#e4e7f0"/>'
+       + '<text x="' + (L - 6) + '" y="' + (Y(t) + 3.5).toFixed(1) + '" text-anchor="end" font-size="9.5" fill="#8a93a8">' + t + '%</text>';
+  }
+  var every = Math.max(1, Math.ceil(n / 12));
+  days.forEach(function(d, i){
+    if (i % every && i !== n - 1) return;
+    var p = d.split('-');
+    g += '<text x="' + X(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="9.5" fill="#8a93a8">'
+       + esc(p.length === 3 ? p[2] + '/' + p[1] : d) + '</text>';
   });
-  var vals = rows.map(function(r){ return r.total; }).filter(function(v){ return v !== null; });
-  /* AXIS ZOOMED TO THE DATA, not anchored at zero. Daily estate means cluster in
-     a narrow band (~22-30%), so a 0-based axis puts every bar in the top few
-     percent of the track and the column reads as a rendering fault rather than a
-     trend. The zoom is stated in the caption, because a non-zero baseline must
-     never be implied: these bars compare days WITH EACH OTHER, and the figures
-     beside them are the absolute read. */
-  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-  var pad = Math.max(0.5, (hi - lo) * 0.25);
-  var mn = Math.max(0, lo - pad), mx = hi + pad;
-  var last = rows[rows.length - 1], first = rows[0];
-  var band = function(v){ return v === null ? 0 : Math.max(2, (v - mn) / (mx - mn) * 100); };
-  return '<div class="tbl-wrap"><table class="dist"><thead><tr>'
-    + '<th style="text-align:left">Date</th><th class="sep">DIDs</th>'
-    + '<th class="sep">All calls</th><th style="text-align:left;width:34%">Day against day</th>'
-    + '<th class="sep">Fresh</th><th>Retargeting</th>'
-    + '</tr></thead><tbody>'
-    + rows.slice().reverse().map(function(r){
-        return '<tr><td style="text-align:left" class="nm">' + esc(r.d) + '</td>'
-          + '<td num="1" class="sep">' + r.dids + '</td>'
-          + '<td num="1" class="sep">' + dvPct(r.total) + '</td>'
-          + '<td><div class="fb-trk" style="margin:0"><i style="width:' + band(r.total).toFixed(1) + '%"></i></div></td>'
-          + '<td num="1" class="sep">' + dvPct(r.fresh) + '</td>'
-          + '<td num="1">' + dvPct(r.ret) + '</td></tr>';
+  var ends = [];
+  S.forEach(function(sr){
+    var d = '', pen = false, lastI = -1;
+    sr.v.forEach(function(v, i){
+      if (v === null) { pen = false; return; }
+      d += (pen ? ' L' : ' M') + X(i).toFixed(1) + ',' + Y(v).toFixed(1); pen = true; lastI = i;
+    });
+    g += '<path d="' + d + '" fill="none" stroke="' + sr.ink + '" stroke-width="' + sr.w + '" stroke-linejoin="round" stroke-linecap="round"'
+       + (sr.dash ? ' stroke-dasharray="' + sr.dash + '"' : '') + '/>';
+    if (lastI >= 0) {
+      var lv = sr.v[lastI];
+      g += '<circle cx="' + X(lastI).toFixed(1) + '" cy="' + Y(lv).toFixed(1) + '" r="3" fill="' + sr.ink + '"/>';
+      ends.push({ x: X(lastI) + 8, y: Y(lv) + 3.5, t: lv.toFixed(1) + '% ' + sr.name, ink: sr.ink });
+    }
+  });
+  /* End labels pushed apart so two series ending close together never overlap. */
+  ends.sort(function(p, q){ return p.y - q.y; });
+  for (var e = 1; e < ends.length; e++) if (ends[e].y - ends[e - 1].y < 13) ends[e].y = ends[e - 1].y + 13;
+  ends.forEach(function(p){
+    g += '<text x="' + p.x.toFixed(1) + '" y="' + p.y.toFixed(1) + '" font-size="10.5" font-weight="700" fill="' + p.ink + '">' + esc(p.t) + '</text>';
+  });
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Connect % per day by lead type">' + g + '</svg>'
+    + '<div class="fb-sub" style="padding-top:6px">' + days.length + ' days in the tab'
+    + (ws.days ? ' &middot; picked range ' + esc(dvWinLabel()) : '') + '. Axis starts at ' + lo + '%, not zero. Weekend days sit on tiny volumes &mdash; '
+    + 'a spike there is an artefact, not a collapse.</div>';
+}
+
+/* ── City (did_city_daily — counts, so weighted) ─────────────────────────── */
+var DV_CITY_MIN = 30;
+var dvCity = (function(){ try { return localStorage.getItem('lrmDidCity') || ''; } catch(e){ return ''; } })();
+function dvRate(n, d) { return d > 0 ? 100 * n / d : null; }
+function dvGap(v) {
+  if (v === null || v === undefined || isNaN(v)) return '<span style="color:#c0c4d6">&mdash;</span>';
+  var s = (v > 0 ? '+' : '') + v.toFixed(1) + 'pp';
+  return '<span class="' + (v <= -3 ? 'bad' : v >= 3 ? 'ok' : '') + '">' + s + '</span>';
+}
+function dvCityAgg() {
+  var dc = D && D.didCity;
+  if (!dc || !dc.clusters || !dc.clusters.length) return null;
+  var C = dc.clusters;
+  var tot = C.reduce(function (a, c) { a.calls += c.calls; a.connects += c.connects; a.fresh += c.fresh; a.freshConn += c.freshConn; a.pin += c.pin; return a; },
+    { calls: 0, connects: 0, fresh: 0, freshConn: 0, pin: 0 });
+  var placed = C.filter(function (c) { return c.cluster !== 'Unmapped' && c.cluster !== 'No lead'; });
+  var ranked = placed.filter(function (c) { return c.calls >= 200; })
+    .map(function (c) { return { k: c.cluster, r: dvRate(c.connects, c.calls) }; })
+    .sort(function (a, b) { return b.r - a.r; });
+  return { dc: dc, C: C, cells: dc.cells || [], tot: tot, placed: placed,
+           floor: dvRate(tot.connects, tot.calls), floorFresh: dvRate(tot.freshConn, tot.fresh),
+           top: ranked[0] || null, low: ranked.length > 1 ? ranked[ranked.length - 1] : null };
+}
+function dvCityView() {
+  var A = dvCityAgg(), g = (D && D.didCityDiag) || {};
+  if (!A) {
+    return ccCard({ title: 'DID performance by lead city', note: 'not wired yet',
+      sub: g.tab ? 'Read ' + (g.rows || 0) + ' rows from <code>' + esc(g.tab) + '</code>, none inside the picked range.'
+         : 'Save <code>sql/did-city-daily-v1.sql</code> as a Metabase card, set <code>DID_CITY_QUESTION_ID</code> in Code.gs '
+         + 'and run the backfill. Blocked until the metabase-pii grant on <code>lead</code> is restored.', body: '' });
+  }
+  var C = A.C, tot = A.tot, floor = A.floor;
+  if (!dvCity || !C.some(function (c) { return c.cluster === dvCity; })) dvCity = (A.placed[0] || C[0]).cluster;
+  var on = 'background:var(--blue-soft,#eef1f7)';
+  var cityTbl = '<div class="tbl-wrap"><table class="dist"><thead><tr>'
+    + '<th style="text-align:left">Lead city</th><th class="sep">Calls</th><th>Share</th>'
+    + '<th class="sep">Connect %</th><th>vs floor</th><th class="sep">Fresh connect %</th></tr></thead><tbody>'
+    + C.map(function (c) {
+        var r = dvRate(c.connects, c.calls), sel = c.cluster === dvCity, bg = sel ? ' style="' + on + '"' : '';
+        return '<tr data-dvcity="' + esc(c.cluster) + '" style="cursor:pointer">'
+          + '<td class="nm" style="text-align:left' + (sel ? ';' + on + ';font-weight:600' : '') + '">' + esc(c.cluster) + '</td>'
+          + '<td num="1" class="sep"' + bg + '>' + fmt(c.calls) + '</td>'
+          + '<td num="1"' + bg + '>' + dvPct(dvRate(c.calls, tot.calls)) + '</td>'
+          + '<td num="1" class="sep"' + bg + '>' + dvPct(r) + '</td>'
+          + '<td num="1"' + bg + '>' + dvGap(r === null || floor === null ? null : r - floor) + '</td>'
+          + '<td num="1" class="sep"' + bg + '>' + dvPct(dvRate(c.freshConn, c.fresh)) + '</td></tr>';
       }).join('')
-    + '</tbody></table></div>'
-    + '<div class="fb-sub" style="padding-top:10px">' + days.length + ' days in the tab, '
-    + esc(first.d) + ' to ' + esc(last.d) + '. Unweighted mean across the DIDs present each day \u2014 '
-    + 'a day on which only a handful of numbers were used reads as loudly as a full one. '
-    + '<b>The bars compare days with each other on a zoomed axis (' + mn.toFixed(1) + ' to '
-    + mx.toFixed(1) + '%), not against zero</b> — the figures beside them are the absolute read.</div>';
+    + '<tr><td class="nm" style="text-align:left;' + on + ';font-weight:600">All cities</td>'
+    + '<td num="1" class="sep" style="' + on + ';font-weight:600">' + fmt(tot.calls) + '</td>'
+    + '<td num="1" style="' + on + ';font-weight:600">100.0%</td>'
+    + '<td num="1" class="sep" style="' + on + ';font-weight:600">' + dvPct(floor) + '</td>'
+    + '<td num="1" style="' + on + '"></td>'
+    + '<td num="1" class="sep" style="' + on + ';font-weight:600">' + dvPct(A.floorFresh) + '</td></tr>'
+    + '</tbody></table></div>';
+
+  var byDid = {};
+  A.cells.forEach(function (x) { var b = byDid[x.did] || (byDid[x.did] = { calls: 0, connects: 0 }); b.calls += x.calls; b.connects += x.connects; });
+  var city = C.filter(function (c) { return c.cluster === dvCity; })[0];
+  var cityRate = city ? dvRate(city.connects, city.calls) : null;
+  var inCity = A.cells.filter(function (x) { return x.cluster === dvCity; }).map(function (x) {
+    var all = byDid[x.did] || { calls: 0, connects: 0 };
+    var r = dvRate(x.connects, x.calls), rest = dvRate(all.connects - x.connects, all.calls - x.calls);
+    return { did: x.did, calls: x.calls, r: r, fr: dvRate(x.freshConn, x.fresh),
+             vsCity: (r === null || cityRate === null) ? null : r - cityRate,
+             vsElse: (r === null || rest === null) ? null : r - rest, gated: x.calls < DV_CITY_MIN };
+  }).sort(function (a, b) {
+    if (a.gated !== b.gated) return a.gated ? 1 : -1;
+    if (a.gated) return b.calls - a.calls;
+    return (a.vsElse === null ? 999 : a.vsElse) - (b.vsElse === null ? 999 : b.vsElse);
+  });
+  var flagged = inCity.filter(function (x) { return !x.gated && x.vsElse !== null && x.vsElse <= -5; }).length;
+  var didTbl = '<div class="tbl-wrap"><table class="dist"><thead><tr>'
+    + '<th style="text-align:left">DID</th><th class="sep">Calls here</th><th>Connect %</th>'
+    + '<th class="sep">vs this city</th><th>vs same DID elsewhere</th><th class="sep">Fresh connect %</th></tr></thead><tbody>'
+    + inCity.map(function (x) {
+        return '<tr' + (x.gated ? ' style="color:var(--muted)"' : '') + '><td class="nm" style="text-align:left">' + esc(x.did) + '</td>'
+          + '<td num="1" class="sep">' + fmt(x.calls) + '</td><td num="1">' + dvPct(x.r) + '</td>'
+          + '<td num="1" class="sep">' + (x.gated ? '&mdash;' : dvGap(x.vsCity)) + '</td>'
+          + '<td num="1">' + (x.gated ? '&mdash;' : dvGap(x.vsElse)) + '</td>'
+          + '<td num="1" class="sep">' + dvPct(x.fr) + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div>';
+
+  return '<div class="dv-split">'
+    + ccCard({ title: 'By lead city',
+        note: A.top && A.low ? (A.top.r - A.low.r).toFixed(1) + 'pp spread' : '',
+        sub: 'Customer&rsquo;s city, weighted by calls. Click a row to see its DIDs.',
+        body: cityTbl })
+    + ccCard({ title: 'DIDs in ' + esc(dvCity),
+        note: flagged ? '<b class="bad">' + flagged + ' weak here</b>' : inCity.length + ' DIDs',
+        sub: '<b>vs same DID elsewhere</b> &le; &minus;5pp = a regional block or spam label, not a bad number. Under '
+           + DV_CITY_MIN + ' calls greyed.',
+        body: didTbl })
+    + '</div>';
 }
 
 /* ── Every number, every window ────────────────────────────────────────────
@@ -344,338 +384,135 @@ function dvTable(rows) {
     + '</tbody></table></div>';
 }
 
-/* ── By lead city / cluster (14 Oct 2026) — D.didCity from did_city_daily ──
-   Unlike the two feeds above these are COUNTS, so every rate here is weighted
-   by volume: connects ÷ calls over the picked window, summed server-side.
-   The city is the CUSTOMER's (lead pincode → city_state_cluster), not the LRM's.
-   Dial assignment is round-robin per call, so every DID sees roughly the same
-   city mix — which is what makes "this DID in this city vs the same DID in
-   every other city" a fair read of a regional problem with one number. */
-var DV_CITY_MIN = 30;   // calls before a city × DID cell is ranked
-var dvCity = (function(){ try { return localStorage.getItem('lrmDidCity') || ''; } catch(e){ return ''; } })();
-function dvRate(n, d) { return d > 0 ? 100 * n / d : null; }
-function dvGap(v) {
-  if (v === null || v === undefined || isNaN(v)) return '<span style="color:#c0c4d6">&mdash;</span>';
-  var s = (v > 0 ? '+' : '') + v.toFixed(1) + 'pp';
-  return '<span class="' + (v <= -3 ? 'bad' : v >= 3 ? 'ok' : '') + '">' + s + '</span>';
-}
-function dvCityCards() {
-  var dc = D && D.didCity;
-  var g = (D && D.didCityDiag) || {};
-  if (!dc || !dc.clusters || !dc.clusters.length) {
-    return ccCard({
-      title: 'DID performance by lead city',
-      note: 'not wired yet',
-      sub: g.tab ? 'Read ' + (g.rows || 0) + ' rows from <code>' + esc(g.tab) + '</code>, none inside the picked range.'
-         : 'No <code>did_city_daily</code> tab yet. Save <code>sql/did-city-daily-v1.sql</code> as a Metabase card, set '
-         + '<code>DID_CITY_QUESTION_ID</code> in Code.gs and run the backfill. The card reads <code>lead</code>, so it '
-         + 'stays blocked until the DBA restores the metabase-pii grant.',
-      body: ''
-    });
+/* ── Numbers: one watch list, two full tables behind buttons ─────────────── */
+function dvNumbersView(list, hasOverall) {
+  var items, basis;
+  if (list.length) {
+    basis = 'selected range vs every day in tab';
+    items = list.filter(function(o){ return o.mv !== null; })
+      .map(function(o){ return { label: o.did, value: o.mv, sub: o.w.toFixed(1) + '% vs ' + o.a.toFixed(1) + '% · ' + o.days + 'd' }; });
+  } else {
+    basis = 'today vs 15-day line';
+    items = dvRows().map(function(r){
+      var t = dvVal(r, 'totalToday'), b = dvVal(r, 'total15d');
+      return (t === null || b === null) ? null : { label: String((r._c && r._c.did) || ''), value: t - b, sub: t.toFixed(1) + '% vs ' + b.toFixed(1) + '%' };
+    }).filter(Boolean);
   }
-  var C = dc.clusters, cells = dc.cells || [];
-  var tot = C.reduce(function (a, c) { a.calls += c.calls; a.connects += c.connects; a.fresh += c.fresh; a.freshConn += c.freshConn; a.pin += c.pin; return a; },
-    { calls: 0, connects: 0, fresh: 0, freshConn: 0, pin: 0 });
-  var floor = dvRate(tot.connects, tot.calls), floorFresh = dvRate(tot.freshConn, tot.fresh);
-  var placed = C.filter(function (c) { return c.cluster !== 'Unmapped' && c.cluster !== 'No lead'; });
-  if (!dvCity || !C.some(function (c) { return c.cluster === dvCity; })) dvCity = (placed[0] || C[0]).cluster;
-
-  var cityTbl = '<div class="tbl-wrap"><table class="dist"><thead><tr>'
-    + '<th style="text-align:left">Lead city / cluster</th><th class="sep">Calls</th><th>Share</th><th>DIDs used</th>'
-    + '<th class="sep">Connect %</th><th>vs floor</th><th class="sep">Fresh dials</th><th>Fresh connect %</th>'
-    + '<th class="sep">Geo from pincode</th></tr></thead><tbody>'
-    + C.map(function (c) {
-        var r = dvRate(c.connects, c.calls), on = c.cluster === dvCity;
-        var bg = on ? ' style="background:var(--blue-soft,#eef1f7)"' : '';
-        return '<tr data-dvcity="' + esc(c.cluster) + '" style="cursor:pointer">'
-          + '<td class="nm" style="text-align:left' + (on ? ';background:var(--blue-soft,#eef1f7);font-weight:600' : '') + '">' + esc(c.cluster) + '</td>'
-          + '<td num="1" class="sep"' + bg + '>' + fmt(c.calls) + '</td>'
-          + '<td num="1"' + bg + '>' + dvPct(dvRate(c.calls, tot.calls)) + '</td>'
-          + '<td num="1"' + bg + '>' + fmt(c.dids) + '</td>'
-          + '<td num="1" class="sep"' + bg + '>' + dvPct(r) + '</td>'
-          + '<td num="1"' + bg + '>' + dvGap(r === null || floor === null ? null : r - floor) + '</td>'
-          + '<td num="1" class="sep"' + bg + '>' + fmt(c.fresh) + '</td>'
-          + '<td num="1"' + bg + '>' + dvPct(dvRate(c.freshConn, c.fresh)) + '</td>'
-          + '<td num="1" class="sep"' + bg + '>' + dvPct(dvRate(c.pin, c.calls), 0) + '</td></tr>';
-      }).join('')
-    + '<tr><td class="nm" style="text-align:left;background:var(--blue-soft,#eef1f7);font-weight:600">All cities</td>'
-    + '<td num="1" class="sep" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + fmt(tot.calls) + '</td>'
-    + '<td num="1" style="background:var(--blue-soft,#eef1f7);font-weight:600">100.0%</td>'
-    + '<td num="1" style="background:var(--blue-soft,#eef1f7)"></td>'
-    + '<td num="1" class="sep" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + dvPct(floor) + '</td>'
-    + '<td num="1" style="background:var(--blue-soft,#eef1f7)"></td>'
-    + '<td num="1" class="sep" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + fmt(tot.fresh) + '</td>'
-    + '<td num="1" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + dvPct(floorFresh) + '</td>'
-    + '<td num="1" class="sep" style="background:var(--blue-soft,#eef1f7);font-weight:600">' + dvPct(dvRate(tot.pin, tot.calls), 0) + '</td></tr>'
-    + '</tbody></table></div>';
-
-  /* Per DID inside the picked city, against (a) the city's own rate and (b) the
-     SAME DID in every other city. (b) is the regional-problem signal. */
-  var byDid = {};
-  cells.forEach(function (x) {
-    var b = byDid[x.did] || (byDid[x.did] = { calls: 0, connects: 0 });
-    b.calls += x.calls; b.connects += x.connects;
+  items.sort(function(a, b){ return a.value - b.value; });
+  var worst = items.filter(function(i){ return i.value <= DV_FLAG_PP; });
+  var shown = (worst.length ? worst : items).slice(0, 15);
+  window.__dvRangeTable = dvRangeTable(list);
+  window.__dvTable = hasOverall ? dvTable(dvRows()) : '';
+  var btns = (window.__dvRangeTable ? ccTableBtn('Range table', '__dvRangeTable', 'Every DID · selected range') : '')
+           + (window.__dvTable ? ccTableBtn('Fixed-window table', '__dvTable', 'Every DID · all lead types') : '');
+  return ccCard({
+    title: worst.length ? worst.length + ' below baseline' : 'Weakest movers',
+    sub: 'Movement ' + esc(basis) + ', not level &mdash; without dial counts a raw rate ranks noise. Flag = ' + DV_FLAG_PP
+       + 'pp or worse.' + (worst.length ? '' : ' None flagged; showing the ' + shown.length + ' weakest.'),
+    body: '<div class="dv-btns">' + btns + '</div>' + (shown.length ? ccRankedBars(shown, { suffix: 'pp', signed: true, labelW: 132, aria: 'DID movement against own baseline',
+            fmt: function(v){ return (v > 0 ? '+' : '') + (Math.round(v * 10) / 10) + 'pp'; } })
+          : '<div class="fb-sub" style="padding:12px 0">No DID has a reading in both windows.</div>')
   });
-  var city = C.filter(function (c) { return c.cluster === dvCity; })[0];
-  var cityRate = city ? dvRate(city.connects, city.calls) : null;
-  var inCity = cells.filter(function (x) { return x.cluster === dvCity; }).map(function (x) {
-    var all = byDid[x.did] || { calls: 0, connects: 0 };
-    var r = dvRate(x.connects, x.calls), rest = dvRate(all.connects - x.connects, all.calls - x.calls);
-    return { did: x.did, calls: x.calls, r: r, fr: dvRate(x.freshConn, x.fresh), fresh: x.fresh,
-             vsCity: (r === null || cityRate === null) ? null : r - cityRate,
-             vsElse: (r === null || rest === null) ? null : r - rest,
-             gated: x.calls < DV_CITY_MIN };
-  }).sort(function (a, b) {
-    if (a.gated !== b.gated) return a.gated ? 1 : -1;
-    if (a.gated) return b.calls - a.calls;
-    return (a.vsElse === null ? 999 : a.vsElse) - (b.vsElse === null ? 999 : b.vsElse);
-  });
-  var flagged = inCity.filter(function (x) { return !x.gated && x.vsElse !== null && x.vsElse <= -5; }).length;
-  var picker = '<select data-dvcity="1" class="input" style="font:inherit;padding:4px 8px">'
-    + C.map(function (c) { return '<option value="' + esc(c.cluster) + '"' + (c.cluster === dvCity ? ' selected' : '') + '>' + esc(c.cluster) + ' (' + fmt(c.calls) + ')</option>'; }).join('')
-    + '</select>';
-  var didTbl = '<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px"><span class="fb-sub">City</span>' + picker + '</div>'
-    + '<div class="tbl-wrap"><table class="dist"><thead><tr>'
-    + '<th style="text-align:left">DID</th><th class="sep">Calls here</th><th>Connect %</th>'
-    + '<th class="sep">vs this city</th><th>vs same DID elsewhere</th><th class="sep">Fresh dials</th><th>Fresh connect %</th>'
-    + '</tr></thead><tbody>'
-    + inCity.map(function (x) {
-        var mute = x.gated ? ' style="color:var(--muted)"' : '';
-        return '<tr' + mute + '><td class="nm" style="text-align:left">' + esc(x.did) + '</td>'
-          + '<td num="1" class="sep">' + fmt(x.calls) + '</td><td num="1">' + dvPct(x.r) + '</td>'
-          + '<td num="1" class="sep">' + (x.gated ? '&mdash;' : dvGap(x.vsCity)) + '</td>'
-          + '<td num="1">' + (x.gated ? '&mdash;' : dvGap(x.vsElse)) + '</td>'
-          + '<td num="1" class="sep">' + fmt(x.fresh) + '</td><td num="1">' + dvPct(x.fr) + '</td></tr>';
-      }).join('')
-    + '</tbody></table></div>';
+}
 
-  var best = placed.filter(function (c) { return c.calls >= 200; }).map(function (c) { return { k: c.cluster, r: dvRate(c.connects, c.calls) }; })
-    .sort(function (a, b) { return b.r - a.r; });
-  var top = best[0], low = best[best.length - 1];
-  return '<div style="margin-top:18px;padding-top:4px;border-top:1px solid #e4e7f0">'
-    + '<div style="font-weight:600;font-size:11px;line-height:1.2;letter-spacing:.09em;text-transform:uppercase;'
-    + 'color:var(--muted);margin:10px 0 12px">By lead city &middot; did_city_daily &middot; follows the date picker</div></div>'
-    + connStripCells([
-        ['Cities', fmt(placed.length), 'with a mapped lead in range'],
-        ['Floor connect %', dvPct(floor, 1), fmt(tot.calls) + ' calls, weighted'],
-        ['Best city', top ? esc(top.k) : '&mdash;', top ? top.r.toFixed(1) + '% · 200+ calls' : ''],
-        ['Weakest city', low && low !== top ? esc(low.k) : '&mdash;', low && low !== top ? low.r.toFixed(1) + '% · 200+ calls' : ''],
-        ['Spread', top && low && low !== top ? (top.r - low.r).toFixed(1) + ' <u>pp</u>' : '&mdash;', 'best vs weakest city'],
-        ['Placed by pincode', dvPct(dvRate(tot.pin, tot.calls), 0), 'rest from lead text or unmapped']
-      ])
-    + ccCard({
-        title: 'Connect % by lead city',
-        note: esc(g.window || '') + ' &middot; ' + (dc.days || 0) + (dc.days === 1 ? ' day' : ' days'),
-        sub: 'Every call in range, grouped by the <b>customer’s</b> city or cluster (lead pincode → '
-           + '<code>city_state_cluster</code>). These are counts, so each rate is <b>weighted by volume</b> — '
-           + 'unlike the unweighted means above. Click a row to drill into its DIDs.',
-        body: cityTbl,
-        foot: '<b>Unmapped</b> = a lead with no usable pincode or place name; <b>No lead</b> = the call carried a lead id '
-            + 'that matched no lead. A city’s gap to the floor is mostly its lead mix and its customers’ '
-            + 'networks — read Fresh connect % beside it before blaming the numbers.'
-      })
-    + ccCard({
-        title: 'DIDs inside ' + esc(dvCity),
-        note: inCity.length + ' DIDs' + (flagged ? ' &middot; <b class="bad">' + flagged + ' 5pp+ below their own rate elsewhere</b>' : ''),
-        sub: '<b>vs same DID elsewhere</b> compares this number in this city with the same number in every other city. '
-           + 'Assignment is round-robin per call, so a number that holds up elsewhere but sinks here points at a '
-           + 'regional block or spam label, not at the number overall. Worst first; cells under ' + DV_CITY_MIN
-           + ' calls are shown greyed and not ranked.',
-        body: didTbl
-      });
+function dvHowTo() {
+  return '<details class="dv-howto"><summary>How to read this tab</summary><ul>'
+    + '<li><b>Lead type drives connectivity more than the number.</b> Fresh runs ~2&times; retargeting on the same DIDs &mdash; compare DIDs only within a lead type.</li>'
+    + '<li><b>Range figures and the curve are unweighted means across DIDs</b> (the feeds carry rates, not dials). The city view is the only weighted one.</li>'
+    + '<li><b>Fixed windows ignore the date picker</b> &mdash; Today means today.</li>'
+    + '<li><b>New numbers read high for a few weeks.</b> Run <code>sql/did-decay-v1.sql</code> before buying more; set <code>DID_REP_QUESTION_ID</code> for the depth-adjusted index.</li>'
+    + '<li><b>Compliance outranks all of it:</b> promotional calls must come from the 140 series (TCCCPR, Feb 2025).</li>'
+    + '</ul></details>';
 }
 
 function renderDID() {
   var panel = document.getElementById('didPanel');
   if (!panel || !D) return;
   var rows = dvRows();
-  var hasOverall = D.connHas && D.connHas.didOverall && rows.length;
-  var hasDod = D.connHas && D.connHas.didDod;
-  var hasRep = D.connHas && D.connHas.did && D.didRows && D.didRows.length;
-  var hasCity = !!(D.didCity && D.didCity.clusters && D.didCity.clusters.length);
+  var hasOverall = !!(D.connHas && D.connHas.didOverall && rows.length);
+  var hasDod = !!(D.connHas && D.connHas.didDod);
+  var hasRep = !!(D.connHas && D.connHas.did && D.didRows && D.didRows.length);
+  var A = dvCityAgg(), hasCity = !!A;
 
-  if (activeTab === 'did') {
-    setCount(hasOverall ? rows.length + ' DIDs' : (hasDod ? 'day-on-day only' : (hasCity ? 'by city only' : 'no DID feed')));
-  }
+  if (activeTab === 'did') setCount(hasOverall ? rows.length + ' DIDs' : (hasDod ? 'day-on-day only' : (hasCity ? 'by city only' : 'no DID feed')));
 
   if (!hasOverall && !hasDod && !hasRep && !hasCity) {
-    var g = (D && D.didOverallDiag) || {};
-    panel.innerHTML = connStack(chNoSource('DID estate',
-      'No DID feed for this view yet. ' + (g.tab ? 'Read ' + (g.rows || 0) + ' rows from ' + g.tab + '.'
-        : 'Neither did_overall nor did_day_on_day answered \u2014 run setupDidOverallTab() and setupDidDodTab() '
-        + 'in Apps Script, then installDidDodTrigger().')));
+    var g0 = (D && D.didOverallDiag) || {};
+    panel.innerHTML = connStack(chNoSource('DID estate', 'No DID feed for this view yet. ' + (g0.tab ? 'Read ' + (g0.rows || 0) + ' rows from ' + g0.tab + '.'
+        : 'Run setupDidOverallTab() and setupDidDodTab() in Apps Script, then installDidDodTrigger().')));
     return;
   }
 
-  var html = '';
+  var win = dvWinRows(), ws = dvShape(win), as = dvShape(dvAllDayRows());
+  var list = hasDod && win.length ? dvRangeByDid() : [];
+  var useRange = list.length > 0;
+  var src = useRange ? win : rows;
+  var kT = useRange ? 'total' : 'totalToday', kF = useRange ? 'fresh' : 'freshToday', kR = useRange ? 'ret' : 'retToday';
+  var tot = dvMean(src, kT), base = useRange ? dvMean(dvAllDayRows(), 'total') : dvMean(rows, 'total15d');
+  var fr = dvMean(src, kF), rt = dvMean(src, kR);
+  var flagged = useRange ? list.filter(function(o){ return o.mv !== null && o.mv <= DV_FLAG_PP; }).length
+    : rows.filter(function(r){ var t = dvVal(r, 'totalToday'), b = dvVal(r, 'total15d'); return t !== null && b !== null && t - b <= DV_FLAG_PP; }).length;
+  var scope = useRange ? dvWinLabel() : 'today';
 
-  /* The picked range leads. Built from did_day_on_day, the one DID feed that
-     carries a Date column and is scoped to the picker server-side. */
-  if (hasDod) {
-    var winRows = dvWinRows(), ws = dvShape(winRows), as = dvShape(dvAllDayRows());
-    if (!winRows.length) {
-      html += ccCard({
-        title: 'No DID rows in the selected range',
-        note: esc((D.didDodDiag && D.didDodDiag.window) || ''),
-        sub: 'The day-on-day tab holds <b>' + as.days + ' days</b> (' + esc(as.first) + ' to ' + esc(as.last)
-           + ') and none of them fall inside the picked range. Widen the range \u2014 or read the fixed-window '
-           + 'figures below, which ignore the picker by construction.',
-        body: ''
-      });
-    } else {
-      var wTotal = dvMean(winRows, 'total'), aTotal = dvMean(dvAllDayRows(), 'total');
-      var wFresh = dvMean(winRows, 'fresh'), wRet = dvMean(winRows, 'ret');
-      html += connStripCells([
-        ['Days in range', fmt(ws.days), esc(dvWinLabel())],
-        ['Numbers used', fmt(ws.dids), 'DIDs with a reading in range'],
-        ['All calls, range', dvPct(wTotal, 1), 'unweighted mean across DID-days'],
-        ['Vs every day in tab', (wTotal === null || aTotal === null) ? '&mdash;' : dvSigned(wTotal - aTotal),
-          as.days + '-day line ' + (aTotal === null ? '' : aTotal.toFixed(1) + '%')],
-        ['Fresh, range', dvPct(wFresh, 1), 'first contact'],
-        ['Fresh advantage', (wFresh === null || wRet === null) ? '&mdash;' : (wFresh - wRet).toFixed(1) + ' <u>pp</u>',
-          'over retargeting, same range']
-      ]);
-      window.__dvRangeTable = dvRangeTable();
-      html += ccCard({
-        title: 'The estate over the selected range',
-        note: esc(dvWinLabel()) + ' &middot; ' + ws.days + (ws.days === 1 ? ' day' : ' days') + ' &middot; ' + ws.dids + ' DIDs',
-        sub: 'Connect % by lead type inside the picked range, beside the same figure over every day the tab '
-           + 'holds. <b>This is the only part of the tab that follows the date picker</b> \u2014 it is built from '
-           + '<code>did_day_on_day</code>, the one DID feed with a Date column.',
-        table: true, tableLabel: 'Every number in range', tableSrc: '__dvRangeTable',
-        tableTitle: 'Every DID \u00b7 selected range',
-        body: dvRangeMatrix(),
-        foot: 'Still <b>rates with no denominators</b>: each cell is an unweighted mean over the Date \u00d7 DID '
-            + 'rows present, so a DID that took twelve dials counts as much as one that took nine hundred, and '
-            + 'a one-day range on a weekend is a volume artefact rather than a reading. The baseline column is '
-            + 'this feed\u2019s own all-days mean \u2014 <b>not</b> the 15-day line below, which is computed '
-            + 'differently by a different card.'
-      });
+  var cells = [
+    ['Numbers in use', fmt(useRange ? ws.dids : rows.length), scope],
+    ['Connect %', dvPct(tot, 1), (tot === null || base === null) ? '' : ((tot - base > 0 ? '+' : '') + (tot - base).toFixed(1) + 'pp vs ' + (useRange ? as.days + '-day line' : '15d'))],
+    ['Fresh vs retargeting', (fr === null || rt === null) ? '&mdash;' : dvPct(fr, 0) + ' <u>/</u> ' + dvPct(rt, 0), (fr === null || rt === null) ? '' : (fr - rt).toFixed(1) + 'pp gap'],
+    ['Below own baseline', fmt(flagged), DV_FLAG_PP + 'pp or worse']
+  ];
+  if (hasCity) cells.push(['Weakest city', A.low ? esc(A.low.k) : '&mdash;', A.low ? A.low.r.toFixed(1) + '% vs floor ' + A.floor.toFixed(1) + '%' : '200+ calls needed']);
+
+  var views = DV_VIEWS.filter(function(v){ return v[0] !== 'rep' || hasRep; })
+    .filter(function(v){ return v[0] !== 'city' || hasCity || D.didCityDiag; })
+    .map(function(v){ return v[0] === 'numbers' && flagged ? [v[0], v[1] + ' (' + flagged + ')'] : v; });
+  if (!views.some(function(v){ return v[0] === dvView; })) dvView = 'overview';
+
+  var feeds = [
+    hasDod ? 'Range: did_day_on_day' + (as.days ? ' (' + as.days + ' days held)' : '') : null,
+    hasOverall ? 'Fixed windows: did_overall, ignores picker' : null,
+    hasCity ? 'City: did_city_daily' : null
+  ].filter(Boolean).join(' &middot; ');
+
+  var html = connStripCells(cells)
+    + '<div class="dv-bar">' + ccSeg('data-dvview', views, dvView) + '<span class="dv-feeds">' + feeds + '</span></div>';
+
+  if (dvView === 'overview') {
+    if (hasDod && !win.length) {
+      html += ccCard({ title: 'No DID rows in the selected range', note: esc((D.didDodDiag && D.didDodDiag.window) || ''),
+        sub: 'The day-on-day tab holds ' + as.days + ' days (' + esc(as.first) + ' to ' + esc(as.last) + '). Widen the range; the fixed windows below still show.', body: '' });
     }
-  }
-
-  html += dvCityCards();
-
-  if (hasOverall) {
-    html += '<div style="margin-top:18px;padding-top:4px;border-top:1px solid #e4e7f0">'
-          + '<div style="font-weight:600;font-size:11px;line-height:1.2;letter-spacing:.09em;'
-          + 'text-transform:uppercase;color:var(--muted);margin:10px 0 12px">Fixed windows '
-          + '\u00b7 did_overall \u00b7 does not follow the date picker</div></div>';
-    html += connStripCells([
-      ['Numbers in estate', fmt(rows.length), 'every DID the card returned'],
-      ['All calls today', dvPct(dvMean(rows, 'totalToday'), 1), 'unweighted mean across DIDs'],
-      ['15-day line', dvPct(dvMean(rows, 'total15d'), 1), 'the same figure, 15 days'],
-      ['Fresh leads today', dvPct(dvMean(rows, 'freshToday'), 1), 'first contact'],
-      ['Retargeting today', dvPct(dvMean(rows, 'retToday'), 1), 'previously worked'],
-      ['Fresh advantage', (function(){
-        var a = dvMean(rows, 'freshToday'), b = dvMean(rows, 'retToday');
-        return (a === null || b === null) ? '&mdash;' : (a - b).toFixed(1) + ' <u>pp</u>';
-      })(), 'the gap the estate turns on']
-    ]);
-
-    window.__dvTable = dvTable(rows);
-
-    html += ccCard({
-      title: 'Connectivity is a property of the LEAD TYPE, not the number',
-      note: rows.length + ' DIDs &middot; four fixed windows',
-      sub: 'Connect % by lead type, averaged across every number in the estate. Fresh leads and retargeting run '
-         + 'on the <b>same numbers in the same hours</b> \u2014 so a gap between those two rows is not a number '
-         + 'problem, and the last column shows whether today sits below each type&rsquo;s own 15-day line.',
-      body: dvTypeMatrix(rows),
-      foot: '<b>These four windows are computed inside the card via NOW(), so they do not follow the date '
-          + 'picker</b> \u2014 today means today, whatever range is selected above. Every figure is an '
-          + '<b>unweighted mean across DIDs</b>: this feed carries no dials and no connects, so a number that '
-          + 'took twelve calls counts as much as one that took nine hundred. Read it as the estate&rsquo;s shape, '
-          + 'never as the floor&rsquo;s connect rate \u2014 that one comes off the LRM feeds.'
-    });
-
-    var mv = dvMovementChart(rows);
-    if (mv) {
-      html += ccCard({
-        title: 'Numbers that moved against their own baseline',
-        note: 'today vs 15-day line',
-        sub: 'Worst 18. <b>This is not a ranking of connect rate</b> \u2014 with no denominators a raw rate ranks '
-           + 'noise, and a three-dial number at 100% would lead it. A number several points below its own '
-           + 'recent line is worth a look whatever its level. Numbers with no reading today are left out '
-           + 'rather than drawn as zero.',
-        table: true, tableLabel: 'View every number', tableSrc: '__dvTable',
-        tableTitle: 'Every DID \u00b7 all lead types',
-        body: mv,
-        foot: 'Movement is the honest read available from this feed: today and the 15-day line are computed the '
-            + 'same way, by the same card, over the same estate. A cohort of numbers live only a few days will '
-            + 'show a large move for that reason alone \u2014 check first-seen before acting on one.'
-      });
+    if (useRange || hasOverall) {
+      html += ccCard({ title: 'By lead type',
+        note: (useRange ? ws.dids : rows.length) + ' DIDs',
+        sub: 'Read across a row for movement, down a column for the lead-type gap.',
+        body: dvLeadMatrix(useRange, hasOverall) });
     }
+    var trend = dvTrendChart();
+    if (trend) html += ccCard({ title: 'Day by day', body: trend });
+  } else if (dvView === 'city') {
+    html += dvCityView();
+  } else if (dvView === 'numbers') {
+    html += dvNumbersView(list, hasOverall);
+  } else if (dvView === 'rep') {
+    html += didRepCards();
   }
 
-  var trend = dvTrend();
-  if (trend) {
-    html += ccCard({
-      title: 'The estate day by day',
-      note: 'did_day_on_day',
-      sub: 'Mean connect % per day across the numbers in use that day, with fresh and retargeting beside the '
-         + 'blended figure. This is the only curve the DID feeds can draw \u2014 <b>did_overall</b> above has four '
-         + 'fixed windows and no history.',
-      body: trend,
-      foot: 'Drawn from <b>every day the tab holds</b>, not the picked range, because a trend clipped to one '
-          + 'selected day is not a trend. Weekends and holidays sit on tiny denominators \u2014 a day of 0.0s and '
-          + '100.0s is a volume artefact, not a collapse. Gate on the DIDs column before reading a spike.'
-    });
-  }
-
-  if (hasRep) {
-    html += '<div style="margin-top:18px;padding-top:4px;border-top:1px solid #e4e7f0">'
-          + '<div style="font-weight:600;font-size:11px;line-height:1.2;letter-spacing:.09em;'
-          + 'text-transform:uppercase;color:var(--muted);margin:10px 0 12px">Depth-adjusted reputation index '
-          + '\u00b7 did_rep</div></div>'
-          + didRepCards();
-  }
-
-  html += ccCard({
-    title: 'Before this is used to buy or retire numbers',
-    note: 'read this',
-    sub: 'What these two feeds can and cannot settle.',
-    body: '<ol style="margin:0;padding-left:20px;font-size:12.5px;line-height:1.6;color:var(--ink,#2b3245)">'
-        + '<li><b>There are no denominators in this data.</b> Every column is a percentage; no dials, no '
-        + 'connects. So there is no volume gate available, no weighting, and no depth adjustment \u2014 a number '
-        + 'handed fresher leads will read better for that reason alone. The depth-adjusted index that fixes '
-        + 'this is <code>did_rep</code>, and <b>its Metabase card id is still unset in Code.gs</b>, so it '
-        + 'never lands. Setting <code>DID_REP_QUESTION_ID</code> is the single highest-value change here.</li>'
-        + '<li><b>The lead-type gap is the finding, not the number-quality gap.</b> Fresh leads run roughly '
-        + 'twice retargeting on the same numbers. Any comparison between two DIDs that ignores their lead mix '
-        + 'is measuring the mix.</li>'
-        + '<li><b>A fresh cohort reads high, and that may be exposure, not identity.</b> Ten numbers live from '
-        + '11 Sep ran 37\u201345% against an aged estate at ~26%, but five aged numbers carrying only ~6 dials a '
-        + 'day ran 33\u201346%. Fresh ~41%, aged-but-idle ~40%, aged-and-hammered ~26% points at a <b>volume '
-        + 'ceiling</b> \u2014 in which case buying numbers buys weeks, not a fix. Run '
-        + '<code>sql/did-decay-v1.sql</code> before signing off provisioning.</li>'
-        + '<li><b>Outranking all of it:</b> these are ordinary 10-digit numbers, and under the TCCCPR Second '
-        + 'Amendment of 12 February 2025 promotional calls must originate from the 140 series. Get that '
-        + 'answered by legal before provisioning more.</li>'
-        + '</ol>',
-    foot: 'Dial assignment is round-robin per CALL, not sticky per lead, so a DID difference can never be '
-        + '&ldquo;this number pestered this customer&rdquo;. It also means the index earns its keep at caller '
-        + 'grain more than at DID grain.'
-  });
-
+  html += dvHowTo();
   panel.innerHTML = connStack(html);
-  if (typeof ccWireTables === 'function') ccWireTables(panel, 'Every DID \u00b7 all lead types', window.__dvTable || '');
-  if (hasRep && typeof didRepWire === 'function') didRepWire(panel);
+  if (typeof ccWireTables === 'function') ccWireTables(panel, 'Every DID', window.__dvTable || '');
+  if (dvView === 'rep' && typeof didRepWire === 'function') didRepWire(panel);
 
-  panel.querySelectorAll('[data-dvcity]').forEach(function (el) {
-    var pick = function () {
-      dvCity = el.tagName === 'SELECT' ? el.value : el.getAttribute('data-dvcity');
-      try { localStorage.setItem('lrmDidCity', dvCity); } catch (e) {}
+  panel.querySelectorAll('button[data-dvview]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      dvView = b.getAttribute('data-dvview');
+      try { localStorage.setItem('lrmDidView', dvView); } catch (e) {}
       renderDID();
-    };
-    el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'click', pick);
+    });
   });
-
-  panel.querySelectorAll('table.dist th[data-dvsort]').forEach(function (th) {
-    th.addEventListener('click', function () {
-      var k = th.getAttribute('data-dvsort');
-      if (dvSort.col === k) dvSort.dir = -dvSort.dir; else { dvSort.col = k; dvSort.dir = 1; }
-      window.__dvTable = dvTable(dvRows());
+  panel.querySelectorAll('[data-dvcity]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      dvCity = el.getAttribute('data-dvcity');
+      try { localStorage.setItem('lrmDidCity', dvCity); } catch (e) {}
       renderDID();
     });
   });
