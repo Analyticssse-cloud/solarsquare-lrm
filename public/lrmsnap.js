@@ -137,8 +137,13 @@
         +'<div class="lsn-bd">'+body+'</div></div>';
     };
     if(!S||(!S.log||!S.log.length)&&!S.row1){
-      return shell('not wired','<div class="lsn-empty">The <b>Daily Snapshot</b> / <b>Snapshot Log</b> tabs were not found in the dashboard sheet'
-        +(D.lrmSnapDiag&&D.lrmSnapDiag.error?' ('+e(D.lrmSnapDiag.error)+')':'')+'.</div>');
+      var G=D.lrmSnapDiag, why;
+      if(!G) why='The server is still on the old <b>api/dashboard.js</b> — push it and redeploy.';
+      else if(G.error) why='Could not read the sheet: '+e(G.error);
+      else if(!G.snapTab||!G.logTab) why='Tab not found: '+[!G.snapTab?'<b>Daily Snapshot</b>':'',!G.logTab?'<b>Snapshot Log</b>':''].filter(Boolean).join(' and ')
+        +(G.titles?'. Tabs the server sees: '+e(G.titles.join(', ')):'');
+      else why='Both tabs read, but <b>Snapshot Log</b> has no rows with a date in column A and ZSM/TL in column B ('+(G.logRows||0)+' rows read).';
+      return shell('not loaded','<div class="lsn-empty">'+why+'</div>');
     }
     var g=parseRow1(S.row1), C=compute(S), ban='';
     if(!g||g.iso!==S.today) ban+='<div class="lsn-ban red">Snapshot not generated today — Apps Script did not run (row 1: '+e(S.row1||'blank')+')'+(C?'. Showing the last logged day, '+e(dLong(C.cur))+'.':'')+'</div>';
