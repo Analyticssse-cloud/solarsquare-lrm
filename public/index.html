@@ -2388,7 +2388,8 @@ function renderAction(){
      export branches are left in place but unreachable — a one-line revert. */
   var isPer=false, isPlan=false;
   var head='<div class="act-head"><span class="act-note">Counts of LRMs below the bar — click any number for the names</span></div>';
-  panel.innerHTML=head+'<div class="act-scroll">'+(typeof connBreakStrip==='function'?connBreakStrip():'')+renderDistribution(filterAgents())+'</div>';
+  panel.innerHTML=head+'<div class="act-scroll">'+(typeof lrmSnapHTML==='function'?lrmSnapHTML():'')+(typeof connBreakStrip==='function'?connBreakStrip():'')+renderDistribution(filterAgents())+'</div>';
+  if(typeof lrmSnapWire==='function') lrmSnapWire(panel);
   if(activeTab==='action') setCount(filterAgents().length+' LRMs in view');
   panel.querySelectorAll('table.dist th[data-plan]').forEach(function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-plan'); planSort.dir=(planSort.col===k)?planSort.dir*-1:-1; planSort.col=k; renderAction(); }); });
   panel.querySelectorAll('.plan-basis button[data-planbasis]').forEach(function(btn){ btn.addEventListener('click',function(e){ e.stopPropagation(); planBasis=btn.getAttribute('data-planbasis'); try{localStorage.setItem('lrmPlanBasis',planBasis);}catch(err){} renderAction(); }); });
@@ -2533,5 +2534,6 @@ function downloadPDF(){
 <script src="inbound.js?v=20261017a"></script>
 <script src="eodr.js?v=20260925b"></script>
 <script src="lrmmtd.js?v=20261023c"></script>
+<script src="lrmsnap.js?v=20261024a"></script>
 </body>
 </html>
