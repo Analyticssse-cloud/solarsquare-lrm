@@ -1606,6 +1606,32 @@ export default async function handler(req, res) {
     inboundDiag.inWindow = inboundPerf.length;
     inboundDiag.window = effFrom + ' → ' + effTo;
 
+    /* ── Inbound by HOUR (17 Oct 2026) — tab inbound_hourly, floor-wide ──────
+       Summed per hour across the window (or the inbound fallback day, so the
+       curve and the cards always describe the same day). `days` lets the
+       frontend show a per-day average on a multi-day window. */
+    const inboundHourlyDiag = {};
+    let inboundHourly = [];
+    try {
+      const ihAll = await passThrough('inbound_hourly', {
+        tabs: ['inbound_hourly', 'Inbound_Hourly', 'inbound hourly'], diag: inboundHourlyDiag,
+        numeric: ['Calls', 'Answered', 'Missed', 'Reached No Agent', 'Unique Numbers', 'Talk Min', 'Dial Legs'] });
+      const ihFrom = inboundDiag.fallbackDate || effFrom, ihTo = inboundDiag.fallbackDate || effTo;
+      const byHr = {}, ihDays = new Set();
+      for (const r of ihAll) {
+        const d = rowDate(r['Date']);
+        if (!d || d < ihFrom || d > ihTo) continue;
+        const h = parseInt(String(r['Hour'] == null ? '' : r['Hour']).trim().slice(0, 2), 10);
+        if (isNaN(h)) continue;
+        ihDays.add(d);
+        const a = byHr[h] || (byHr[h] = { hour: h, calls: 0, answered: 0, missed: 0, noAgent: 0, talkMin: 0 });
+        a.calls += num(r['Calls']); a.answered += num(r['Answered']); a.missed += num(r['Missed']);
+        a.noAgent += num(r['Reached No Agent']); a.talkMin += num(r['Talk Min']);
+      }
+      inboundHourly = Object.values(byHr).sort((x, y) => x.hour - y.hour);
+      inboundHourlyDiag.days = ihDays.size;
+    } catch (e) { inboundHourlyDiag.error = e.message; }
+
     /* ── DID connectivity by lead type — two feeds, added 18 Sep 2026 ────────
        Both are written by Code.gs and NEITHER was being read. They are the live
        DID data; `did_rep` (the reputation-index card, DID_REP_QUESTION_ID) is
@@ -1743,6 +1769,43 @@ export default async function handler(req, res) {
       passThrough('DID Pool', { tabs: ['DID Pool'], diag: didMgrDiag.pool }),
     ]).catch((e) => { didMgrDiag.error = String(e.message || e); return [[], [], []]; });
 
+    /* LRM Snapshot (24 Oct 2026) — the nightly snapshot email's view, shown in the
+       Action Center. Reads ONLY 'Daily Snapshot' (row 1 generated stamp, row 2 7D
+       window, any ⚠ cell) and 'Snapshot Log' (A..O, one row per date × ZSM/TL),
+       exactly like sendLrmSnapshotEmail(). Floor-wide (ZSM/TL aggregates, no person
+       rows). Only the last 5 log dates ship — enough for Δ pts and the 3-day TL streak. */
+    const lrmSnapDiag = {};
+    const lrmSnap = await (async () => {
+      const out = { row1: '', row2: '', warns: [], log: [], today: '' };
+      try {
+        const [snapName, logName] = await Promise.all([resolveTab(['Daily Snapshot']), resolveTab(['Snapshot Log'])]);
+        lrmSnapDiag.snapTab = snapName || null; lrmSnapDiag.logTab = logName || null;
+        const [snapRaw, logRaw] = await Promise.all([
+          snapName ? cachedRead(readSheet, snapName) : [], logName ? cachedRead(readSheet, logName) : []]);
+        out.row1 = String(((snapRaw[0] || [])[0]) || '').trim();
+        out.row2 = String(((snapRaw[1] || [])[0]) || '').trim();
+        snapRaw.forEach(r => (r || []).forEach(c => { const s = String(c == null ? '' : c); if (s.indexOf('⚠') >= 0) out.warns.push(s.trim()); }));
+        const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+        const iso = (v) => {
+          const s = String(v == null ? '' : v).trim(); let m;
+          if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+          if ((m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/))) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+          if ((m = s.match(/^(\d{1,2})[\s-]([A-Za-z]{3})[A-Za-z]*[\s-](\d{4})/)) && MON[m[2].toLowerCase()]) return m[3] + '-' + String(MON[m[2].toLowerCase()]).padStart(2, '0') + '-' + m[1].padStart(2, '0');
+          return '';
+        };
+        const rows = logRaw.slice(1).map(r => ({
+          date: iso(r[0]), level: String(r[1] || '').trim().toUpperCase(), zsm: String(r[2] || '').trim(), tl: String(r[3] || '').trim(),
+          asg: num(r[4]) || 0, dial: num(r[5]) || 0, cov: num(r[6]) || 0, cov15: num(r[7]) || 0, nd: num(r[8]) || 0, na: num(r[9]) || 0,
+          present: num(r[10]) || 0, under: num(r[11]) || 0, thr: num(r[14]) || 0,
+        })).filter(r => r.date && (r.level === 'ZSM' || r.level === 'TL'));
+        const keep = [...new Set(rows.map(r => r.date))].sort().slice(-5);
+        out.log = rows.filter(r => keep.indexOf(r.date) >= 0);
+        lrmSnapDiag.rows = rows.length; lrmSnapDiag.dates = keep;
+      } catch (e) { lrmSnapDiag.error = String(e.message || e); }
+      out.today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+      return out;
+    })();
+
     const useLive = !!String(process.env.CONN_SHEET_ID || '').trim();
     const [connDaily, connHourly, connAnomaly, didRows, inboundRows] = useLive
       ? [[], [], [], [], []]
@@ -1838,8 +1901,9 @@ export default async function handler(req, res) {
       coverageMatureDays: COVERAGE_MATURE_DAYS, coverage: coverageMeta,
       depthRows, depthTrend, depthHas, leadDepth, leadDepthAgg, leadDepthDiag, leadDepthStage,
       connDaily, connHourly, connAnomaly, didRows, inboundRows, inboundPerf, inboundDiag,
+      inboundHourly, inboundHourlyDiag,
       didOverall, didDod, didDodAllDays, didOverallDiag, didDodDiag, connFloor, didCity, didCityDiag,
-      didHealth, didSwaps, didPool, didMgrDiag,
+      didHealth, didSwaps, didPool, didMgrDiag, lrmSnap, lrmSnapDiag,
       connHas: {
         daily: connDaily.length > 0, hourly: connHourly.length > 0,
         anomaly: connAnomaly.length > 0, did: didRows.length > 0,
@@ -1882,10 +1946,10 @@ function emptyPayload(from, to, viewerEmail) {
     coverage: { error: '', external: false, diag: {} },
     depthRows: [], depthTrend: [], depthHas: false, leadDepth: [], leadDepthAgg: [], leadDepthDiag: {}, leadDepthStage: [],
     connDaily: [], connHourly: [], connAnomaly: [], didRows: [], inboundRows: [],
-    inboundPerf: [], inboundDiag: {},
+    inboundPerf: [], inboundDiag: {}, inboundHourly: [], inboundHourlyDiag: {},
     didOverall: [], didDod: [], didDodAllDays: [], didOverallDiag: {}, didDodDiag: {},
     didCity: { clusters: [], cells: [], days: 0 }, didCityDiag: {},
-    didHealth: [], didSwaps: [], didPool: [], didMgrDiag: {},
+    didHealth: [], didSwaps: [], didPool: [], didMgrDiag: {}, lrmSnap: null, lrmSnapDiag: {},
     connHas: { daily: false, hourly: false, anomaly: false, did: false, inbound: false,
                inboundPerf: false, didOverall: false, didDod: false },
     msScore: { error: '', external: false, diag: {}, scored: 0, lrms: 0, inSheet: 0 },
