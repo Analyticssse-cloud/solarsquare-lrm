@@ -25,7 +25,7 @@
 
 import { readSheet } from './_sheets.js';
 import { requireUser, deny } from './_auth.js';
-import { readLiveConnectivity } from './_connlive.js';
+import { readLiveConnectivity, sheetsApi } from './_connlive.js';
 import { readMSScores } from './_msscore.js';
 import { readCoverage } from './_coverage.js';
 import { readLeadDepth } from './_leaddepth.js';
@@ -207,6 +207,44 @@ function durSec(v) {
    expires. */
 const NEG_TTL = 120000;
 const tabResolved = new Map();   // key -> { name, at }
+/* LRM Snapshot tabs — read straight from the Ozonetel Report file by ID (override:
+   SNAPSHOT_SHEET_ID). Cached 90 s per warm instance; errors cached 20 s. */
+const LRM_SNAP_SHEET = () => String(process.env.SNAPSHOT_SHEET_ID || '17iOry-amF9Qnw9HzMd1lsjKdj-HFvxBpP768uK-m4BU').trim();
+let lrmSnapCache = null;
+async function readLrmSnapTabs(diag) {
+  const now = Date.now();
+  if (lrmSnapCache && now - lrmSnapCache.at < lrmSnapCache.ttl) { Object.assign(diag, lrmSnapCache.diag, { cached: true }); if (lrmSnapCache.err) throw new Error(lrmSnapCache.err); return lrmSnapCache.v; }
+  const d = { sheet: LRM_SNAP_SHEET() };
+  try {
+    const api = await sheetsApi();
+    const meta = await api.spreadsheets.get({ spreadsheetId: d.sheet, fields: 'sheets.properties.title' });
+    const titles = (meta.data.sheets || []).map(s => s.properties.title);
+    const sq = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const find = (want) => titles.find(t => sq(t) === want) || titles.find(t => sq(t).indexOf(want) >= 0) || '';
+    d.snapTab = find('dailysnapshot') || null; d.logTab = find('snapshotlog') || null;
+    if (!d.snapTab || !d.logTab) d.titles = titles;
+    const q = (t) => "'" + t.replace(/'/g, "''") + "'";
+    const ranges = [d.snapTab, d.logTab].filter(Boolean).map(q);
+    let snapRaw = [], logRaw = [];
+    if (ranges.length) {
+      const res = await api.spreadsheets.values.batchGet({ spreadsheetId: d.sheet, ranges });
+      const got = res.data.valueRanges || []; let i = 0;
+      if (d.snapTab) snapRaw = (got[i++] || {}).values || [];
+      if (d.logTab) logRaw = (got[i++] || {}).values || [];
+    }
+    d.snapRows = snapRaw.length; d.logRows = logRaw.length;
+    const v = { snapRaw, logRaw };
+    lrmSnapCache = { at: now, ttl: 90000, v, diag: d };
+    Object.assign(diag, d);
+    return v;
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    lrmSnapCache = { at: now, ttl: 20000, err: msg, diag: d };
+    Object.assign(diag, d);
+    throw e;
+  }
+}
+
 async function resolveTab(cands) {
   const k = cands.join('|');
   const hit = tabResolved.get(k);
@@ -1778,10 +1816,11 @@ export default async function handler(req, res) {
     const lrmSnap = await (async () => {
       const out = { row1: '', row2: '', warns: [], log: [], today: '' };
       try {
-        const [snapName, logName] = await Promise.all([resolveTab(['Daily Snapshot']), resolveTab(['Snapshot Log'])]);
-        lrmSnapDiag.snapTab = snapName || null; lrmSnapDiag.logTab = logName || null;
-        const [snapRaw, logRaw] = await Promise.all([
-          snapName ? cachedRead(readSheet, snapName) : [], logName ? cachedRead(readSheet, logName) : []]);
+        /* Read by spreadsheet ID + live tab list (25 Oct fix). The first cut went through
+           resolveTab/readSheet, which swallow every error and return null — the panel read
+           "not wired" against tabs that existed. Now: list the titles, match them
+           case/space-insensitively, one quoted batchGet, and report what was found. */
+        const { snapRaw, logRaw } = await readLrmSnapTabs(lrmSnapDiag);
         out.row1 = String(((snapRaw[0] || [])[0]) || '').trim();
         out.row2 = String(((snapRaw[1] || [])[0]) || '').trim();
         snapRaw.forEach(r => (r || []).forEach(c => { const s = String(c == null ? '' : c); if (s.indexOf('⚠') >= 0) out.warns.push(s.trim()); }));
@@ -1791,6 +1830,7 @@ export default async function handler(req, res) {
           if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
           if ((m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/))) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
           if ((m = s.match(/^(\d{1,2})[\s-]([A-Za-z]{3})[A-Za-z]*[\s-](\d{4})/)) && MON[m[2].toLowerCase()]) return m[3] + '-' + String(MON[m[2].toLowerCase()]).padStart(2, '0') + '-' + m[1].padStart(2, '0');
+          if ((m = s.match(/^([A-Za-z]{3})[A-Za-z]*\s+(\d{1,2}),?\s+(\d{4})/)) && MON[m[1].toLowerCase()]) return m[3] + '-' + String(MON[m[1].toLowerCase()]).padStart(2, '0') + '-' + m[2].padStart(2, '0');
           return '';
         };
         const rows = logRaw.slice(1).map(r => ({
