@@ -1,5 +1,5 @@
 /* Action Center · LRM Snapshot (24 Oct 2026).
-   The nightly LRM Snapshot email, rendered at the top of the Action Center from the same
+   The LRM Snapshot (built hourly 09–21 IST; emailed nightly), rendered at the top of the Action Center from the same
    two tabs the email reads (D.lrmSnap = 'Daily Snapshot' rows 1-2 + ⚠ cells, last 5 dates of
    'Snapshot Log'). Rules mirror sendLrmSnapshotEmail(): Coverage = Covered / Assigned,
    Δ pts vs the previous log date, worst coverage first, "(non-LRM owner)" and <20 leads at
@@ -18,6 +18,7 @@
     +'.lsn.closed .lsn-bd{display:none}'
     +'.lsn-ban{font-size:12px;font-weight:700;padding:6px 10px;border-radius:6px}'
     +'.lsn-ban.red{color:#a3221a;background:#fde8e6}.lsn-ban.amber{color:#8a4b00;background:#fff1d6}'
+    +'.lsn-note{font-size:11px;color:var(--muted);font-weight:600}'
     +'.lsn-head{font-size:15px;font-weight:700;color:var(--text);display:flex;gap:6px 14px;flex-wrap:wrap;align-items:baseline}'
     +'.lsn-head .up{color:var(--green)}.lsn-head .dn{color:var(--red)}.lsn-head small{font-size:11px;color:var(--muted);font-weight:600}'
     +'.lsn-grid{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}'
@@ -147,7 +148,11 @@
     }
     var g=parseRow1(S.row1), C=compute(S), ban='';
     if(!g||g.iso!==S.today) ban+='<div class="lsn-ban red">Snapshot not generated today — Apps Script did not run (row 1: '+e(S.row1||'blank')+')'+(C?'. Showing the last logged day, '+e(dLong(C.cur))+'.':'')+'</div>';
-    else if(g.hh<18) ban+='<div class="lsn-ban amber">Snapshot generated at '+e(g.time)+' IST — today\'s talk-time figures are partial-day.</div>';
+    else{
+      var ist=new Date(Date.now()+5.5*3600000), nowMin=ist.getUTCHours()*60+ist.getUTCMinutes(), genMin=g.hh*60+Number(g.time.slice(3));
+      if(nowMin>=10*60&&nowMin<22*60&&nowMin-genMin>130) ban+='<div class="lsn-ban amber">Hourly refresh missed — last snapshot '+e(g.time)+' IST ('+Math.round((nowMin-genMin)/60)+' h ago).</div>';
+      else if(g.hh<18) ban+='<div class="lsn-note">Intraday snapshot · refreshed hourly · today\'s talk-time figures are partial-day.</div>';
+    }
     (S.warns||[]).forEach(function(w){ ban+='<div class="lsn-ban red">'+e(w)+'</div>'; });
     if(!C) return shell('no log rows',ban+'<div class="lsn-empty">Snapshot Log has no dated ZSM/TL rows yet.</div>');
     var thr=(C.Z.concat(C.T).map(function(r){ return r.thr; }).filter(Boolean)[0])||75;
