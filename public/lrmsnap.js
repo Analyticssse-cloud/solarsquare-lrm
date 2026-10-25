@@ -101,7 +101,7 @@
 
   function ttTable(C,thr){
     var tt=C.TZ.filter(function(r){ return r.present>0; }).sort(function(a,b){ return b.under-a.under||b.present-a.present; });
-    if(!tt.length) return '<div class="lsn-empty">Present = 0 on every logged day — the snapshot found no attendance. Check that <b>Present LRM Count</b> row 2 has today\'s date and LRMs are marked 1.</div>';
+    if(!tt.length) return '<div class="lsn-empty">Present = 0 on every logged day — no LRM_TL_MAP LRM has a dial in the <b>Ozontel</b> tab for these dates.</div>';
     var P=sum(tt,'present'), U=sum(tt,'under');
     var h='<div class="lsn-tw"><table><thead><tr><th>ZSM</th><th class="num">Present</th><th class="num">&lt;'+thr+' min</th><th class="num">%</th></tr></thead><tbody>';
     tt.forEach(function(r){ h+='<tr><td>'+e(r.zsm)+'</td><td class="num">'+i0(r.present)+'</td><td class="num">'+i0(r.under)+'</td><td class="num">'+f1(pct(r.under,r.present))+'%</td></tr>'; });
