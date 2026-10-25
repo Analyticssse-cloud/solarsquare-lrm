@@ -72,7 +72,9 @@
     var totD=null; if(prev){ var P=rowsFor(prev,'ZSM'), pp=pct(sum(P,'cov'),sum(P,'asg')); if(tot.p!==null&&pp!==null) totD=tot.p-pp; }
     var last3=dates.filter(function(d){ return d<=cur; }).slice(-3);
     var streak=last3.length===3?last3.map(function(d){ var t=rowsFor(d,'TL').slice().sort(function(a,b){ return b.under-a.under; })[0]; return t?{d:d,tl:t.tl,n:t.under}:null; }).filter(Boolean):null;
-    return {cur:cur,prev:prev,Z:Z,T:T,tot:tot,totD:totD,prevMap:prevMap,key:key,streak:streak,filtered:filtered};
+    var ttDate=dates.filter(function(d){ return d<=cur&&sum(rowsFor(d,'ZSM'),'present')>0; }).pop()||null;
+    var TZ=ttDate?rowsFor(ttDate,'ZSM'):[], TT=ttDate?rowsFor(ttDate,'TL'):[];
+    return {cur:cur,prev:prev,Z:Z,T:T,TZ:TZ,TT:TT,ttDate:ttDate,tot:tot,totD:totD,prevMap:prevMap,key:key,streak:streak,filtered:filtered};
   }
 
   function covTable(C,rows,lvl){
@@ -98,8 +100,8 @@
   }
 
   function ttTable(C,thr){
-    var tt=C.Z.filter(function(r){ return r.present>0; }).sort(function(a,b){ return b.under-a.under||b.present-a.present; });
-    if(!tt.length) return '<div class="lsn-empty">No present LRMs logged for '+e(dLbl(C.cur))+'.</div>';
+    var tt=C.TZ.filter(function(r){ return r.present>0; }).sort(function(a,b){ return b.under-a.under||b.present-a.present; });
+    if(!tt.length) return '<div class="lsn-empty">Present = 0 on every logged day — the snapshot found no attendance. Check that <b>Present LRM Count</b> row 2 has today\'s date and LRMs are marked 1.</div>';
     var P=sum(tt,'present'), U=sum(tt,'under');
     var h='<div class="lsn-tw"><table><thead><tr><th>ZSM</th><th class="num">Present</th><th class="num">&lt;'+thr+' min</th><th class="num">%</th></tr></thead><tbody>';
     tt.forEach(function(r){ h+='<tr><td>'+e(r.zsm)+'</td><td class="num">'+i0(r.present)+'</td><td class="num">'+i0(r.under)+'</td><td class="num">'+f1(pct(r.under,r.present))+'%</td></tr>'; });
@@ -117,7 +119,7 @@
     if(C.streak&&C.streak.length){
       a.push('<b>TL talk-time</b>: highest &lt;'+thr+' count, last 3 days — '+C.streak.map(function(s){ return e(dLbl(s.d))+' '+e(s.tl)+' ('+s.n+')'; }).join(', '));
     } else {
-      var t=C.T.slice().sort(function(x,y){ return y.under-x.under; })[0];
+      var t=C.TT.slice().sort(function(x,y){ return y.under-x.under; })[0];
       if(t&&t.under) a.push('<b>'+e(t.tl)+'</b> ('+e(t.zsm)+'): review low talk-time LRMs — '+t.under+' of '+t.present+' present under '+thr+' min');
     }
     return a.slice(0,3);
@@ -164,7 +166,7 @@
     var acts=actions(C,thr);
     var body=ban+head
       +'<div class="lsn-grid"><div class="lsn-blk"><h5>ZSM-wise (7D '+e(win[1])+' – '+e(win[2])+')</h5>'+covTable(C,C.Z,'ZSM')+'</div>'
-      +'<div class="lsn-blk"><h5>Talk time &lt;'+thr+' min · '+e(dLbl(C.cur))+' (present LRMs)</h5>'+ttTable(C,thr)+'</div></div>'
+      +'<div class="lsn-blk"><h5>Talk time &lt;'+thr+' min · '+e(dLbl(C.ttDate||C.cur))+' (present LRMs)</h5>'+(C.ttDate&&C.ttDate!==C.cur?'<div class="lsn-note">Attendance not marked for '+e(dLbl(C.cur))+' yet — showing '+e(dLbl(C.ttDate))+'.</div>':'')+ttTable(C,thr)+'</div></div>'
       +'<div class="lsn-blk"><h5>TL-wise (7D)</h5>'+covTable(C,C.T,'TL')+'</div>'
       +(acts.length?'<div class="lsn-blk"><h5>Actions for tomorrow</h5><ul class="lsn-act">'+acts.map(function(x){ return '<li>'+x+'</li>'; }).join('')+'</ul></div>':'')
       +'<div class="lsn-foot">'+e(String(S.row1||'').replace(/^Daily Snapshot\s*—\s*/,''))+' · <a href="'+SHEET+'" target="_blank" rel="noopener">Open sheet</a></div>';
