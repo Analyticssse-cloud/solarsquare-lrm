@@ -861,7 +861,7 @@ var perSort = { col:'dialsPerMs', dir:-1 };
 /* Day-end bars per LRM. ttLow is a SECOND, harder talk-time floor the user asked
    for (4 Sep): 120 min is the target, under 90 min is the intervention line.
    Lowered 28 Sep (user): 90 min target, 75 min intervention line. */
-var DIST = { presentMin:1, dial:200, ttMin:90, ttLow:75, ms:10 };
+var DIST = { presentMin:1, dial:200, ttMin:120, ttLow:75, ms:10 };
 /* Every bar is scored against the share of the shift ELAPSED, not the whole day
    (user, 4 Sep): at 14:00 an LRM on 94 dials is on pace, and flagging them against
    200 would put most of the floor "below the bar" every morning. On a finished day
