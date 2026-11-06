@@ -65,6 +65,9 @@ function covVal(o) { return covBasis === 'real' ? (o.real || 0) : covBasis === '
 function covBasisLab() { return covBasis === 'real' ? 'really covered' : covBasis === 'two' ? 'covered 2+ min' : 'covered'; }
 var covSort = { col: 'assigned', dir: -1 };
 var covOpen = null;
+/* Which list the pop-up shows: 'uncov' (never dialled + no answer) or 'short'
+   (connected, but no call reached 2 min of talk — coverage-leads.sql v2). */
+var covView = 'uncov';
 /* Lead-stage filter (the lead's `status` funnel bucket). Empty = all stages.
    Applied AFTER scope, so the stage panel can still show every stage's number
    for the current scope while the rest of the tab narrows to the selection. */
@@ -168,6 +171,10 @@ function covSourceOn(s) { return !covSource || covSource === (s || '(blank)'); }
   '.cv-flag.never{background:#f6e2df;color:#8f2c22}' +
   '.cv-flag.noans{background:#faeed9;color:#8a5a17}' +
   '.cv-flag.hard{background:#efe3f2;color:#6b3577}' +
+  '.cv-flag.short{background:#e3ecf6;color:#2f5378}' +
+  '.cv-vtabs{display:flex;gap:6px;padding:12px 16px 0}' +
+  '.cv-short{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}' +
+  '.cv-short:hover{color:var(--navy,#1f3b6e)}' +
   '.cv-empty{border:1px dashed var(--border,#e3e8f3);padding:26px;text-align:center;color:var(--muted,#6a7494);font-size:12px;line-height:1.6}' +
   '.cv-foot{margin-top:12px;padding-top:10px;border-top:1px solid var(--border,#e3e8f3)}' +
   '.cv-foot-b{font-size:10.5px;color:var(--muted,#6a7494);line-height:1.6;max-width:940px}' +
@@ -289,6 +296,7 @@ function covGroup(rows, grain) {
     a.neverPct = a.assigned ? Math.round(1000 * a.never / a.assigned) / 10 : 0;
     a.gap = Math.round((a.covPct - a.realPct) * 10) / 10;
     a.dialsPer = a.assigned ? Math.round(10 * a.dials / a.assigned) / 10 : 0;
+    a.short = Math.max(0, a.connected - a.t2);
     return a;
   });
 }
@@ -508,7 +516,7 @@ function renderCoverage() {
   };
   html += '<div class="tbl-wrap"><table class="cv-grid"><thead>' +
     '<tr class="cv-hgrp"><th></th><th class="num" colspan="2">Leads</th>' +
-    '<th class="num cv-sep" colspan="2">Covered</th>' +
+    '<th class="num cv-sep" colspan="' + (hasT2 ? 3 : 2) + '">Covered</th>' +
     '<th class="num cv-sep" colspan="2">Not covered</th>' +
     '<th class="num cv-sep" colspan="2">Effort</th></tr><tr>' +
     '<th data-cs="key">' + G.head + '</th>' +
@@ -516,6 +524,7 @@ function renderCoverage() {
     th('dialled', 'Dialled') +
     th('headline', covBasis === 'real' ? 'Really cov.' : covBasis === 'two' ? 'Cov. 2+ min' : 'Covered', ' cv-sep') +
     th('gap', 'Raw → 15s+ gap') +
+    (hasT2 ? th('short', 'Under 2 min') : '') +
     th('never', 'Never dialled', ' cv-sep') +
     th('noAns', 'No answer') +
     th('dialsPer', 'Dials / lead', ' cv-sep') +
@@ -531,6 +540,8 @@ function renderCoverage() {
       '<td class="num">' + fmt(g.dialled) + '</td>' +
       '<td class="num cv-sep" style="background:' + covTint(pct) + '">' + pct + '%</td>' +
       '<td class="num' + (g.gap >= 15 ? ' cv-warn' : '') + '">' + (g.gap > 0 ? '−' + g.gap : '0') + ' pts</td>' +
+      (hasT2 ? '<td class="num"><span class="cv-short" data-cv="short" title="Connected, but no call reached 2 min of talk — click for the leads">' +
+        fmt(g.short) + '</span></td>' : '') +
       '<td class="num cv-sep' + (g.neverPct >= 8 ? ' cv-warn' : '') + '">' + fmt(g.never) +
         ' <em class="cv-n">' + g.neverPct + '%</em></td>' +
       '<td class="num">' + fmt(g.noAns) + '</td>' +
@@ -543,6 +554,7 @@ function renderCoverage() {
     '<td class="num">' + fmt(t.dialled) + '</td>' +
     '<td class="num cv-sep">' + t.headline + '%</td>' +
     '<td class="num">−' + Math.round((t.covPct - t.realPct) * 10) / 10 + ' pts</td>' +
+    (hasT2 ? '<td class="num">' + fmt(Math.max(0, t.connected - t.t2)) + '</td>' : '') +
     '<td class="num cv-sep">' + fmt(t.never) + '</td><td class="num">' + fmt(t.noAns) + '</td>' +
     '<td class="num cv-sep">' + t.dialsPer + '</td>' +
     '<td class="num">' + (t.connected ? Math.round(100 * t.d0 / t.connected) + '%' : '—') + '</td></tr>';
@@ -645,9 +657,11 @@ function renderCoverage() {
     });
   });
   panel.querySelectorAll('tr.cv-row').forEach(function (tr2) {
-    tr2.addEventListener('click', function () {
+    tr2.addEventListener('click', function (e) {
       var k = tr2.getAttribute('data-ck');
-      if (covOpen === k) { covCloseModal(); return; }
+      var v = (e.target.closest && e.target.closest('[data-cv="short"]')) ? 'short' : 'uncov';
+      if (covOpen === k && covView === v) { covCloseModal(); return; }
+      covView = v;
       panel.querySelectorAll('tr.cv-row.open').forEach(function (o) { o.classList.remove('open'); });
       tr2.classList.add('open');
       covOpen = k;
@@ -687,8 +701,18 @@ function covOpenModal(key, groups, rows) {
   bk.querySelector('#cvModalT').textContent = g.key;
   bk.querySelector('#cvModalS').textContent = fmt(g.assigned) + ' leads \u00b7 ' + g.headline +
     '% ' + covBasisLab() + ' \u00b7 ' +
-    fmt(g.never) + ' never dialled';
-  bk.querySelector('#cvModalBd').innerHTML = covDrill(g, rows);
+    fmt(g.never) + ' never dialled' + (covHasT2() ? ' \u00b7 ' + fmt(g.short) + ' under 2 min' : '');
+  var bd = bk.querySelector('#cvModalBd');
+  var paint = function () {
+    var tabs = covHasT2() ? '<div class="cv-vtabs">' +
+      '<button class="cv-chip' + (covView === 'uncov' ? ' on' : '') + '" data-cvv="uncov">Uncovered \u00b7 ' + fmt((g.never || 0) + (g.noAns || 0)) + '</button>' +
+      '<button class="cv-chip' + (covView === 'short' ? ' on' : '') + '" data-cvv="short">Connected, under 2 min \u00b7 ' + fmt(g.short) + '</button></div>' : '';
+    bd.innerHTML = tabs + (covView === 'short' ? covDrillShort(g, rows) : covDrill(g, rows));
+    bd.querySelectorAll('[data-cvv]').forEach(function (b) {
+      b.addEventListener('click', function () { covView = b.getAttribute('data-cvv'); paint(); });
+    });
+  };
+  paint();
   bk.classList.remove('closing');
   bk.classList.add('open');
 }
@@ -706,6 +730,65 @@ function covCloseModal() {
 /* The drill is the WORKLIST — the uncovered leads themselves, in queue order:
    never dialled first, then oldest. That order is the point of the panel, so it
    is never re-sorted by a column click. */
+/* Leads behind a group row, after the same scope / stage / source / place rules
+   the card uses. Shared by both pop-up lists so they can never disagree. */
+function covGroupLeads(g, rows) {
+  var G = covGrainDef();
+  var emails = {};
+  (rows || []).forEach(function (r) { if ((G.of(r) || '—') === g.key) emails[r.agent] = true; });
+  var placeOf = G.k === 'cluster' ? function (l) { return l.cluster || l.city || 'Unmapped'; }
+              : G.k === 'city'    ? function (l) { return l.city || l.cluster || 'Unmapped'; } : null;
+  return (D.coverageLeads || []).filter(function (l) {
+    return emails[l.agent] && covStageOn(l.status) && covSourceOn(l.source) && (!placeOf || placeOf(l) === g.key);
+  });
+}
+
+function covTalk(s) {
+  if (s == null) return '—';
+  s = Math.round(s);
+  return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+}
+
+/* Connected, but never a 2-minute conversation (best connected call < 120s).
+   Shortest best-talk first — a 5-second pick-up is the weakest contact. */
+function covDrillShort(g, rows) {
+  var all = covGroupLeads(g, rows);
+  var leads = all.filter(function (l) { return (l.connects || 0) > 0; })
+    .sort(function (a, b) { return (a.bestTalk || 0) - (b.bestTalk || 0) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0); });
+  var html = '<div class="cv-drill-in">';
+  if (!leads.length) {
+    var noFeed = !all.some(function (l) { return l.bestTalk !== null && l.bestTalk !== undefined; });
+    html += '<h4>Connected, under 2 min</h4><div class="cv-subnote">' + (noFeed
+      ? 'The lead list does not carry talk time yet. Paste <b>coverage-leads.sql v2</b> into Metabase card 3314, update Coverage.gs, then run the coverage refresh.'
+      : 'None in the lead list for this group.') + '</div>';
+    return html + '</div>';
+  }
+  if (leads.length !== (g.short || 0)) {
+    html += '<div class="cv-subnote">The card counts <b>' + fmt(g.short || 0) + '</b> connected under 2 min; the lead list holds <b>' +
+      fmt(leads.length) + '</b>. A gap means the lead list has not been refreshed for part of this date range yet.</div>';
+  }
+  var shown = leads.slice(0, 200);
+  html += '<h4>Connected, under 2 min — ' + fmt(leads.length) + ' in ' + esc(g.key) +
+    (leads.length > shown.length ? ' · showing the first ' + shown.length : '') + '</h4>';
+  html += '<table class="cv-mini"><thead><tr><th>Lead</th><th>LRM</th><th>Created</th>' +
+    '<th class="num">Age</th><th class="num">Dials</th><th class="num">Connects</th><th class="num">Best talk</th>' +
+    '<th>Last dial</th><th>Stage</th><th>Source</th></tr></thead><tbody>';
+  shown.forEach(function (l) {
+    html += '<tr><td>' + (l.mongo ? '<a class="cv-lead" href="https://lighthouse.solarsquare.in/#/menu/lead/details/' + encodeURIComponent(l.mongo) + '" target="_blank" rel="noopener" title="Open in Lighthouse">' + esc(l.lead || l.mongo) + '</a>' : esc(l.lead)) + '</td>' +
+      '<td>' + esc(agentName ? agentName(l.agent) : l.agent) + '</td>' +
+      '<td>' + esc(l.createdAt) + '</td>' +
+      '<td class="num">' + (l.age === null ? '—' : l.age + 'd') + '</td>' +
+      '<td class="num">' + fmt(l.dials) + '</td>' +
+      '<td class="num">' + fmt(l.connects) + '</td>' +
+      '<td class="num"><span class="cv-flag short">' + covTalk(l.bestTalk) + '</span></td>' +
+      '<td>' + esc(l.lastDial || '—') + '</td>' +
+      '<td>' + esc(l.stage || '—') + '</td>' +
+      '<td>' + esc(l.source || '—') + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
 function covDrill(g, rows) {
   var G = covGrainDef();
   // Which LRMs sit behind this group row — the worklist has no ADOS/ZSM columns,
@@ -718,7 +801,8 @@ function covDrill(g, rows) {
   var placeOf = G.k === 'cluster' ? function (l) { return l.cluster || l.city || 'Unmapped'; }
               : G.k === 'city'    ? function (l) { return l.city || l.cluster || 'Unmapped'; } : null;
   var leads = (D.coverageLeads || []).filter(function (l) {
-    return emails[l.agent] && covStageOn(l.status) && covSourceOn(l.source) && (!placeOf || placeOf(l) === g.key);
+    return emails[l.agent] && covStageOn(l.status) && covSourceOn(l.source) && (!placeOf || placeOf(l) === g.key)
+      && !((l.connects || 0) > 0);   // v2 rows that WERE connected belong to the under-2-min list
   });
 
   var html = '<div class="cv-drill-in">';
