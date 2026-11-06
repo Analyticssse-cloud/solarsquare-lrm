@@ -1216,6 +1216,7 @@ export default async function handler(req, res) {
           dials: li(['Dial Attempts']), first: li(['First Dial At']), last: li(['Last Dial At']),
           age: li(['Age (days)']), flag: li(['Flag']),
           mongo: li(['Lead Mongo Id', 'Mongo Id', '_id']),
+          connects: li(['Connected Calls']), best: li(['Best Talk (s)']),
         };
         for (let i = 1; i < lRaw.length; i++) {
           const r = lRaw[i];
@@ -1241,12 +1242,16 @@ export default async function handler(req, res) {
             age: q.age < 0 ? null : num(r[q.age]),
             flag: q.flag < 0 ? '' : String(r[q.flag] || '').trim(),
             mongo: q.mongo < 0 ? '' : String(r[q.mongo] || '').trim(),
+            // coverage-leads.sql v2: connected-but-under-2-min rows carry connects > 0.
+            connects: q.connects < 0 ? 0 : num(r[q.connects]),
+            bestTalk: q.best < 0 ? null : num(r[q.best]),
           });
         }
         /* The SQL already ordered this as a QUEUE — never dialled first, then
            oldest. Re-sorting here would destroy that, so the only thing applied
            is the same order and the cap truncates the TAIL, never the head. */
-        coverageLeads.sort((a, b) => (a.dials === 0 ? -1 : b.dials === 0 ? 1 : 0)
+        coverageLeads.sort((a, b) => ((a.connects > 0) - (b.connects > 0))
+                                  || (a.dials === 0 ? -1 : b.dials === 0 ? 1 : 0)
                                   || (a.date < b.date ? -1 : a.date > b.date ? 1 : b.dials - a.dials));
         if (coverageLeads.length > 15000) coverageLeads = coverageLeads.slice(0, 15000);
       }
