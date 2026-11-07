@@ -462,14 +462,33 @@ function distTrendData() {
     var day = String(h.date || '').slice(0, 10) || '_';
     var slot = per[day] || (per[day] = {
       dials: DIST_HOURS.map(function () { return 0; }),
-      talk:  DIST_HOURS.map(function () { return 0; })
+      talk:  DIST_HOURS.map(function () { return 0; }),
+      has:   DIST_HOURS.map(function () { return false; })
     });
+    slot.has[idx] = true;
     slot.dials[idx] += Number(h.calls || h['Call Count'] || 0);
     slot.talk[idx]  += Number(h.talkHr || h['Total Talk Time'] || 0) * 60;
   });
   var days = Object.keys(per).sort();
   var curDay = days[days.length - 1] || null, prevDay = days[days.length - 2] || null;
-  return { hours: DIST_HOURS, lrms: rows.length, elapsed: distElapsed(),
+  /* 6 Nov 2026: an elapsed hour with NO feed rows is a feed that stopped updating,
+     not a floor that stopped dialling (144 LRMs never all go to 0 at once). The
+     live line ends at the last hour the feed actually holds; the gap is named. */
+  /* Only TODAY can have a stale feed. On a finished day an empty hour after the
+     first dial genuinely had no calls and is drawn as 0. Today, an empty hour is
+     skipped (never drawn as 0), and the stale warning fires only when the gap runs
+     past the hour in progress, which may simply not have posted yet. */
+  var elapsed = distElapsed(), lim = Math.min(DIST_HOURS.length, elapsed), liveN = 0, first = -1, stale = false;
+  var show = DIST_HOURS.map(function () { return false; });
+  if (curDay) {
+    var has = per[curDay].has;
+    var isToday = curDay === new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    for (var k = 0; k < lim; k++) if (has[k]) { if (first < 0) first = k; liveN = k + 1; }
+    if (first >= 0) for (var j = first; j < lim; j++) show[j] = isToday ? (has[j] && j < liveN) : true;
+    if (!isToday && first >= 0) liveN = lim;
+    stale = isToday && liveN < lim - 1;
+  }
+  return { hours: DIST_HOURS, lrms: rows.length, elapsed: elapsed, liveN: liveN, show: show, stale: stale,
            curDay: curDay, prevDay: prevDay,
            cur: curDay ? per[curDay] : null, prev: prevDay ? per[prevDay] : null,
            env: distEnvelope(curDay, per[curDay]) };
@@ -556,10 +575,12 @@ function distTrendSvg(M, d) {
     if (!p.length) return '';
     if (p.length < 3) return 'M' + p.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' L');
     var t = 0.18, out = 'M' + p[0][0].toFixed(1) + ',' + p[0][1].toFixed(1);
+    // Control points are clamped to the plot box so a steep drop to 0 cannot bow below the axis.
+    var cy = function (v) { return Math.max(T, Math.min(H - B, v)).toFixed(1); };
     for (var i = 0; i < p.length - 1; i++) {
       var p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p2;
-      out += ' C' + (p1[0] + (p2[0] - p0[0]) * t).toFixed(1) + ',' + (p1[1] + (p2[1] - p0[1]) * t).toFixed(1)
-           + ' ' + (p2[0] - (p3[0] - p1[0]) * t).toFixed(1) + ',' + (p2[1] - (p3[1] - p1[1]) * t).toFixed(1)
+      out += ' C' + (p1[0] + (p2[0] - p0[0]) * t).toFixed(1) + ',' + cy(p1[1] + (p2[1] - p0[1]) * t)
+           + ' ' + (p2[0] - (p3[0] - p1[0]) * t).toFixed(1) + ',' + cy(p2[1] - (p3[1] - p1[1]) * t)
            + ' ' + p2[0].toFixed(1) + ',' + p2[1].toFixed(1);
     }
     return out;
@@ -600,45 +621,55 @@ function distTrendSvg(M, d) {
        + '<text x="' + (L - 8) + '" y="' + (yy + 3.5).toFixed(1) + '" text-anchor="end" font-size="10" fill="' + DIST_MUTED + '">' + fmt(Math.round(v)) + '</text>';
   });
   var py = Y(pace);
-  var live0 = cur.slice(0, Math.max(0, Math.min(n, d.elapsed)));
+  var shown = [];
+  d.show.forEach(function (on, i) { if (on) shown.push(i); });
+  var lastI = shown.length ? shown[shown.length - 1] : -1;
   /* The pace caption used to be hard-anchored at the right edge, which is exactly
      where the last live point's value label sits — on a good day (pace near the
      latest hour) the two overprinted. So it moves to the LEFT edge whenever the
      pace line runs close to that last label. */
-  var lastY = live0.length ? Y(live0[live0.length - 1]) : null;
+  var lastY = lastI >= 0 ? Y(cur[lastI]) : null;
   var farRight = lastY === null || Math.abs(py - lastY) >= 20;
   s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + py.toFixed(1) + '" y2="' + py.toFixed(1) + '" stroke="#c0392b" stroke-width="1.6" stroke-dasharray="7 5"/>'
      + '<text x="' + (farRight ? (W - R) : (L + 4)) + '" y="' + (py - 6).toFixed(1) + '" text-anchor="' + (farRight ? 'end' : 'start') + '" font-size="10" font-weight="700" fill="#b0382c">PACE ' + fmt(Math.round(pace)) + '</text>';
   if (prev) s += '<path fill="none" stroke="#9aa8c6" stroke-width="1.8" stroke-dasharray="4 4" d="'
      + curve(seqIdx(prev), function (i) { return Y(prev[i]); }) + '"/>';
-  var live = cur.slice(0, Math.max(0, Math.min(n, d.elapsed)));
-  if (live.length > 1) {
-    s += '<path fill="' + M.soft + '" stroke="none" d="'
-       + curve(seqIdx(live), function (i) { return Y(live[i]); })
-       + ' L' + X(live.length - 1).toFixed(1) + ',' + Y(0).toFixed(1) + ' L' + X(0).toFixed(1) + ',' + Y(0).toFixed(1) + ' Z"/>';
+  if (d.stale) {
+    var gx0 = X(Math.max(0, d.liveN - 1)), gx1 = X(Math.min(n - 1, d.elapsed - 1));
+    s += '<rect x="' + gx0.toFixed(1) + '" y="' + T + '" width="' + Math.max(0, gx1 - gx0).toFixed(1) + '" height="' + (H - T - B) + '" fill="rgba(176,56,44,.05)"/>'
+       + '<text x="' + ((gx0 + gx1) / 2).toFixed(1) + '" y="' + (H - B - 8) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#b0382c">NO DATA YET \u2014 FEED NOT UPDATED</text>';
   }
-  if (live.length) {
-    if (live.length > 1) s += '<path fill="none" stroke="' + M.ink + '" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" d="'
-      + curve(seqIdx(live), function (i) { return Y(live[i]); }) + '"/>';
-    live.forEach(function (v, i) {
-      var last = i === live.length - 1;
+  // Consecutive shown hours form runs; a skipped hour breaks the line rather than dropping to 0.
+  var runs = [], rr = [];
+  shown.forEach(function (i) { if (rr.length && i !== rr[rr.length - 1] + 1) { runs.push(rr); rr = []; } rr.push(i); });
+  if (rr.length) runs.push(rr);
+  var LY = function (i) { return Y(cur[i]); };
+  runs.forEach(function (run) {
+    if (run.length < 2) return;
+    s += '<path fill="' + M.soft + '" stroke="none" d="' + curve(run, LY)
+       + ' L' + X(run[run.length - 1]).toFixed(1) + ',' + Y(0).toFixed(1) + ' L' + X(run[0]).toFixed(1) + ',' + Y(0).toFixed(1) + ' Z"/>'
+       + '<path fill="none" stroke="' + M.ink + '" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" d="' + curve(run, LY) + '"/>';
+  });
+  if (shown.length) {
+    shown.forEach(function (i) {
+      var v = cur[i], last = i === lastI;
       s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(v).toFixed(1) + '" r="' + (last ? 4.6 : 2.8) + '" fill="' + (last ? '#ffb81c' : M.ink) + '" stroke="#fff" stroke-width="' + (last ? 2 : 1.4) + '"/>'
          + '<text x="' + X(i).toFixed(1) + '" y="' + (Y(v) - (last ? 11 : 9)).toFixed(1) + '" text-anchor="middle" font-size="' + (last ? 11 : 9.5) + '" font-weight="700" fill="' + (last ? DIST_INK : M.ink) + '">' + fmt(Math.round(v)) + '</text>';
     });
-  } else {
+  } else if (!d.elapsed) {
     s += '<text x="' + ((L + W - R) / 2) + '" y="' + ((T + H - B) / 2) + '" text-anchor="middle" font-size="11" fill="' + DIST_MUTED + '">Shift has not started</text>';
   }
   d.hours.forEach(function (hr, i) {
-    var fut = i >= d.elapsed;
+    var fut = i >= d.liveN;
     s += '<text x="' + X(i).toFixed(1) + '" y="' + (H - 10) + '" text-anchor="middle" font-size="10" font-weight="' + (fut ? 400 : 700) + '" fill="' + (fut ? '#aab3c8' : DIST_MUTED) + '">' + ('0' + hr).slice(-2) + '</text>';
   });
   return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block" role="img" '
        + 'aria-label="' + esc(M.label) + '" font-family="Segoe UI, system-ui, sans-serif">' + s + '</svg>';
 }
 function distTrendCard(M, d) {
-  var cur = d.cur[M.key] || [], live = cur.slice(0, Math.max(0, Math.min(d.hours.length, d.elapsed)));
-  var tot = live.reduce(function (a, v) { return a + v; }, 0);
-  var pace = M.per * d.lrms * live.length;
+  var cur = d.cur[M.key] || [], tot = 0, hrs = 0;
+  d.show.forEach(function (on, i) { if (on) { tot += Number(cur[i]) || 0; hrs++; } });
+  var pace = M.per * d.lrms * hrs;
   var pct = pace ? Math.round(tot / pace * 100) : 0;
   /* Shape breaks are named in words as well as ringed on the chart, and they are
      OWNED: a whole-floor hour moving is a systems or roster event, never LRM
@@ -662,7 +693,11 @@ function distTrendCard(M, d) {
     + '<div class="fh-hd"><h4>' + esc(M.label) + '</h4>'
     + '<span class="fh-note"><b style="color:' + (pct >= 100 ? 'var(--green)' : 'var(--red)') + '">' + fmt(Math.round(tot)) + (M.suffix || '') + '</b>'
     + ' so far &middot; ' + pct + '% of pace</span></div>'
-    + distTrendSvg(M, d) + breakNote + '</div>';
+    + distTrendSvg(M, d) + breakNote + (d.stale
+      ? '<div class="fh-foot" style="color:#b0382c;font-weight:700">Hourly feed has no rows after '
+        + (d.liveN ? ('0' + d.hours[d.liveN - 1]).slice(-2) + ':00' : 'the shift start')
+        + ' <span style="font-weight:400;color:var(--muted)">\u00b7 the sheet stopped updating \u2014 these hours are missing, not zero. Pace % counts only the hours shown.</span></div>'
+      : '') + '</div>';
 }
 function distDrawTrend() {
   var host = document.getElementById('distTrend');
