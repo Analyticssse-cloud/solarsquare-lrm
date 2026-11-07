@@ -155,6 +155,13 @@ function covSourceOn(s) { return !covSource || covSource === (s || '(blank)'); }
   '.cv-modal-hd{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border,#e3e8f3)}' +
   '.cv-modal-hd h3{margin:0;font-size:14.5px;font-weight:800;color:var(--ink,#18233f);letter-spacing:-.2px}' +
   '.cv-modal-hd span{font-size:11px;color:var(--muted,#6a7494)}' +
+  '.cv-modal-hd .cv-hs{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:#1d2a44}' +
+  '.cv-modal-hd .cv-hs b{display:inline-flex;align-items:baseline;gap:4px;padding:4px 9px;border-radius:6px;border:1px solid #dfe5ef;background:#f5f7fb;font-weight:600;color:#3d4a66;white-space:nowrap}' +
+  '.cv-modal-hd .cv-hs b i{font-style:normal;font-weight:800;font-size:13px;color:#16213a;font-variant-numeric:tabular-nums}' +
+  '.cv-modal-hd .cv-hs b.ok{background:#ecf6f0;border-color:#c9e6d4}.cv-modal-hd .cv-hs b.ok i{color:#1d6b40}' +
+  '.cv-modal-hd .cv-hs b.bad{background:#fcefee;border-color:#f0d0cd}.cv-modal-hd .cv-hs b.bad i{color:#a3322a}' +
+  '.cv-modal-hd .cv-hs b.warn{background:#fdf5e6;border-color:#f0dfb8}.cv-modal-hd .cv-hs b.warn i{color:#8a5a0c}' +
+  '.cv-modal-hd .cv-hs b.info{background:#edf3fb;border-color:#cfdcee}.cv-modal-hd .cv-hs b.info i{color:#2a4f86}' +
   '.cv-modal-x{margin-left:auto;border:1px solid var(--border,#e3e8f3);background:#fff;color:var(--muted,#6a7494);font:700 13px/1 inherit;width:26px;height:26px;border-radius:6px;cursor:pointer}' +
   '.cv-modal-x:hover{color:var(--ink,#18233f);border-color:#9fb0d8}' +
   '.cv-modal-bd{overflow:auto;min-height:0}' +
@@ -699,9 +706,17 @@ function covOpenModal(key, groups, rows) {
   if (!g) return;
   var bk = covModalEl();
   bk.querySelector('#cvModalT').textContent = g.key;
-  bk.querySelector('#cvModalS').textContent = fmt(g.assigned) + ' leads \u00b7 ' + g.headline +
-    '% ' + covBasisLab() + ' \u00b7 ' +
-    fmt(g.never) + ' never dialled' + (covHasT2() ? ' \u00b7 ' + fmt(g.short) + ' under 2 min' : '');
+  var pill = function (cls, v, lab) { return '<b class="' + cls + '"><i>' + v + '</i>' + lab + '</b>'; };
+  var perDialled = g.dialled ? Math.round(10 * g.dials / g.dialled) / 10 : 0;
+  var hs = bk.querySelector('#cvModalS');
+  hs.className = 'cv-hs';
+  hs.innerHTML = pill('', fmt(g.assigned), 'leads') +
+    pill('ok', g.headline + '%', covBasisLab()) +
+    pill(g.never > 0 ? 'bad' : '', fmt(g.never), 'never dialled') +
+    (covHasT2() ? pill('warn', fmt(g.short), 'under 2 min') : '') +
+    pill('info', g.dialsPer, 'avg dials / lead') +
+    pill('info', perDialled, 'avg dials / dialled lead') +
+    pill('', fmt(g.dials), 'total dials');
   var bd = bk.querySelector('#cvModalBd');
   var paint = function () {
     var tabs = covHasT2() ? '<div class="cv-vtabs">' +

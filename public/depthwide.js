@@ -137,7 +137,9 @@ function dwRender(panel) {
   var dg = (window.D && D.leadDepthDiag) || {}, realBasis = dg.reachBasis === 'real';
   var cov = [];
   if (dg.dataMax) cov.push('Data tab covers calls ' + ldEsc(dg.dataMin) + ' → ' + ldEsc(dg.dataMax));
+  if (dg.beforeDataStart) cov.push('<b>' + ldFmt(dg.beforeDataStart) + ' leads assigned before ' + ldEsc(dg.dataMin) + ' left out</b> — the Data tab has no calls before that date, so they would read as untouched. Extend the Data tab back to see them');
   if (dg.afterDataEnd) cov.push(ldFmt(dg.afterDataEnd) + ' leads assigned after ' + ldEsc(dg.dataMax) + ' left out (no call data yet, not untouched)');
+  if (dg.dataDialsInRange != null) cov.push('<b>Reconciliation:</b> Data tab holds ' + ldFmt(dg.dataDialsInRange) + ' dials / ' + ldFmt(dg.dataMsInRange) + ' MS in this range; ' + ldFmt(dg.cohortDials) + ' land on leads assigned in range' + (dg.dialsOnLeadsNotInLA ? '; <b>' + ldFmt(dg.dialsOnLeadsNotInLA) + ' dials on ' + ldFmt(dg.leadsNotInLA) + ' lead ids not found in LA</b> (e.g. ' + ldEsc((dg.notInLASample || []).slice(0, 2).join(', ')) + ' vs LA ' + ldEsc((dg.laIdSample || []).slice(0, 2).join(', ')) + ')' : ''));
   if (dg.dataDupRows) cov.push(ldFmt(dg.dataDupRows) + ' duplicate lead × day rows in Data collapsed');
   if (cov.length) h += '<div class="ld-sub dw-cov">' + cov.join(' · ') + '</div>';
   var stat = function (v, l, c) { return '<div class="ld-stat' + (c ? ' ' + c : '') + '"><b>' + v + '</b><span>' + l + '</span></div>'; };
@@ -252,7 +254,7 @@ function dwFill() {
   var n = list.length, dials = list.reduce(function (t, r) { return t + r.dials; }, 0);
   if (st.q) { var q = st.q.toLowerCase(); list = list.filter(function (r) { return (r.lead + ' ' + r.lrm + ' ' + (r.stage || '') + ' ' + (r.status || '') + ' ' + (r.cluster || '')).toLowerCase().indexOf(q) >= 0; }); }
   list.sort(function (a, b) { return b.dials - a.dials || a.conn - b.conn; });
-  bk.querySelector('.cv-modal-hd span').textContent = ldFmt(n) + ' leads · ' + ldFmt(dials) + ' dials · ' + dwF2(dials, n) + ' depth';
+  bk.querySelector('.cv-modal-hd span').className = ''; bk.querySelector('.cv-modal-hd span').textContent = ldFmt(n) + ' leads · ' + ldFmt(dials) + ' dials · ' + dwF2(dials, n) + ' depth';
   var CAP = 1000, h = '<div class="cv-drill-in"><table class="cv-mini"><thead><tr><th>Lead id</th><th>LRM</th><th>TL</th><th>City</th><th>Source</th><th>Stage</th><th>Status</th>' +
     '<th class="num">Dials</th><th class="num">Connects</th><th class="num">MS</th><th class="num">MD</th><th>Assigned</th></tr></thead><tbody>';
   list.slice(0, CAP).forEach(function (r) {
